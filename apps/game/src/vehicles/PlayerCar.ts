@@ -1,69 +1,139 @@
 /**
- * PlayerCar — player-controlled vehicle with Rapier physics.
- *
- * Uses a rigid body + cuboid collider.
- * Drive model: simplified arcade — torque on Y axis for steering,
- * linear impulse for throttle/brake.
+ * PlayerCar — Hunter Cavalry Muscle Car with realistic physics,
+ * ground-contact suspension, dynamic body roll/pitch, steerable front wheels,
+ * downforce, and high-impact collision feedback.
  */
 
-import RAPIER from '@dimforge/rapier3d-compat'
 import * as THREE from 'three'
-import { worldToGeo, type WorldPosition } from '@world-drive/math'
+import RAPIER from '@dimforge/rapier3d-compat'
+import { worldToGeo, type WorldPosition, type GeoPosition } from '@world-drive/math'
 import type { RawInput } from '../game/InputManager.js'
 
 // Car dimensions (metres)
-const CAR_W = 2.0
-const CAR_H = 1.2
-const CAR_L = 4.5
+const CAR_W = 1.95
+const CAR_H = 1.15
+const CAR_L = 4.6
+const WHEEL_RADIUS = 0.33
+const WHEEL_Y = -0.14
 
-// Physics tuning
+// Physics tuning (fast & responsive arcade feel)
 const CAR_MASS = 1200
-const MAX_SPEED = 60 // m/s (~216 km/h)
-const MAX_REVERSE_SPEED = 16 // m/s (~58 km/h)
-const ACCELERATION = 22 // m/s²
-const BRAKE_DECEL = 32 // m/s²
-const REVERSE_ACCEL = 14 // m/s²
-const NATURAL_DRAG = 3.5 // m/s²
-const STEER_RATE = 2.5 // rad/s
+const MAX_SPEED = 70 // m/s (~252 km/h)
+const MAX_REVERSE_SPEED = 18 // m/s (~65 km/h)
+const ACCELERATION = 28 // m/s²
+const BRAKE_DECEL = 38 // m/s²
+const REVERSE_ACCEL = 16 // m/s²
+const NATURAL_DRAG = 3.2 // m/s²
+const STEER_RATE = 2.8 // rad/s
+
+function createContactShadowTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas')
+  canvas.width = 256
+  canvas.height = 256
+  const ctx = canvas.getContext('2d')!
+  ctx.clearRect(0, 0, 256, 256)
+
+  // Soft blurred black rounded rect for vehicle underside
+  const grad = ctx.createRadialGradient(128, 128, 30, 128, 128, 120)
+  grad.addColorStop(0, 'rgba(0, 0, 0, 0.95)')
+  grad.addColorStop(0.5, 'rgba(0, 0, 0, 0.65)')
+  grad.addColorStop(1, 'rgba(0, 0, 0, 0.0)')
+  ctx.fillStyle = grad
+  ctx.beginPath()
+  ctx.roundRect(24, 18, 208, 220, 36)
+  ctx.fill()
+
+  // Extra dark spots under the 4 wheels
+  const tireSpots = [
+    { x: 48, y: 55 },
+    { x: 208, y: 55 },
+    { x: 48, y: 200 },
+    { x: 208, y: 200 },
+  ]
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.55)'
+  for (const s of tireSpots) {
+    ctx.beginPath()
+    ctx.arc(s.x, s.y, 24, 0, Math.PI * 2)
+    ctx.fill()
+  }
+
+  const texture = new THREE.CanvasTexture(canvas)
+  return texture
+}
+
+export type ImpactCallback = (
+  intensity: number,
+  point: WorldPosition,
+  direction: WorldPosition,
+) => void
 
 export class PlayerCar {
   private body: RAPIER.RigidBody
   private mesh: THREE.Group
   private scene: THREE.Scene
 
-  // Wheel meshes (visual only — no physics)
-  private wheels: THREE.Mesh[] = []
+  // Suspension & steering components
+  private chassisGroup = new THREE.Group()
+  private wheelFLSteer = new THREE.Group()
+  private wheelFRSteer = new THREE.Group()
+  private wheelMeshes: THREE.Group[] = []
+  private nitroFlames: THREE.Mesh[] = []
+
+  // Dynamic visual suspension state
+  private chassisPitch = 0
+  private chassisRoll = 0
+  private steerAngle = 0
+
+  // Impact tracking
+  private prevLinVel = { x: 0, y: 0, z: 0 }
+  private hasPrevVel = false
+  public onImpact?: ImpactCallback
 
   constructor(world: RAPIER.World, scene: THREE.Scene) {
     this.scene = scene
 
     // ── Rapier body ─────────────────────────────────────────────────────────
-    // Spawn directly on Rue Étienne Marcel, facing down the street
     const spawnX = 3.7
     const spawnZ = 158.3
     const initYaw = Math.atan2(12.1, 4.4)
     const initQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), initYaw)
 
-    const bodyDesc = RAPIER.RigidBodyDesc.dynamic()
-      .setTranslation(spawnX, 1.0, spawnZ)
+    // Spawn resting directly on road (wheel bottom = 0.0 when body center = 0.47)
+    const bDesc = RAPIER.RigidBodyDesc.dynamic()
+      .setTranslation(spawnX, 0.48, spawnZ)
       .setRotation({ x: initQuat.x, y: initQuat.y, z: initQuat.z, w: initQuat.w })
-      .setLinearDamping(0.2)
-      .setAngularDamping(2.0)
-    this.body = world.createRigidBody(bodyDesc)
+      .setLinearDamping(0.6)
+      .setAngularDamping(3.5)
+    this.body = world.createRigidBody(bDesc)
 
-    // Friction is 0 on chassis so ground doesn't freeze the car
-    // Uses roundCuboid with 10cm bevel radius so sharp edges never catch on the terrain
-    const r = 0.1
-    const colliderDesc = RAPIER.ColliderDesc.roundCuboid(
-      CAR_W / 2 - r,
-      CAR_H / 2 - r,
-      CAR_L / 2 - r,
-      r,
+    // 1. Elevated chassis box collider (clears curbs, stops at walls/buildings)
+    const chassisDesc = RAPIER.ColliderDesc.roundCuboid(
+      CAR_W / 2 - 0.06,
+      0.24,
+      CAR_L / 2 - 0.12,
+      0.05,
     )
-      .setMass(CAR_MASS)
-      .setRestitution(0.0)
-      .setFriction(0.0)
-    world.createCollider(colliderDesc, this.body)
+      .setTranslation(0, 0.16, 0)
+      .setMass(CAR_MASS * 0.6)
+      .setRestitution(0.12)
+      .setFriction(0.25)
+    world.createCollider(chassisDesc, this.body)
+
+    // 2. 4 Rolling wheel colliders that contact the asphalt
+    const wheelOffsets = [
+      { x: -CAR_W / 2 + 0.04, y: WHEEL_Y, z: CAR_L / 2 - 0.95 },
+      { x:  CAR_W / 2 - 0.04, y: WHEEL_Y, z: CAR_L / 2 - 0.95 },
+      { x: -CAR_W / 2 + 0.04, y: WHEEL_Y, z: -CAR_L / 2 + 0.95 },
+      { x:  CAR_W / 2 - 0.04, y: WHEEL_Y, z: -CAR_L / 2 + 0.95 },
+    ]
+    for (const wo of wheelOffsets) {
+      const wheelDesc = RAPIER.ColliderDesc.ball(WHEEL_RADIUS)
+        .setTranslation(wo.x, wo.y, wo.z)
+        .setMass(CAR_MASS * 0.1)
+        .setFriction(0.2)
+        .setRestitution(0.04)
+      world.createCollider(wheelDesc, this.body)
+    }
 
     // ── Visual mesh ─────────────────────────────────────────────────────────
     this.mesh = this._buildMesh()
@@ -71,66 +141,343 @@ export class PlayerCar {
   }
 
   private _buildMesh(): THREE.Group {
-    const group = new THREE.Group()
+    const car = new THREE.Group()
 
-    // Body
-    const bodyGeo = new THREE.BoxGeometry(CAR_W, CAR_H, CAR_L)
-    const bodyMat = new THREE.MeshPhongMaterial({
-      color: 0x1a6ef5,
-      shininess: 120,
-      specular: 0x4488ff,
+    // ── Materials ───────────────────────────────────────────────────────────
+    const paintMat = new THREE.MeshStandardMaterial({
+      color: 0x164ac8, // Burnout Paradise metallic royal blue
+      metalness: 0.88,
+      roughness: 0.18,
     })
-    const bodyMesh = new THREE.Mesh(bodyGeo, bodyMat)
-    bodyMesh.castShadow = true
-    bodyMesh.position.y = 0
-    group.add(bodyMesh)
 
-    // Cabin/roof
-    const roofGeo = new THREE.BoxGeometry(CAR_W * 0.85, CAR_H * 0.6, CAR_L * 0.55)
-    const roofMat = new THREE.MeshPhongMaterial({ color: 0x0d4ab5, shininess: 80 })
-    const roofMesh = new THREE.Mesh(roofGeo, roofMat)
-    roofMesh.castShadow = true
-    roofMesh.position.y = CAR_H * 0.8
-    roofMesh.position.z = -0.3
-    group.add(roofMesh)
+    const stripeMat = new THREE.MeshStandardMaterial({
+      color: 0x0a0c10, // matte black racing stripes
+      metalness: 0.3,
+      roughness: 0.4,
+    })
 
-    // Headlights
-    const lightGeo = new THREE.BoxGeometry(0.4, 0.2, 0.05)
-    const lightMat = new THREE.MeshPhongMaterial({ color: 0xffffaa, emissive: 0xffffaa, emissiveIntensity: 0.8 })
-    for (const x of [-0.6, 0.6]) {
-      const light = new THREE.Mesh(lightGeo, lightMat)
-      light.position.set(x, 0, CAR_L / 2)
-      group.add(light)
+    const chromeMat = new THREE.MeshStandardMaterial({
+      color: 0xededed, // polished mirror chrome
+      metalness: 0.96,
+      roughness: 0.12,
+    })
+
+    const glassMat = new THREE.MeshStandardMaterial({
+      color: 0x08101d, // dark tinted privacy glass
+      metalness: 0.95,
+      roughness: 0.08,
+      transparent: true,
+      opacity: 0.88,
+    })
+
+    const grilleMat = new THREE.MeshStandardMaterial({
+      color: 0x111215, // black front mesh
+      metalness: 0.5,
+      roughness: 0.7,
+    })
+
+    const tailLightMat = new THREE.MeshStandardMaterial({
+      color: 0xff1500,
+      emissive: 0xff0a00,
+      emissiveIntensity: 2.2,
+      roughness: 0.2,
+    })
+
+    const headLightMat = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      emissive: 0xffeedd,
+      emissiveIntensity: 1.6,
+      roughness: 0.1,
+    })
+
+    const tireMat = new THREE.MeshStandardMaterial({
+      color: 0x141518,
+      roughness: 0.85,
+      metalness: 0.05,
+    })
+
+    const rimMat = new THREE.MeshStandardMaterial({
+      color: 0xcccccc,
+      metalness: 0.92,
+      roughness: 0.15,
+    })
+
+    const brakeMat = new THREE.MeshStandardMaterial({
+      color: 0xd41111, // red sports brake caliper
+      metalness: 0.3,
+      roughness: 0.3,
+    })
+
+    // ── A. Ground Contact AO Shadow Quad ───────────────────────────────────
+    const shadowGeo = new THREE.PlaneGeometry(CAR_W + 0.45, CAR_L + 0.45)
+    shadowGeo.rotateX(-Math.PI / 2)
+    const shadowMat = new THREE.MeshBasicMaterial({
+      map: createContactShadowTexture(),
+      transparent: true,
+      opacity: 0.78,
+      depthWrite: false,
+    })
+    const shadowMesh = new THREE.Mesh(shadowGeo, shadowMat)
+    shadowMesh.position.y = -0.45 // 2cm above road surface
+    car.add(shadowMesh)
+
+    // ── B. Dynamic Chassis Group (Pitch & Roll suspension) ─────────────────
+    this.chassisGroup = new THREE.Group()
+    car.add(this.chassisGroup)
+
+    // 1. Lower Body & Floorpan
+    const lowerBodyGeo = new THREE.BoxGeometry(CAR_W, 0.36, CAR_L)
+    const lowerBody = new THREE.Mesh(lowerBodyGeo, paintMat)
+    lowerBody.position.y = 0.04
+    this.chassisGroup.add(lowerBody)
+
+    // Side skirts
+    for (const x of [-CAR_W / 2 + 0.02, CAR_W / 2 - 0.02]) {
+      const skirtGeo = new THREE.BoxGeometry(0.08, 0.14, CAR_L * 0.6)
+      const skirt = new THREE.Mesh(skirtGeo, stripeMat)
+      skirt.position.set(x, -0.12, 0)
+      this.chassisGroup.add(skirt)
     }
 
-    // Tail lights
-    const tailMat = new THREE.MeshPhongMaterial({ color: 0xff2200, emissive: 0xff2200, emissiveIntensity: 0.6 })
-    for (const x of [-0.6, 0.6]) {
-      const tail = new THREE.Mesh(lightGeo, tailMat)
-      tail.position.set(x, 0, -CAR_L / 2)
-      group.add(tail)
+    // 2. Sculpted Front Hood with Power Bulge
+    const hoodGeo = new THREE.BoxGeometry(CAR_W * 0.94, 0.20, 1.55)
+    const hood = new THREE.Mesh(hoodGeo, paintMat)
+    hood.position.set(0, 0.22, 1.45)
+    this.chassisGroup.add(hood)
+
+    // Hood scoop / air intake
+    const scoopGeo = new THREE.BoxGeometry(0.55, 0.09, 0.65)
+    const scoop = new THREE.Mesh(scoopGeo, stripeMat)
+    scoop.position.set(0, 0.34, 1.35)
+    this.chassisGroup.add(scoop)
+
+    // Dual black racing stripes along hood & roof
+    for (const sx of [-0.22, 0.22]) {
+      const sGeo = new THREE.BoxGeometry(0.16, 0.02, 1.56)
+      const stripe = new THREE.Mesh(sGeo, stripeMat)
+      stripe.position.set(sx, 0.33, 1.45)
+      this.chassisGroup.add(stripe)
     }
 
-    // Wheels
-    const wheelGeo = new THREE.CylinderGeometry(0.4, 0.4, 0.3, 16)
-    const wheelMat = new THREE.MeshPhongMaterial({ color: 0x222222 })
-    const wheelPositions = [
-      [-CAR_W / 2 - 0.1, -CAR_H / 2 + 0.05, CAR_L / 2 - 0.9],
-      [CAR_W / 2 + 0.1, -CAR_H / 2 + 0.05, CAR_L / 2 - 0.9],
-      [-CAR_W / 2 - 0.1, -CAR_H / 2 + 0.05, -CAR_L / 2 + 0.9],
-      [CAR_W / 2 + 0.1, -CAR_H / 2 + 0.05, -CAR_L / 2 + 0.9],
+    // 3. Front Grille, Bumper, Splitter & Quad Headlights
+    const grilleGeo = new THREE.BoxGeometry(CAR_W * 0.88, 0.22, 0.06)
+    const grille = new THREE.Mesh(grilleGeo, grilleMat)
+    grille.position.set(0, 0.10, CAR_L / 2 + 0.01)
+    this.chassisGroup.add(grille)
+
+    // Chrome front bumper bar
+    const fvBumperGeo = new THREE.BoxGeometry(CAR_W * 0.94, 0.10, 0.12)
+    const fvBumper = new THREE.Mesh(fvBumperGeo, chromeMat)
+    fvBumper.position.set(0, -0.05, CAR_L / 2 + 0.04)
+    this.chassisGroup.add(fvBumper)
+
+    // Front chin splitter
+    const splitterGeo = new THREE.BoxGeometry(CAR_W * 0.96, 0.04, 0.28)
+    const splitter = new THREE.Mesh(splitterGeo, stripeMat)
+    splitter.position.set(0, -0.14, CAR_L / 2 + 0.08)
+    this.chassisGroup.add(splitter)
+
+    // Quad round headlights with chrome bezels
+    const headlights = [-0.65, -0.42, 0.42, 0.65] as const
+    for (const x of headlights) {
+      const bezelGeo = new THREE.CylinderGeometry(0.11, 0.11, 0.05, 14)
+      bezelGeo.rotateX(Math.PI / 2)
+      const bezel = new THREE.Mesh(bezelGeo, chromeMat)
+      bezel.position.set(x, 0.12, CAR_L / 2 + 0.03)
+      this.chassisGroup.add(bezel)
+
+      const bulbGeo = new THREE.CylinderGeometry(0.085, 0.085, 0.055, 14)
+      bulbGeo.rotateX(Math.PI / 2)
+      const bulb = new THREE.Mesh(bulbGeo, headLightMat)
+      bulb.position.set(x, 0.12, CAR_L / 2 + 0.04)
+      this.chassisGroup.add(bulb)
+    }
+
+    // 4. Fastback Coupe Cockpit & Tinted Glass
+    const roofGeo = new THREE.BoxGeometry(CAR_W * 0.82, 0.08, 1.4)
+    const roof = new THREE.Mesh(roofGeo, paintMat)
+    roof.position.set(0, 0.72, -0.32)
+    this.chassisGroup.add(roof)
+
+    const cabinGeo = new THREE.BoxGeometry(CAR_W * 0.80, 0.46, 1.95)
+    const cabin = new THREE.Mesh(cabinGeo, glassMat)
+    cabin.position.set(0, 0.48, -0.30)
+    this.chassisGroup.add(cabin)
+
+    const windshieldGeo = new THREE.BoxGeometry(CAR_W * 0.76, 0.06, 0.92)
+    const windshield = new THREE.Mesh(windshieldGeo, glassMat)
+    windshield.position.set(0, 0.54, 0.48)
+    windshield.rotation.x = -0.58
+    this.chassisGroup.add(windshield)
+
+    const rearGlassGeo = new THREE.BoxGeometry(CAR_W * 0.74, 0.06, 1.15)
+    const rearGlass = new THREE.Mesh(rearGlassGeo, glassMat)
+    rearGlass.position.set(0, 0.52, -1.18)
+    rearGlass.rotation.x = 0.50
+    this.chassisGroup.add(rearGlass)
+
+    // Side mirrors
+    for (const x of [-CAR_W / 2 - 0.04, CAR_W / 2 + 0.04]) {
+      const mirror = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.10, 0.12), paintMat)
+      mirror.position.set(x, 0.38, 0.25)
+      this.chassisGroup.add(mirror)
+    }
+
+    // 5. Rear Trunk & Ducktail Spoiler
+    const trunkGeo = new THREE.BoxGeometry(CAR_W * 0.92, 0.18, 1.1)
+    const trunk = new THREE.Mesh(trunkGeo, paintMat)
+    trunk.position.set(0, 0.24, -1.75)
+    this.chassisGroup.add(trunk)
+
+    // Ducktail rear spoiler
+    const spoilerGeo = new THREE.BoxGeometry(CAR_W * 0.86, 0.12, 0.22)
+    const spoiler = new THREE.Mesh(spoilerGeo, stripeMat)
+    spoiler.position.set(0, 0.36, -2.25)
+    spoiler.rotation.x = 0.20
+    this.chassisGroup.add(spoiler)
+
+    // Rear fascia
+    const rearPanel = new THREE.Mesh(new THREE.BoxGeometry(CAR_W * 0.90, 0.30, 0.08), grilleMat)
+    rearPanel.position.set(0, 0.08, -CAR_L / 2 - 0.01)
+    this.chassisGroup.add(rearPanel)
+
+    // Chrome rear bumper
+    const rBumper = new THREE.Mesh(new THREE.BoxGeometry(CAR_W * 0.98, 0.14, 0.16), chromeMat)
+    rBumper.position.set(0, -0.06, -CAR_L / 2 - 0.04)
+    this.chassisGroup.add(rBumper)
+
+    // Quad horizontal red tail lights
+    const taillights = [
+      { x: -0.62, w: 0.28 },
+      { x: -0.30, w: 0.28 },
+      { x: 0.30, w: 0.28 },
+      { x: 0.62, w: 0.28 },
     ] as const
 
-    for (const [wx, wy, wz] of wheelPositions) {
-      const wheel = new THREE.Mesh(wheelGeo, wheelMat)
-      wheel.rotation.z = Math.PI / 2
-      wheel.position.set(wx, wy, wz)
-      wheel.castShadow = true
-      group.add(wheel)
-      this.wheels.push(wheel)
+    for (const t of taillights) {
+      const housing = new THREE.Mesh(new THREE.BoxGeometry(t.w + 0.05, 0.14, 0.04), chromeMat)
+      housing.position.set(t.x, 0.10, -CAR_L / 2 - 0.03)
+      this.chassisGroup.add(housing)
+
+      const tail = new THREE.Mesh(new THREE.BoxGeometry(t.w, 0.10, 0.05), tailLightMat)
+      tail.position.set(t.x, 0.10, -CAR_L / 2 - 0.04)
+      this.chassisGroup.add(tail)
     }
 
-    return group
+    // License plate
+    const plate = new THREE.Mesh(
+      new THREE.BoxGeometry(0.38, 0.16, 0.03),
+      new THREE.MeshStandardMaterial({ color: 0xe0e6ed, roughness: 0.4 }),
+    )
+    plate.position.set(0, 0.08, -CAR_L / 2 - 0.045)
+    this.chassisGroup.add(plate)
+
+    // Dual chrome exhaust pipes & nitro flames
+    for (const x of [-0.45, 0.45]) {
+      const pipeGeo = new THREE.CylinderGeometry(0.065, 0.065, 0.26, 12)
+      pipeGeo.rotateX(Math.PI / 2)
+      const pipe = new THREE.Mesh(pipeGeo, chromeMat)
+      pipe.position.set(x, -0.16, -CAR_L / 2 - 0.08)
+      this.chassisGroup.add(pipe)
+
+      const flameGeo = new THREE.ConeGeometry(0.08, 0.50, 8)
+      flameGeo.rotateX(-Math.PI / 2)
+      flameGeo.translate(0, 0, -0.28)
+      const flameMat = new THREE.MeshBasicMaterial({
+        color: 0x00ff88,
+        transparent: true,
+        opacity: 0.85,
+      })
+      const flame = new THREE.Mesh(flameGeo, flameMat)
+      flame.position.set(x, -0.16, -CAR_L / 2 - 0.18)
+      flame.scale.set(0.001, 0.001, 0.001)
+      this.chassisGroup.add(flame)
+      this.nitroFlames.push(flame)
+    }
+
+    // ── C. 3D Wheels with Steerable Front Assemblies ────────────────────────
+    function buildWheelMesh(isRight: boolean): THREE.Group {
+      const g = new THREE.Group()
+
+      // Tire (rubber cylinder)
+      const tireGeo = new THREE.CylinderGeometry(WHEEL_RADIUS, WHEEL_RADIUS, 0.28, 20)
+      tireGeo.rotateZ(Math.PI / 2)
+      const tire = new THREE.Mesh(tireGeo, tireMat)
+      tire.castShadow = true
+      g.add(tire)
+
+      // Chrome rim
+      const rimGeo = new THREE.CylinderGeometry(WHEEL_RADIUS * 0.70, WHEEL_RADIUS * 0.70, 0.29, 16)
+      rimGeo.rotateZ(Math.PI / 2)
+      const rim = new THREE.Mesh(rimGeo, rimMat)
+      g.add(rim)
+
+      // 5 Chrome spokes
+      for (let s = 0; s < 5; s++) {
+        const angle = (s * Math.PI * 2) / 5
+        const spokeGeo = new THREE.BoxGeometry(0.05, WHEEL_RADIUS * 0.65, 0.04)
+        spokeGeo.rotateZ(angle)
+        spokeGeo.translate(isRight ? 0.13 : -0.13, 0, 0)
+        const spoke = new THREE.Mesh(spokeGeo, chromeMat)
+        g.add(spoke)
+      }
+
+      // Brake caliper
+      const caliperGeo = new THREE.BoxGeometry(0.12, 0.15, 0.10)
+      const caliper = new THREE.Mesh(caliperGeo, brakeMat)
+      caliper.position.set(isRight ? 0.08 : -0.08, 0.14, 0)
+      g.add(caliper)
+
+      return g
+    }
+
+    const zFront = CAR_L / 2 - 0.95
+    const zRear = -CAR_L / 2 + 0.95
+    const xFL = -CAR_W / 2 - 0.06
+    const xFR = CAR_W / 2 + 0.06
+    const xRL = -CAR_W / 2 - 0.08
+    const xRR = CAR_W / 2 + 0.08
+
+    // 1. Front Left (Steering parent + Spinning child)
+    this.wheelFLSteer = new THREE.Group()
+    this.wheelFLSteer.position.set(xFL, WHEEL_Y, zFront)
+    const wheelFL = buildWheelMesh(false)
+    this.wheelFLSteer.add(wheelFL)
+    car.add(this.wheelFLSteer)
+    this.wheelMeshes.push(wheelFL)
+
+    // 2. Front Right (Steering parent + Spinning child)
+    this.wheelFRSteer = new THREE.Group()
+    this.wheelFRSteer.position.set(xFR, WHEEL_Y, zFront)
+    const wheelFR = buildWheelMesh(true)
+    this.wheelFRSteer.add(wheelFR)
+    car.add(this.wheelFRSteer)
+    this.wheelMeshes.push(wheelFR)
+
+    // 3. Rear Left (Fixed yaw + Spinning)
+    const rearLGroup = new THREE.Group()
+    rearLGroup.position.set(xRL, WHEEL_Y, zRear)
+    const wheelRL = buildWheelMesh(false)
+    rearLGroup.add(wheelRL)
+    car.add(rearLGroup)
+    this.wheelMeshes.push(wheelRL)
+
+    // 4. Rear Right (Fixed yaw + Spinning)
+    const rearRGroup = new THREE.Group()
+    rearRGroup.position.set(xRR, WHEEL_Y, zRear)
+    const wheelRR = buildWheelMesh(true)
+    rearRGroup.add(wheelRR)
+    car.add(rearRGroup)
+    this.wheelMeshes.push(wheelRR)
+
+    // Enable castShadow across all components
+    car.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh && child !== shadowMesh) {
+        child.castShadow = true
+      }
+    })
+
+    return car
   }
 
   /**
@@ -138,98 +485,161 @@ export class PlayerCar {
    * Called once per physics tick.
    */
   applyInput(input: RawInput, dt: number): void {
-    const vel = this.body.linvel()
-    const rot = this.body.rotation()
-    const q = new THREE.Quaternion(rot.x, rot.y, rot.z, rot.w)
+    const forwardSpeed = this.getForwardSpeed()
+    const speed = this.getSpeed()
 
-    // Forward direction in world space (car points toward +Z)
-    const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(q)
-    const right = new THREE.Vector3(1, 0, 0).applyQuaternion(q)
+    // ── Impact & Collision Detection ─────────────────────────────────────────
+    const curLinVel = this.body.linvel()
+    if (this.hasPrevVel) {
+      const dvX = curLinVel.x - this.prevLinVel.x
+      const dvY = curLinVel.y - this.prevLinVel.y
+      const dvZ = curLinVel.z - this.prevLinVel.z
+      const dvMag = Math.hypot(dvX, dvY, dvZ)
 
-    // Forward & lateral speed (dot product in XZ plane)
-    const forwardSpeed = forward.x * vel.x + forward.z * vel.z
-    const lateralSpeed = right.x * vel.x + right.z * vel.z
+      // An abrupt acceleration change > 3.0 m/s not caused by input is an impact
+      const expectedDv = (ACCELERATION * dt) + 1.2
+      if (dvMag > expectedDv + 2.5) {
+        const intensity = Math.min(1.0, (dvMag - 2.5) / 14.0)
+        const pos = this.getPosition()
+        this.onImpact?.(
+          intensity,
+          pos,
+          { x: dvX / dvMag, y: dvY / dvMag, z: dvZ / dvMag },
+        )
+      }
+    }
+    this.prevLinVel = { x: curLinVel.x, y: curLinVel.y, z: curLinVel.z }
+    this.hasPrevVel = true
 
-    // ── Throttle (Forward) ──────────────────────────────────────────────
+    // ── Steering ─────────────────────────────────────────────────────────────
+    if (input.steering !== 0) {
+      const speedFactor = Math.min(1.0, Math.abs(forwardSpeed) / 4.0)
+      const highSpeedDamp = 1.0 - Math.min(0.4, (speed / MAX_SPEED) * 0.4)
+      const steerTorque = -input.steering * STEER_RATE * speedFactor * highSpeedDamp * CAR_MASS * 2.2
+      this.body.applyTorqueImpulse({ x: 0, y: steerTorque * dt, z: 0 }, true)
+    }
+
+    // ── Throttle & Brake ─────────────────────────────────────────────────────
+    const forward = this.getForwardVector()
+
     if (input.throttle > 0) {
       if (forwardSpeed < MAX_SPEED) {
-        const force = ACCELERATION * CAR_MASS * input.throttle * dt
-        this.body.applyImpulse({ x: forward.x * force, y: 0, z: forward.z * force }, true)
+        const force = input.throttle * ACCELERATION * CAR_MASS
+        this.body.applyImpulse(
+          { x: forward.x * force * dt, y: 0, z: forward.z * force * dt },
+          true,
+        )
       }
     }
 
-    // ── Brake / Reverse ─────────────────────────────────────────────────
     if (input.brake > 0) {
-      if (forwardSpeed > 0.5) {
-        // Moving forward: brake
-        const brakeAmount = Math.min(forwardSpeed, BRAKE_DECEL * dt * input.brake)
-        const impulse = -brakeAmount * CAR_MASS
-        this.body.applyImpulse({ x: forward.x * impulse, y: 0, z: forward.z * impulse }, true)
-      } else {
-        // Stopped or in reverse: accelerate backward
-        if (forwardSpeed > -MAX_REVERSE_SPEED) {
-          const revForce = -REVERSE_ACCEL * CAR_MASS * input.brake * dt
-          this.body.applyImpulse({ x: forward.x * revForce, y: 0, z: forward.z * revForce }, true)
-        }
+      if (forwardSpeed > 1.0) {
+        const brakeForce = input.brake * BRAKE_DECEL * CAR_MASS
+        this.body.applyImpulse(
+          { x: -forward.x * brakeForce * dt, y: 0, z: -forward.z * brakeForce * dt },
+          true,
+        )
+      } else if (forwardSpeed > -MAX_REVERSE_SPEED) {
+        const revForce = input.brake * REVERSE_ACCEL * CAR_MASS
+        this.body.applyImpulse(
+          { x: -forward.x * revForce * dt, y: 0, z: -forward.z * revForce * dt },
+          true,
+        )
       }
     }
 
-    // ── Handbrake ───────────────────────────────────────────────────────
+    // ── Handbrake Drift ──────────────────────────────────────────────────────
     if (input.handbrake) {
-      const hbAmount = Math.min(Math.abs(forwardSpeed), BRAKE_DECEL * 1.5 * dt) * Math.sign(forwardSpeed)
-      const impulse = -hbAmount * CAR_MASS
-      this.body.applyImpulse({ x: forward.x * impulse, y: 0, z: forward.z * impulse }, true)
+      const vel = this.body.linvel()
+      const dragFactor = 1.0 - 1.8 * dt
+      this.body.setLinvel({ x: vel.x * dragFactor, y: vel.y, z: vel.z * dragFactor }, true)
     }
 
-    // ── Natural Drag (Rolling resistance) ──────────────────────────────
-    if (input.throttle === 0 && input.brake === 0 && !input.handbrake && Math.abs(forwardSpeed) > 0.05) {
-      const dragAmount = Math.min(Math.abs(forwardSpeed), NATURAL_DRAG * dt) * Math.sign(forwardSpeed)
-      const impulse = -dragAmount * CAR_MASS
-      this.body.applyImpulse({ x: forward.x * impulse, y: 0, z: forward.z * impulse }, true)
+    // ── Natural Drag ─────────────────────────────────────────────────────────
+    if (input.throttle === 0 && input.brake === 0 && speed > 0.1) {
+      const vel = this.body.linvel()
+      const drag = Math.max(0, 1.0 - (NATURAL_DRAG / (speed + 0.1)) * dt)
+      this.body.setLinvel({ x: vel.x * drag, y: vel.y, z: vel.z * drag }, true)
     }
 
-    // ── Lateral Grip (Tire friction prevents sideways slide) ───────────
-    const gripFactor = input.handbrake ? 0.70 : 0.95
-    const lateralImpulse = -lateralSpeed * gripFactor * CAR_MASS
-    this.body.applyImpulse({ x: right.x * lateralImpulse, y: 0, z: right.z * lateralImpulse }, true)
+    // ── Lateral Friction / Grip (Arcade Drift Feel) ──────────────────────────
+    const right = this.getRightVector()
+    const vel = this.body.linvel()
+    const lateralSpeed = vel.x * right.x + vel.z * right.z
+    const gripFactor = input.handbrake ? 0.82 : 0.94
+    const lateralCorrection = -lateralSpeed * (1.0 - gripFactor)
+    this.body.applyImpulse(
+      { x: right.x * lateralCorrection * CAR_MASS, y: 0, z: right.z * lateralCorrection * CAR_MASS },
+      true,
+    )
 
-    // ── Steering ────────────────────────────────────────────────────────
-    let targetAngVelY = 0
-    if (Math.abs(input.steering) > 0.05) {
-      const effectiveSpeed = Math.abs(forwardSpeed)
-      const isMoving = effectiveSpeed > 0.1 || input.throttle > 0 || input.brake > 0
-      if (isMoving) {
-        const steerSign = forwardSpeed < -0.2 ? 1 : -1 // Invert when reversing
-        const speedFactor = Math.min(1.0, Math.max(0.35, effectiveSpeed / 8.0))
-        targetAngVelY = steerSign * input.steering * STEER_RATE * speedFactor
-      }
-    }
-    this.body.setAngvel({ x: 0, y: targetAngVelY, z: 0 }, true)
+    // ── Aerodynamic Downforce: Keeps Tires Firmly Planted On Ground ──────────
+    const downforce = 450 + speed * 160
+    this.body.applyImpulse({ x: 0, y: -downforce * dt, z: 0 }, true)
 
-    // ── Upright Stability (prevent rolling onto side or roof) ────────────
-    const up = new THREE.Vector3(0, 1, 0).applyQuaternion(q)
-    if (up.y < 0.8) {
-      const euler = new THREE.Euler().setFromQuaternion(q, 'YXZ')
-      const upright = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, euler.y, 0))
-      this.body.setRotation({ x: upright.x, y: upright.y, z: upright.z, w: upright.w }, true)
-      this.body.setAngvel({ x: 0, y: 0, z: 0 }, true)
-    }
+    // Store inputs for visual suspension in syncMesh
+    this._lastThrottle = input.throttle
+    this._lastBrake = input.brake
+    this._lastSteer = input.steering
+    this._lastLateralSpeed = lateralSpeed
   }
 
+  private _lastThrottle = 0
+  private _lastBrake = 0
+  private _lastSteer = 0
+  private _lastLateralSpeed = 0
+
   /**
-   * Sync the Three.js mesh with the Rapier body.
-   * Called once per render frame.
+   * Sync the Three.js mesh with the Rapier body, apply visual suspension
+   * pitch/roll, steer front wheels, and animate wheel spinning.
    */
-  syncMesh(): void {
+  syncMesh(dt = 0.016): void {
     const pos = this.body.translation()
     const rot = this.body.rotation()
     this.mesh.position.set(pos.x, pos.y, pos.z)
     this.mesh.quaternion.set(rot.x, rot.y, rot.z, rot.w)
 
-    // Spin wheels based on forward speed
     const forwardSpeed = this.getForwardSpeed()
-    for (const wheel of this.wheels) {
-      wheel.rotation.x += forwardSpeed * 0.05
+    const speed = this.getSpeed()
+
+    // ── 1. Front Wheel Steering ──────────────────────────────────────────────
+    const targetSteerAngle = -this._lastSteer * 0.42 // ~24 degrees
+    this.steerAngle = THREE.MathUtils.lerp(this.steerAngle, targetSteerAngle, 0.24)
+    this.wheelFLSteer.rotation.y = this.steerAngle
+    this.wheelFRSteer.rotation.y = this.steerAngle
+
+    // ── 2. All 4 Wheels Spin with Speed ──────────────────────────────────────
+    const spinDelta = (forwardSpeed * dt) / WHEEL_RADIUS
+    for (const w of this.wheelMeshes) {
+      w.rotation.x += spinDelta
+    }
+
+    // ── 3. Visual Suspension Dynamics (Pitch & Roll) ─────────────────────────
+    // Pitch: Squat on acceleration, dive on braking
+    const targetPitch = (this._lastThrottle * -0.028) + (this._lastBrake * 0.038)
+    this.chassisPitch = THREE.MathUtils.lerp(this.chassisPitch, targetPitch, 0.16)
+
+    // Roll: Lean outward from cornering and drifts
+    const steerRoll = (this._lastSteer * 0.040) * Math.min(1.0, speed / 12.0)
+    const driftRoll = (this._lastLateralSpeed / 16.0) * 0.045
+    const targetRoll = -(steerRoll + driftRoll)
+    this.chassisRoll = THREE.MathUtils.lerp(this.chassisRoll, targetRoll, 0.16)
+
+    this.chassisGroup.rotation.x = this.chassisPitch
+    this.chassisGroup.rotation.z = this.chassisRoll
+
+    // ── 4. Burnout Green Nitro Exhaust Flames ────────────────────────────────
+    const isAccelerating = forwardSpeed > 4.0
+    for (const flame of this.nitroFlames) {
+      if (isAccelerating) {
+        const flicker = 0.85 + Math.random() * 0.35
+        const intensity = Math.min(1.5, forwardSpeed / 20.0) * flicker
+        flame.scale.set(intensity, intensity, intensity * (1.0 + Math.random() * 0.4))
+        flame.visible = true
+      } else {
+        flame.scale.set(0.001, 0.001, 0.001)
+        flame.visible = false
+      }
     }
   }
 
@@ -251,26 +661,23 @@ export class PlayerCar {
     return forward.x * vel.x + forward.z * vel.z
   }
 
-  getGeoPosition(): { lat: number; lon: number } {
+  getGeoPosition(): { lat: number; lon: number; latitude: number; longitude: number } {
     const pos = this.getPosition()
-    const geo = worldToGeo(pos)
-    return { lat: geo.latitude, lon: geo.longitude }
-  }
-
-  getMesh(): THREE.Group {
-    return this.mesh
+    const g = worldToGeo(pos)
+    return { lat: g.latitude, lon: g.longitude, latitude: g.latitude, longitude: g.longitude }
   }
 
   getQuaternion(): THREE.Quaternion {
-    const rot = this.body.rotation()
-    return new THREE.Quaternion(rot.x, rot.y, rot.z, rot.w)
+    const r = this.body.rotation()
+    return new THREE.Quaternion(r.x, r.y, r.z, r.w)
   }
 
-  getHeadingVector(): { x: number; z: number } {
-    const rot = this.body.rotation()
-    const q = new THREE.Quaternion(rot.x, rot.y, rot.z, rot.w)
-    const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(q)
-    return { x: forward.x, z: forward.z }
+  getForwardVector(): THREE.Vector3 {
+    return new THREE.Vector3(0, 0, 1).applyQuaternion(this.getQuaternion())
+  }
+
+  getHeadingVector(): THREE.Vector3 {
+    return this.getForwardVector()
   }
 
   getYaw(): number {
@@ -280,24 +687,31 @@ export class PlayerCar {
     return euler.y
   }
 
-  /**
-   * Teleports the car to a target world position and heading,
-   * resetting velocities to safely enter a new location.
-   */
-  teleport(pos: WorldPosition, heading = 0): void {
-    // Center of 1.2m chassis at y >= 1.0 ensures the car bottom is >= +0.4m above ground
-    // preventing any clipping into or tunneling below the ground surface
-    const safeY = Math.max(1.0, (pos.y ?? 0) + 0.5)
-    this.body.setTranslation({ x: pos.x, y: safeY, z: pos.z }, true)
-    this.body.setLinvel({ x: 0, y: 0, z: 0 }, true)
-    this.body.setAngvel({ x: 0, y: 0, z: 0 }, true)
-    const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, heading, 0))
-    this.body.setRotation({ x: q.x, y: q.y, z: q.z, w: q.w }, true)
-    this.syncMesh()
+  getRightVector(): THREE.Vector3 {
+    return new THREE.Vector3(1, 0, 0).applyQuaternion(this.getQuaternion())
+  }
+
+  getMesh(): THREE.Group {
+    return this.mesh
+  }
+
+  getRigidBody(): RAPIER.RigidBody {
+    return this.body
   }
 
   dispose(): void {
     this.scene.remove(this.mesh)
   }
-}
 
+  /**
+   * Teleport the car to a new world position and heading.
+   */
+  teleport(pos: WorldPosition, headingRad = 0): void {
+    const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), headingRad)
+    this.body.setTranslation({ x: pos.x, y: pos.y + 0.48, z: pos.z }, true)
+    this.body.setRotation({ x: q.x, y: q.y, z: q.z, w: q.w }, true)
+    this.body.setLinvel({ x: 0, y: 0, z: 0 }, true)
+    this.body.setAngvel({ x: 0, y: 0, z: 0 }, true)
+    this.syncMesh()
+  }
+}

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import type { GameEngine } from '../game/GameEngine.js'
-import type { Road, Building } from '@world-drive/shared'
+import type { Road, Building, Waterway, Park } from '@world-drive/shared'
 import type { WorldPosition } from '@world-drive/math'
 
 type Props = {
@@ -85,6 +85,55 @@ export function Minimap({ engine }: Props) {
 
       const roads: Road[] = engine.chunkManager?.getActiveRoads() ?? []
       const buildings: Building[] = engine.chunkManager?.getActiveBuildings() ?? []
+      const waterways: Waterway[] = engine.chunkManager?.getActiveWaterways() ?? []
+      const parks: Park[] = engine.chunkManager?.getActiveParks() ?? []
+
+      // ── 0a. Parks & Gardens (Jardins, parcs, squares, pelouses) ───────────
+      for (const p of parks) {
+        const pts = p.polygon
+        if (pts.length < 3) continue
+        ctx.fillStyle = 'rgba(34, 197, 94, 0.40)'
+        ctx.strokeStyle = 'rgba(74, 222, 128, 0.60)'
+        ctx.lineWidth = 1
+        ctx.beginPath()
+        ctx.moveTo(pts[0]!.x * scale, pts[0]!.z * scale)
+        for (let i = 1; i < pts.length; i++) {
+          ctx.lineTo(pts[i]!.x * scale, pts[i]!.z * scale)
+        }
+        ctx.closePath()
+        ctx.fill()
+        ctx.stroke()
+      }
+
+      // ── 0b. Waterways (Fleuves, rivières, bassins) ──────────────────────────
+      for (const w of waterways) {
+        const pts = w.points
+        if (pts.length < 2) continue
+        if (w.isPolygon && pts.length >= 3) {
+          ctx.fillStyle = 'rgba(14, 116, 144, 0.65)'
+          ctx.strokeStyle = 'rgba(56, 189, 248, 0.4)'
+          ctx.lineWidth = 1
+          ctx.beginPath()
+          ctx.moveTo(pts[0]!.x * scale, pts[0]!.z * scale)
+          for (let i = 1; i < pts.length; i++) {
+            ctx.lineTo(pts[i]!.x * scale, pts[i]!.z * scale)
+          }
+          ctx.closePath()
+          ctx.fill()
+          ctx.stroke()
+        } else {
+          ctx.strokeStyle = 'rgba(14, 116, 144, 0.85)'
+          ctx.lineWidth = Math.max(4, (w.width || 14) * scale)
+          ctx.lineCap = 'round'
+          ctx.lineJoin = 'round'
+          ctx.beginPath()
+          ctx.moveTo(pts[0]!.x * scale, pts[0]!.z * scale)
+          for (let i = 1; i < pts.length; i++) {
+            ctx.lineTo(pts[i]!.x * scale, pts[i]!.z * scale)
+          }
+          ctx.stroke()
+        }
+      }
 
       // ── 1. Buildings (footprint polygons) ──────────────────────────────────
       ctx.fillStyle = 'rgba(40, 52, 75, 0.65)'
@@ -103,24 +152,36 @@ export function Minimap({ engine }: Props) {
         ctx.stroke()
       }
 
-      // ── 2. Roads ──────────────────────────────────────────────────────────
+      // ── 2. Roads (Grosses avenues 4 voies vs Rues moyennes 2 voies vs Petites rues 1 voie) ──
       for (const road of roads) {
         const pts = road.points
         if (pts.length < 2) continue
 
-        // Road casing / thickness
-        let roadW = (road.lanes || 2) * 3.5 * scale
-        let color = '#475569'
-        if (road.highway === 'primary' || road.highway === 'motorway') {
+        const hw = road.highway
+        const isHighway = hw === 'motorway' || hw === 'trunk'
+        const isMajor = hw === 'primary' || isHighway || (road.lanes && road.lanes >= 4)
+        const isMedium = hw === 'secondary' || hw === 'tertiary' || (road.lanes && road.lanes === 2)
+
+        let roadW: number
+        let color: string
+
+        if (isMajor) {
+          // Grosses avenues : 2 voies dans chaque sens (large et clair)
+          color = '#94a3b8'
+          roadW = Math.max(6, 14 * scale)
+        } else if (isMedium) {
+          // Rues moyennes : 2 voies en double sens (1 aller + 1 retour)
           color = '#64748b'
-          roadW = Math.max(roadW, 8 * scale)
-        } else if (road.highway === 'secondary') {
-          color = '#526075'
-          roadW = Math.max(roadW, 6 * scale)
+          roadW = Math.max(4, 7 * scale)
+        } else {
+          // Petites rues : 1 voie en double sens
+          color = '#475569'
+          roadW = Math.max(2.5, 4.5 * scale)
         }
 
+        // Chaussée
         ctx.strokeStyle = color
-        ctx.lineWidth = Math.max(2.5, roadW)
+        ctx.lineWidth = roadW
         ctx.lineCap = 'round'
         ctx.lineJoin = 'round'
 
@@ -130,6 +191,20 @@ export function Minimap({ engine }: Props) {
           ctx.lineTo(pts[i]!.x * scale, pts[i]!.z * scale)
         }
         ctx.stroke()
+
+        // Pour les grosses avenues : séparateur central plus sombre pour marquer le 2x2 voies
+        if (isMajor && roadW >= 7) {
+          ctx.save()
+          ctx.strokeStyle = '#1e293b'
+          ctx.lineWidth = Math.max(1, 1.4 * scale)
+          ctx.beginPath()
+          ctx.moveTo(pts[0]!.x * scale, pts[0]!.z * scale)
+          for (let i = 1; i < pts.length; i++) {
+            ctx.lineTo(pts[i]!.x * scale, pts[i]!.z * scale)
+          }
+          ctx.stroke()
+          ctx.restore()
+        }
       }
 
       // ── 3. GPS Planned Route Line ─────────────────────────────────────────

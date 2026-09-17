@@ -271,6 +271,8 @@ export function generateLiveChunk(
     roads,
     buildings,
     pointsOfInterest: pois,
+    waterways: [],
+    parks: [],
   }
 }
 

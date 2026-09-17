@@ -44,6 +44,10 @@ export class ChunkCache {
     this.cache.clear()
   }
 
+  delete(key: string): void {
+    this.cache.delete(key)
+  }
+
   get size(): number {
     return this.cache.size
   }

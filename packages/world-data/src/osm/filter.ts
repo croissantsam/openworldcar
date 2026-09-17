@@ -21,6 +21,7 @@ const WANTED_HIGHWAYS = new Set([
   'tertiary_link',
   'residential',
   'living_street',
+  'pedestrian',
   'service',
   'unclassified',
   'road',
@@ -49,5 +50,25 @@ const WANTED_POI_SHOPS = new Set(['convenience', 'supermarket', 'mall'])
 export function isWantedPoi(tags: OsmTags): boolean {
   if (tags['amenity'] && WANTED_POI_AMENITIES.has(tags['amenity'])) return true
   if (tags['shop'] && WANTED_POI_SHOPS.has(tags['shop'])) return true
+  return false
+}
+
+const WANTED_WATERWAYS = new Set(['river', 'stream', 'canal', 'drain', 'ditch', 'riverbank', 'dock'])
+
+export function isWantedWater(tags: OsmTags): boolean {
+  if (tags['waterway'] && WANTED_WATERWAYS.has(tags['waterway'])) return true
+  if (tags['natural'] === 'water') return true
+  if (tags['water'] !== undefined) return true
+  if (tags['landuse'] === 'basin' || tags['landuse'] === 'reservoir') return true
+  return false
+}
+
+const WANTED_LEISURE = new Set(['park', 'garden', 'recreation_ground', 'pitch', 'playground'])
+const WANTED_LANDUSE = new Set(['grass', 'forest', 'village_green', 'meadow'])
+
+export function isWantedPark(tags: OsmTags): boolean {
+  if (tags['leisure'] && WANTED_LEISURE.has(tags['leisure'])) return true
+  if (tags['landuse'] && WANTED_LANDUSE.has(tags['landuse'])) return true
+  if (tags['natural'] === 'wood' || tags['natural'] === 'scrub') return true
   return false
 }

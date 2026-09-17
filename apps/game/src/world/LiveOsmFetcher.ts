@@ -3,15 +3,137 @@
  * directly from OpenStreetMap on the fly.
  */
 
-import type { WorldChunk, Road, Building } from '@world-drive/shared'
+import type { WorldChunk, Road, Building, Waterway, Park } from '@world-drive/shared'
 import {
   type GeoPosition,
   type WorldPosition,
   setWorldOrigin,
   geoToWorld,
 } from '@world-drive/math'
-import { normalizeRoad, normalizeBuilding } from '@world-drive/world-data'
+import { normalizeRoad, normalizeBuilding, normalizeWaterway, normalizePark } from '@world-drive/world-data'
 import { generateChunks, type ChunkMap } from '@world-drive/world-data'
+
+/**
+ * Shared XML parser: parses OSM XML into Road[], Building[], Waterway[], and Park[].
+ */
+function parseOsmXml(xmlText: string): { roads: Road[]; buildings: Building[]; waterways: Waterway[]; parks: Park[] } {
+  const nodes = new Map<string, [number, number]>()
+  const nodeMatches = xmlText.matchAll(
+    /<node id="(\d+)"[^>]*lat="([\d.-]+)"[^>]*lon="([\d.-]+)"/g,
+  )
+  for (const m of nodeMatches) {
+    nodes.set(m[1]!, [parseFloat(m[3]!), parseFloat(m[2]!)])
+  }
+
+  const roads: Road[] = []
+  const buildings: Building[] = []
+  const waterways: Waterway[] = []
+  const parks: Park[] = []
+
+  const wayMatches = xmlText.matchAll(/<way id="(\d+)"[^>]*>([\s\S]*?)<\/way>/g)
+  for (const wm of wayMatches) {
+    const wayId = wm[1]!
+    const body = wm[2]!
+    const coords: [number, number][] = []
+
+    for (const nd of body.matchAll(/<nd ref="(\d+)"/g)) {
+      const pt = nodes.get(nd[1]!)
+      if (pt) coords.push(pt)
+    }
+
+    if (coords.length < 2) continue
+
+    const tags: Record<string, string> = {}
+    for (const tg of body.matchAll(/<tag k="([^"]+)" v="([^"]+)"/g)) {
+      tags[tg[1]!] = tg[2]!
+    }
+
+    const raw = { id: wayId, tags, coords }
+
+    const road = normalizeRoad(raw)
+    if (road) { roads.push(road); continue }
+
+    const building = normalizeBuilding(raw)
+    if (building) { buildings.push(building); continue }
+
+    const waterway = normalizeWaterway(raw)
+    if (waterway) { waterways.push(waterway); continue }
+
+    const park = normalizePark(raw)
+    if (park) { parks.push(park) }
+  }
+
+  return { roads, buildings, waterways, parks }
+}
+
+/**
+ * Fetch raw OSM XML for a bounding box, trying the local proxy first then
+ * falling back to the official OSM API.
+ */
+async function fetchOsmXml(
+  bbox: { south: number; north: number; west: number; east: number },
+  signal?: AbortSignal,
+): Promise<string | null> {
+  const bboxStr = `${bbox.west.toFixed(5)},${bbox.south.toFixed(5)},${bbox.east.toFixed(5)},${bbox.north.toFixed(5)}`
+
+  try {
+    const proxyUrl = `/api/osm-map?bbox=${bboxStr}`
+    const res = await fetch(proxyUrl, {
+      headers: { Accept: 'application/xml' },
+      ...(signal ? { signal } : {}),
+    })
+    if (res.ok) return await res.text()
+    throw new Error(`Proxy error: ${res.status}`)
+  } catch (e) {
+    if ((e as Error).name === 'AbortError') return null
+    try {
+      const directUrl = `https://api.openstreetmap.org/api/0.6/map?bbox=${bboxStr}`
+      const res = await fetch(directUrl, {
+        headers: {
+          'User-Agent': 'OpenWorldCar-Game/1.0 (https://github.com/openworldcar)',
+          Accept: 'application/xml',
+        },
+        ...(signal ? { signal } : {}),
+      })
+      if (res.ok) return await res.text()
+    } catch (directErr) {
+      if ((directErr as Error).name === 'AbortError') return null
+      console.warn('[LiveOsmFetcher] OSM API fetch failed:', directErr)
+    }
+  }
+  return null
+}
+
+/**
+ * Fetch OpenStreetMap data for a circular area and return a ChunkMap
+ * ready to inject into ChunkManager. Used by OsmStreamingManager for
+ * continuous open-world streaming.
+ */
+export async function fetchOsmChunksForArea(
+  center: GeoPosition,
+  radius = 600,
+  signal?: AbortSignal,
+): Promise<ChunkMap | null> {
+  const dLat = (radius / 6378137) * (180 / Math.PI)
+  const dLon =
+    (radius / (6378137 * Math.cos((center.latitude * Math.PI) / 180))) *
+    (180 / Math.PI)
+
+  const bbox = {
+    south: center.latitude - dLat,
+    north: center.latitude + dLat,
+    west: center.longitude - dLon,
+    east: center.longitude + dLon,
+  }
+
+  const xmlText = await fetchOsmXml(bbox, signal)
+  if (!xmlText || xmlText.length < 50) return null
+
+  const { roads, buildings, waterways, parks } = parseOsmXml(xmlText)
+  if (roads.length === 0) return null
+
+  return generateChunks(roads, buildings, [], waterways, parks)
+}
 
 export interface RealOsmAreaResult {
   chunks: ChunkMap
@@ -33,106 +155,31 @@ export async function fetchRealOsmArea(
     (radius / (6378137 * Math.cos((origin.latitude * Math.PI) / 180))) *
     (180 / Math.PI)
 
-  const south = origin.latitude - dLat
-  const north = origin.latitude + dLat
-  const west = origin.longitude - dLon
-  const east = origin.longitude + dLon
-
-  const bboxStr = `${west.toFixed(5)},${south.toFixed(5)},${east.toFixed(5)},${north.toFixed(5)}`
-
-  // 2. Fetch raw XML from local proxy or official OSM API
-  let xmlText = ''
-  try {
-    const proxyUrl = `/api/osm-map?bbox=${bboxStr}`
-    const res = await fetch(proxyUrl, {
-      headers: { Accept: 'application/xml' },
-      ...(signal ? { signal } : {}),
-    })
-    if (res.ok) {
-      xmlText = await res.text()
-    } else {
-      throw new Error(`Proxy error: ${res.status}`)
-    }
-  } catch {
-    try {
-      const directUrl = `https://api.openstreetmap.org/api/0.6/map?bbox=${bboxStr}`
-      const res = await fetch(directUrl, {
-        headers: {
-          'User-Agent': 'OpenWorldCar-Game/1.0 (https://github.com/openworldcar)',
-          Accept: 'application/xml',
-        },
-        ...(signal ? { signal } : {}),
-      })
-      if (res.ok) {
-        xmlText = await res.text()
-      }
-    } catch (directErr) {
-      console.warn('[LiveOsmFetcher] OSM API fetch failed:', directErr)
-      return null
-    }
+  const bbox = {
+    south: origin.latitude - dLat,
+    north: origin.latitude + dLat,
+    west: origin.longitude - dLon,
+    east: origin.longitude + dLon,
   }
 
+  // 2. Fetch raw XML from local proxy or official OSM API
+  const xmlText = await fetchOsmXml(bbox, signal)
   if (!xmlText || xmlText.length < 50) return null
 
   // Ensure coordinate projection origin is set
   setWorldOrigin(origin)
 
-  // 3. Fast XML parser for nodes
-  const nodes = new Map<string, [number, number]>()
-  const nodeMatches = xmlText.matchAll(
-    /<node id="(\d+)"[^>]*lat="([\d.-]+)"[^>]*lon="([\d.-]+)"/g,
-  )
-  for (const m of nodeMatches) {
-    // Stored as [lon, lat] for GeoJSON/projection compatibility
-    nodes.set(m[1]!, [parseFloat(m[3]!), parseFloat(m[2]!)])
-  }
-
-  // 4. Parse ways into roads and buildings
-  const roads: Road[] = []
-  const buildings: Building[] = []
-
-  const wayMatches = xmlText.matchAll(/<way id="(\d+)"[^>]*>([\s\S]*?)<\/way>/g)
-
-  for (const wm of wayMatches) {
-    const wayId = wm[1]!
-    const body = wm[2]!
-    const coords: [number, number][] = []
-
-    for (const nd of body.matchAll(/<nd ref="(\d+)"/g)) {
-      const pt = nodes.get(nd[1]!)
-      if (pt) coords.push(pt)
-    }
-
-    if (coords.length < 2) continue
-
-    const tags: Record<string, string> = {}
-    for (const tg of body.matchAll(/<tag k="([^"]+)" v="([^"]+)"/g)) {
-      tags[tg[1]!] = tg[2]!
-    }
-
-    const raw = { id: wayId, tags, coords }
-
-    const road = normalizeRoad(raw)
-    if (road) {
-      roads.push(road)
-      continue
-    }
-
-    const building = normalizeBuilding(raw)
-    if (building) {
-      buildings.push(building)
-      continue
-    }
-  }
+  // 3. Parse ways into roads, buildings, waterways and parks
+  const { roads, buildings, waterways, parks } = parseOsmXml(xmlText)
 
   if (roads.length === 0) {
     return null
   }
 
-  // 5. Partition into chunk grid
-  const chunks = generateChunks(roads, buildings, [])
+  // 4. Partition into chunk grid
+  const chunks = generateChunks(roads, buildings, [], waterways, parks)
 
-  // 6. Find the best on-road spawn point closest to world (0, 0)
+  // 5. Find the best on-road spawn point closest to world (0, 0)
   let bestDistSq = Infinity
   let spawnPoint: WorldPosition = { x: 0, y: 0.5, z: 0 }
   let spawnHeading = 0
@@ -166,3 +213,4 @@ export async function fetchRealOsmArea(
     totalBuildings: buildings.length,
   }
 }
+

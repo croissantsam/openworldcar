@@ -18,11 +18,13 @@ import {
   type WorldPosition,
   type GeoPosition,
 } from '@world-drive/math'
-import type { WorldChunk, Road, Building, PointOfInterest } from '@world-drive/shared'
+import type { WorldChunk, Road, Building, PointOfInterest, Waterway, Park } from '@world-drive/shared'
 import RAPIER from '@dimforge/rapier3d-compat'
 import { ChunkLoader } from './ChunkLoader.js'
+import type { LoadedChunk } from './ChunkLoader.js'
 import { ChunkState } from './ChunkState.js'
 import { BuildingMeshGenerator } from './BuildingMeshGenerator.js'
+import { ParkMeshGenerator } from './ParkMeshGenerator.js'
 
 /** Number of chunks loaded in each direction from the player (7x7 grid = 3.5km). */
 const LOAD_RADIUS = 3
@@ -117,8 +119,18 @@ export class ChunkManager {
     this.loader
       .load(id, this.scene)
       .then((loaded) => {
+        if (loaded === 'pending') {
+          // No OSM data yet — show a bare ground slab so the world stays
+          // visually seamless. OsmStreamingManager will deliver real data
+          // soon, triggering addRealOsmChunks which will reload this chunk.
+          const groundGroup = this.loader.buildGroundGroup(id)
+          this.scene.add(groundGroup)
+          managed.group = groundGroup
+          managed.state.transition('ACTIVE')
+          return
+        }
         if (!loaded) {
-          // No data for this chunk (ocean, empty area)
+          // Genuinely empty area (ocean/park) — don't retry.
           this.missingChunks.add(key)
           managed.state.transition('UNLOADED')
           this.chunks.delete(key)
@@ -131,7 +143,7 @@ export class ChunkManager {
         managed.group = loaded.group
         managed.data = loaded.data
 
-        // Build Rapier static colliders for buildings
+        // Build Rapier static colliders for buildings, park barriers, and trees
         if (this.world) {
           const bodyDesc = RAPIER.RigidBodyDesc.fixed()
           const body = this.world.createRigidBody(bodyDesc)
@@ -139,6 +151,12 @@ export class ChunkManager {
             const colliderDesc = BuildingMeshGenerator.createColliderDesc(building)
             if (colliderDesc) {
               this.world.createCollider(colliderDesc, body)
+            }
+          }
+          for (const park of loaded.data.parks ?? []) {
+            const parkColliders = ParkMeshGenerator.createColliderDescs(park, loaded.data.roads)
+            for (const colDesc of parkColliders) {
+              this.world.createCollider(colDesc, body)
             }
           }
           managed.physicsBody = body
@@ -213,6 +231,32 @@ export class ChunkManager {
 
   setRealOsmChunks(chunks: Map<string, WorldChunk>): void {
     this.loader.setRealOsmChunks(chunks)
+  }
+
+  /**
+   * Merge new OSM chunks into the world without clearing all loaded chunks.
+   * Active chunks that now have real OSM data are reloaded seamlessly.
+   * Newly covered chunks will load via the normal update() cycle.
+   */
+  addRealOsmChunks(newChunks: Map<string, WorldChunk>): void {
+    // Pass new data to loader so future loads use it
+    this.loader.mergeRealOsmChunks(newChunks)
+
+    // Reload chunks that are now covered by real OSM data
+    for (const [key] of newChunks) {
+      const existing = this.chunks.get(key)
+      if (existing && (existing.state.status === 'ACTIVE' || existing.state.status === 'LOADING')) {
+        // Unload (removes ground-only slab or old data) and let update() reload with real OSM
+        this._unload(key, existing)
+      }
+      // Always clear from missingChunks so re-loading is allowed
+      this.missingChunks.delete(key)
+    }
+
+    // Reset lastPlayerChunk so the next update() call re-evaluates ALL surrounding
+    // chunks, even if the player hasn't moved to a different chunk.
+    // Without this, ground-only chunks that were just unloaded would never reload.
+    this.lastPlayerChunk = null
   }
 
   get isGenerating(): boolean {
@@ -345,6 +389,26 @@ export class ChunkManager {
     for (const [, chunk] of this.chunks) {
       if (chunk.data && chunk.state.status !== 'UNLOADED') {
         list.push(...chunk.data.pointsOfInterest)
+      }
+    }
+    return list
+  }
+
+  getActiveWaterways(): Waterway[] {
+    const list: Waterway[] = []
+    for (const [, chunk] of this.chunks) {
+      if (chunk.data && chunk.state.status !== 'UNLOADED') {
+        list.push(...chunk.data.waterways)
+      }
+    }
+    return list
+  }
+
+  getActiveParks(): Park[] {
+    const list: Park[] = []
+    for (const [, chunk] of this.chunks) {
+      if (chunk.data && chunk.state.status !== 'UNLOADED') {
+        list.push(...(chunk.data.parks ?? []))
       }
     }
     return list

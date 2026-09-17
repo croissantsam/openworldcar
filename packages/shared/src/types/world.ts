@@ -58,6 +58,32 @@ export type PointOfInterest = {
   position: WorldPosition
 }
 
+// ─── Waterway & Water Areas ───────────────────────────────────────────────────
+
+export type WaterwayType = 'river' | 'stream' | 'canal' | 'drain' | 'lake' | 'basin' | 'dock' | 'water'
+
+export type Waterway = {
+  id: string
+  type: WaterwayType
+  name?: string
+  /** Visual width in metres (for linear waterways) or 0 for polygons. */
+  width: number
+  points: WorldPosition[]
+  /** True when the points form a closed polygon surface (e.g. natural=water, riverbank). */
+  isPolygon?: boolean
+}
+
+// ─── Parks & Green Spaces ───────────────────────────────────────────────────
+
+export type ParkType = 'park' | 'garden' | 'grass' | 'forest' | 'recreation'
+
+export type Park = {
+  id: string
+  type: ParkType
+  name?: string
+  polygon: WorldPosition[]
+}
+
 // ─── Chunk ───────────────────────────────────────────────────────────────────
 
 export type WorldChunk = {
@@ -65,6 +91,8 @@ export type WorldChunk = {
   roads: Road[]
   buildings: Building[]
   pointsOfInterest: PointOfInterest[]
+  waterways: Waterway[]
+  parks: Park[]
 }
 
 // ─── Road graph ──────────────────────────────────────────────────────────────

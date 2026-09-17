@@ -14,6 +14,7 @@ export class Renderer {
     // WebGL renderer
     this.renderer = new THREE.WebGLRenderer({
       antialias: true,
+      stencil: true,
       powerPreference: 'high-performance',
     })
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
@@ -21,14 +22,14 @@ export class Renderer {
     this.renderer.shadowMap.enabled = true
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping
-    this.renderer.toneMappingExposure = 1.2
+    this.renderer.toneMappingExposure = 1.30
     this.renderer.outputColorSpace = THREE.SRGBColorSpace
     mount.appendChild(this.renderer.domElement)
 
-    // Scene
+    // Scene (Burnout Paradise sunny coastal sky & crisp horizon)
     this.scene = new THREE.Scene()
-    this.scene.background = new THREE.Color(0x87ceeb) // sky blue
-    this.scene.fog = new THREE.FogExp2(0x87ceeb, 0.0008)
+    this.scene.background = new THREE.Color(0x62aef7) // vibrant azure sky
+    this.scene.fog = new THREE.FogExp2(0x8bc0f5, 0.0005) // expansive distance fog
 
     // Camera
     this.camera = new THREE.PerspectiveCamera(
@@ -51,12 +52,12 @@ export class Renderer {
 
   private _setupLighting(): void {
     // Ambient
-    const ambient = new THREE.AmbientLight(0xffeedd, 0.6)
+    const ambient = new THREE.AmbientLight(0xfff1e0, 0.65)
     this.scene.add(ambient)
 
-    // Sun — directional with shadows
-    const sun = new THREE.DirectionalLight(0xfff5e0, 2.5)
-    sun.position.set(200, 400, 100)
+    // Sun — warm angled directional sunlight with crisp shadows & asphalt specular sheen
+    const sun = new THREE.DirectionalLight(0xfff6e4, 2.8)
+    sun.position.set(240, 320, 140)
     sun.castShadow = true
     sun.shadow.mapSize.set(2048, 2048)
     sun.shadow.camera.near = 1
@@ -68,25 +69,23 @@ export class Renderer {
     sun.shadow.bias = -0.0001
     this.scene.add(sun)
 
-    // Hemisphere — sky/ground fill
-    const hemi = new THREE.HemisphereLight(0x87ceeb, 0x3d5a3e, 0.8)
+    // Hemisphere — sky / warm ground reflection
+    const hemi = new THREE.HemisphereLight(0x72b9f8, 0x3d4a36, 0.85)
     this.scene.add(hemi)
   }
 
   private _createGroundMesh(): void {
-    // Large flat continuous terrain across the world
+    // Large flat continuous terrain across the world (below chunks at y = -0.15)
     const geo = new THREE.PlaneGeometry(500000, 500000, 10, 10)
-    const mat = new THREE.MeshLambertMaterial({ color: 0x2d3a2e })
+    const mat = new THREE.MeshLambertMaterial({
+      color: 0x181a1d,
+    })
     const ground = new THREE.Mesh(geo, mat)
     ground.rotation.x = -Math.PI / 2
+    ground.position.y = -0.15
     ground.receiveShadow = true
+    ground.renderOrder = 0
     this.scene.add(ground)
-
-    // Grid helper (faint atmospheric horizon)
-    const grid = new THREE.GridHelper(500000, 2000, 0x2a4030, 0x2a4030)
-    ;(grid.material as THREE.LineBasicMaterial).opacity = 0.15
-    ;(grid.material as THREE.LineBasicMaterial).transparent = true
-    this.scene.add(grid)
   }
 
   render(): void {

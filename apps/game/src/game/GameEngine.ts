@@ -29,6 +29,9 @@ import type { WorldPosition } from '@world-drive/math'
 import { buildRoadGraph, findAStarPath } from '@world-drive/world-data'
 import { WORLD_DESTINATIONS, type WorldDestination } from '../world/destinations.js'
 import { fetchRealOsmArea } from '../world/LiveOsmFetcher.js'
+import { OsmStreamingManager } from '../world/OsmStreamingManager.js'
+import { tickWater } from '../world/WaterwayMeshGenerator.js'
+import { ImpactFX } from '../effects/ImpactFX.js'
 
 /** Fixed physics timestep (60 Hz). */
 const FIXED_DT = 1 / 60
@@ -56,10 +59,12 @@ export class GameEngine {
   private input!: InputManager
   playerCar!: PlayerCar
   private camera!: ThirdPersonCamera
+  private impactFX!: ImpactFX
   chunkManager!: ChunkManager
   private npcManager!: NPCManager
   private gameClient!: GameClient
   private remotePlayers!: RemotePlayerManager
+  private osmStreaming!: OsmStreamingManager
 
   private world!: RAPIER.World
   private rafId = 0
@@ -67,6 +72,9 @@ export class GameEngine {
 
   private lastTime = 0
   private accumulator = 0
+
+  private lastSafePos: WorldPosition = { x: 3.7, y: 0.48, z: 158.3 }
+  private lastSafeYaw = 0
 
   // ─── Stats ──────────────────────────────────────────────────────────────────
   private frameCount = 0
@@ -123,10 +131,28 @@ export class GameEngine {
     this.input = new InputManager()
     this.playerCar = new PlayerCar(this.world, this.renderer.scene)
     this.camera = new ThirdPersonCamera(this.renderer.camera, this.playerCar)
+    this.impactFX = new ImpactFX(this.renderer.scene)
+
+    // Wire physical collision impacts to camera trauma and audiovisual effects
+    this.playerCar.onImpact = (intensity, point, direction) => {
+      this.camera.addTrauma(intensity)
+      this.impactFX.triggerImpact(intensity, point, direction)
+    }
+
     this.chunkManager = new ChunkManager(this.renderer.scene, this.world)
     this.npcManager = new NPCManager(this.renderer.scene)
     this.remotePlayers = new RemotePlayerManager(this.renderer.scene)
     this.gameClient = new GameClient()
+
+    // OSM streaming manager — continuously fetches real map data as the player drives
+    this.osmStreaming = new OsmStreamingManager()
+    this.osmStreaming.onChunksReady = (newChunks) => {
+      if (!this.disposed) {
+        this.chunkManager.addRealOsmChunks(newChunks)
+        // Trigger immediate re-load of chunks that just got OSM data
+        this.chunkManager.update(this.playerCar.getPosition())
+      }
+    }
 
     // Receive multiplayer snapshots and route to RemotePlayerManager
     this.gameClient.onSnapshot = (players, localId) => {
@@ -140,7 +166,7 @@ export class GameEngine {
     this.chunkManager.update(this.playerCar.getPosition())
 
     // Also stream real OpenStreetMap area for the starting location
-    fetchRealOsmArea(this.currentDestination.origin, 550)
+    fetchRealOsmArea(this.currentDestination.origin, 300)
       .then((realOsm) => {
         if (realOsm && realOsm.chunks.size > 0 && !this.disposed) {
           this.chunkManager.setRealOsmChunks(realOsm.chunks)
@@ -148,6 +174,9 @@ export class GameEngine {
           this.playerCar.teleport(realOsm.spawnPoint, realOsm.spawnHeading)
           this.camera.update(0.016)
           this.chunkManager.update(realOsm.spawnPoint)
+          // Mark the initial area as covered so the streaming manager
+          // doesn't immediately re-fetch the same zone
+          this.osmStreaming.markCovered(this.currentDestination.origin)
           if (realOsm.streetName) {
             this.currentDestination.name = realOsm.streetName
           }
@@ -204,10 +233,17 @@ export class GameEngine {
       this.accumulator -= FIXED_DT
     }
 
-    // ── Safety Net: Prevent infinite falling ────────────────────────────────
+    // ── Water Plunge & Falling Respawn ──────────────────────────────────────
     const pos = this.playerCar.getPosition()
-    if (pos.y < -3.0) {
-      this.playerCar.teleport({ x: pos.x, y: 1.0, z: pos.z }, this.playerCar.getYaw())
+    if (pos.y >= -0.2) {
+      // Car is on road/ground level — update safe respawn position
+      this.lastSafePos = { x: pos.x, y: Math.max(0.48, pos.y), z: pos.z }
+      this.lastSafeYaw = this.playerCar.getYaw()
+    } else if (pos.y < -1.4) {
+      // Car fell into water (water surface at y = -2.2) or off the world — respawn!
+      this.impactFX?.triggerWaterSplash(pos)
+      this.camera.addTrauma(0.6)
+      this.playerCar.teleport(this.lastSafePos, this.lastSafeYaw)
     }
 
     // ── Networking ─────────────────────────────────────────────────────────
@@ -217,8 +253,18 @@ export class GameEngine {
     // ── World streaming ────────────────────────────────────────────────────
     this.chunkManager.update(pos)
 
+    // ── OSM continuous streaming (throttled internally) ────────────────────
+    const geoPos = this.playerCar.getGeoPosition()
+    this.osmStreaming.update({ latitude: geoPos.lat, longitude: geoPos.lon })
+
+    // ── Water animation tick ───────────────────────────────────────────────
+    tickWater()
+
     // ── Remote Multiplayer Players ─────────────────────────────────────────
     this.remotePlayers?.update(delta)
+
+    // ── Impact Sparks & Screen FX ───────────────────────────────────────────
+    this.impactFX?.update(delta)
 
     // ── Camera ─────────────────────────────────────────────────────────────
     this.camera.update(delta)
@@ -297,7 +343,10 @@ export class GameEngine {
     // 1. Reset origin and switch chunk base path
     this.chunkManager.resetToOrigin(destination.origin, destination.chunkDir)
 
-    // 2. Clear GPS destination and route
+    // 2. Reset OSM streaming state for the new location
+    this.osmStreaming.reset()
+
+    // 3. Clear GPS destination and route
     this.gpsDestination = null
     this.gpsRoute = null
 
@@ -316,7 +365,7 @@ export class GameEngine {
     this.onDestinationChanged?.(destination)
 
     // 7. Stream real OpenStreetMap roads & buildings live for this new area!
-    fetchRealOsmArea(destination.origin, 550)
+    fetchRealOsmArea(destination.origin, 300)
       .then((realOsm) => {
         if (
           realOsm &&
@@ -330,6 +379,8 @@ export class GameEngine {
           this.playerCar.teleport(realOsm.spawnPoint, realOsm.spawnHeading)
           this.camera.update(0.016)
           this.chunkManager.update(realOsm.spawnPoint)
+          // Mark the new destination as covered so streaming doesn't re-fetch immediately
+          this.osmStreaming.markCovered(destination.origin)
           if (realOsm.streetName) {
             this.currentDestination.name = realOsm.streetName
           }
@@ -383,6 +434,7 @@ export class GameEngine {
     }
     this.input?.dispose()
     this.playerCar?.dispose()
+    this.impactFX?.dispose()
     this.remotePlayers?.dispose()
     this.renderer?.dispose()
     this.gameClient?.disconnect()

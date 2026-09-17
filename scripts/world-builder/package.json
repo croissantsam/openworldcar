@@ -1,0 +1,21 @@
+{
+  "name": "@world-drive/world-builder",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "@world-drive/math": "workspace:*",
+    "@world-drive/shared": "workspace:*",
+    "@world-drive/world-data": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.5.4",
+    "tsx": "^4.19.1",
+    "typescript": "^5.5.4"
+  }
+}

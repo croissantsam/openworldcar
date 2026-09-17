@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.turbo/
+*.tsbuildinfo
+data/development/*.chunk.json
+data/development/*.pbf
+.env
+.env.local

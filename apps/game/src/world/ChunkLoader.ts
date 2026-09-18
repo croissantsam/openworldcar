@@ -23,6 +23,7 @@ import { ParkMeshGenerator } from './ParkMeshGenerator.js'
 import { ChunkCache } from './ChunkCache.js'
 import { optimizeChunkGroup, optimizeChunkGroupIncremental } from './ChunkOptimizer.js'
 import { deduplicateBuildings } from '@world-drive/world-data'
+import { clipRoadToChunk } from './ChunkBounds.js'
 
 export type LoadedChunk = {
   id: ChunkId
@@ -271,8 +272,11 @@ export class ChunkLoader {
     }
     for (const road of chunk.roads) {
       yield estimateRoadMs(road)
-      const roadGroup = RoadMeshGenerator.generate(road, allRoads as Road[])
-      if (roadGroup) group.add(roadGroup)
+      const clippedRoad = clipRoadToChunk(road, chunk.id)
+      if (clippedRoad) {
+        const roadGroup = RoadMeshGenerator.generate(clippedRoad as Road, allRoads as Road[])
+        if (roadGroup) group.add(roadGroup)
+      }
     }
     const uniqueBuildings = deduplicateBuildings(chunk.buildings)
     for (const building of uniqueBuildings) {
@@ -376,9 +380,13 @@ export class ChunkLoader {
     }
 
     // 3. Roads with markings and sidewalks
+    // Clip roads to chunk bounds to prevent overlapping at chunk boundaries
     for (const road of chunk.roads) {
-      const roadGroup = RoadMeshGenerator.generate(road, chunk.roads)
-      if (roadGroup) group.add(roadGroup)
+      const clippedRoad = clipRoadToChunk(road, chunk.id)
+      if (clippedRoad) {
+        const roadGroup = RoadMeshGenerator.generate(clippedRoad as Road, chunk.roads)
+        if (roadGroup) group.add(roadGroup)
+      }
     }
 
     // 4. Buildings with window textures

@@ -31,6 +31,7 @@ import { ChunkState } from './ChunkState.js'
 import { BuildingMeshGenerator } from './BuildingMeshGenerator.js'
 import { ParkMeshGenerator } from './ParkMeshGenerator.js'
 import { RoadMeshGenerator } from './RoadMeshGenerator.js'
+import { clipRoadToChunk } from './ChunkBounds.js'
 
 /** Number of chunks loaded in each direction from the player (5x5 grid = 2.5km across). */
 const LOAD_RADIUS = 2
@@ -326,7 +327,11 @@ export class ChunkManager {
         if (n >= COLLIDERS_PER_SLICE) { n = 0; yield }
       }
       for (const road of features.roads) {
-        for (const desc of RoadMeshGenerator.createColliderDescs(road, allRoads)) add(desc)
+        // Clip road to chunk bounds for colliders too
+        const clippedRoad = clipRoadToChunk(road, managed.id)
+        if (clippedRoad) {
+          for (const desc of RoadMeshGenerator.createColliderDescs(clippedRoad as Road, allRoads)) add(desc)
+        }
         if (n >= COLLIDERS_PER_SLICE) { n = 0; yield }
       }
     }

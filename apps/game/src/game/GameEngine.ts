@@ -183,6 +183,11 @@ export class GameEngine {
     // Initial chunk load around spawn
     this.chunkManager.update(this.playerCar.getPosition())
 
+    // The initial area is being fetched below: mark it covered right away so
+    // the streaming manager does not fire a second, near-identical fetch
+    // (and a second world rebuild) during the first seconds.
+    this.osmStreaming.markCovered(this.currentDestination.origin)
+
     // Also stream real OpenStreetMap area for the starting location
     fetchRealOsmArea(
       this.currentDestination.origin,
@@ -205,9 +210,15 @@ export class GameEngine {
             this.currentDestination.name = realOsm.streetName
           }
           this.onDestinationChanged?.(this.currentDestination)
+        } else if (!this.disposed) {
+          // Nothing arrived: let the streaming manager fetch the area again
+          this.osmStreaming.reset()
         }
       })
-      .catch((err) => console.warn('[GameEngine] Initial OSM fetch error:', err))
+      .catch((err) => {
+        console.warn('[GameEngine] Initial OSM fetch error:', err)
+        if (!this.disposed) this.osmStreaming.reset()
+      })
   }
 
   private _createGroundPlane(): void {
@@ -412,8 +423,10 @@ export class GameEngine {
     // 1. Reset origin and switch chunk base path
     this.chunkManager.resetToOrigin(destination.origin, destination.chunkDir)
 
-    // 2. Reset OSM streaming state for the new location
+    // 2. Reset OSM streaming state for the new location (the destination area
+    //    is fetched below, so mark it covered to avoid a duplicate fetch)
     this.osmStreaming.reset()
+    this.osmStreaming.markCovered(destination.origin)
 
     // 3. Clear GPS destination and route
     this.gpsDestination = null
@@ -462,10 +475,14 @@ export class GameEngine {
             this.currentDestination.name = realOsm.streetName
           }
           this.onDestinationChanged?.(this.currentDestination)
+        } else if (this.currentDestination.id === destination.id && !this.disposed) {
+          // Nothing arrived: let the streaming manager fetch the area again
+          this.osmStreaming.reset()
         }
       })
       .catch((err) => {
         console.warn('[GameEngine] Live OSM fetch failed, keeping procedural chunks:', err)
+        if (this.currentDestination.id === destination.id && !this.disposed) this.osmStreaming.reset()
       })
   }
 
@@ -563,6 +580,7 @@ export class GameEngine {
       this.rafId = 0
     }
     this.input?.dispose()
+    this.chunkManager?.dispose()
     this.playerCar?.dispose()
     this.impactFX?.dispose()
     this.remotePlayers?.dispose()

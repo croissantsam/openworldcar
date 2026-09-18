@@ -6,7 +6,7 @@
  */
 
 import * as THREE from 'three'
-import type { WorldChunk } from '@world-drive/shared'
+import type { WorldChunk, Road, Park } from '@world-drive/shared'
 import {
   chunkKey,
   chunkCenter,
@@ -21,7 +21,7 @@ import { BuildingMeshGenerator } from './BuildingMeshGenerator.js'
 import { WaterwayMeshGenerator } from './WaterwayMeshGenerator.js'
 import { ParkMeshGenerator } from './ParkMeshGenerator.js'
 import { ChunkCache } from './ChunkCache.js'
-import { optimizeChunkGroup } from './ChunkOptimizer.js'
+import { optimizeChunkGroup, optimizeChunkGroupIncremental } from './ChunkOptimizer.js'
 
 export type LoadedChunk = {
   id: ChunkId
@@ -36,6 +36,108 @@ export type LoadedChunk = {
  * - 'pending': no OSM data yet, retry after OsmStreamingManager delivers data
  */
 export type LoadResult = LoadedChunk | null | 'pending'
+
+/** Data-only result: same lookup order as load(), without building meshes. */
+export type ResolvedChunk = WorldChunk | null | 'pending'
+
+type Keyed = { id: string }
+
+function appendMissing<T extends Keyed>(target: T[], source: readonly T[] | undefined): void {
+  if (!source || source.length === 0) return
+  const seen = new Set(target.map((f) => f.id))
+  for (const f of source) {
+    if (!seen.has(f.id)) {
+      seen.add(f.id)
+      target.push(f)
+    }
+  }
+}
+
+/**
+ * Union of two chunks' features by id (fresh object; inputs are not mutated).
+ * Consecutive OSM fetches overlap: each delivery is only a partial view of a
+ * chunk, so deliveries must be accumulated, never used as replacements.
+ */
+export function unionWorldChunk(base: WorldChunk, extra: WorldChunk): WorldChunk {
+  const out: WorldChunk = {
+    id: base.id,
+    roads: [...base.roads],
+    buildings: [...base.buildings],
+    pointsOfInterest: [...base.pointsOfInterest],
+    waterways: [...(base.waterways ?? [])],
+    parks: [...(base.parks ?? [])],
+    railways: [...(base.railways ?? [])],
+    barriers: [...(base.barriers ?? [])],
+  }
+  appendMissing(out.roads, extra.roads)
+  appendMissing(out.buildings, extra.buildings)
+  appendMissing(out.pointsOfInterest, extra.pointsOfInterest)
+  appendMissing(out.waterways, extra.waterways)
+  appendMissing(out.parks, extra.parks)
+  appendMissing(out.railways, extra.railways)
+  appendMissing(out.barriers!, extra.barriers)
+  return out
+}
+
+/** Rough main-thread cost (ms) of generating one road's meshes. */
+function estimateRoadMs(road: Road): number {
+  const elevated = road.elevationMode === 'bridge' || road.elevationMode === 'tunnel' || road.bridge || road.tunnel
+  return 0.2 + 0.02 * road.points.length + (elevated ? 2.5 : 0)
+}
+
+/** Rough main-thread cost (ms) of generating one park (trees scale with area). */
+function estimateParkMs(park: Park): number {
+  const pts = park.polygon
+  if (!pts || pts.length < 3) return 0.3
+  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity
+  for (const p of pts) {
+    if (p.x < minX) minX = p.x
+    if (p.x > maxX) maxX = p.x
+    if (p.z < minZ) minZ = p.z
+    if (p.z > maxZ) maxZ = p.z
+  }
+  const area = (maxX - minX) * (maxZ - minZ)
+  return Math.min(9, 0.6 + area / 6000)
+}
+
+/** Prefixed ids of every feature in a chunk (arrays use separate id spaces). */
+export function chunkFeatureIds(chunk: WorldChunk): string[] {
+  const ids: string[] = []
+  for (const r of chunk.roads) ids.push('r' + r.id)
+  for (const b of chunk.buildings) ids.push('b' + b.id)
+  for (const p of chunk.pointsOfInterest) ids.push('p' + p.id)
+  for (const w of chunk.waterways ?? []) ids.push('w' + w.id)
+  for (const k of chunk.parks ?? []) ids.push('k' + k.id)
+  for (const l of chunk.railways ?? []) ids.push('l' + l.id)
+  for (const x of chunk.barriers ?? []) ids.push('x' + x.id)
+  return ids
+}
+
+/**
+ * The features of `incoming` whose prefixed id is not in `known`, or null
+ * when the delivery brings nothing new for this chunk.
+ */
+export function chunkDelta(known: ReadonlySet<string>, incoming: WorldChunk): WorldChunk | null {
+  const out: WorldChunk = {
+    id: incoming.id,
+    roads: incoming.roads.filter((f) => !known.has('r' + f.id)),
+    buildings: incoming.buildings.filter((f) => !known.has('b' + f.id)),
+    pointsOfInterest: incoming.pointsOfInterest.filter((f) => !known.has('p' + f.id)),
+    waterways: (incoming.waterways ?? []).filter((f) => !known.has('w' + f.id)),
+    parks: (incoming.parks ?? []).filter((f) => !known.has('k' + f.id)),
+    railways: (incoming.railways ?? []).filter((f) => !known.has('l' + f.id)),
+    barriers: (incoming.barriers ?? []).filter((f) => !known.has('x' + f.id)),
+  }
+  const n =
+    out.roads.length +
+    out.buildings.length +
+    out.pointsOfInterest.length +
+    out.waterways.length +
+    out.parks.length +
+    out.railways.length +
+    (out.barriers?.length ?? 0)
+  return n === 0 ? null : out
+}
 
 // Continuous urban sub-base bedrock slab with 4m overlap across chunks (zero seams)
 const URBAN_SLAB_GEOMETRY = new THREE.PlaneGeometry(CHUNK_SIZE + 4, CHUNK_SIZE + 4)
@@ -75,6 +177,8 @@ export class ChunkLoader {
   setRealOsmChunks(chunks: Map<string, WorldChunk>): void {
     for (const [k, v] of chunks) {
       this.realOsmChunks.set(k, v)
+      // Never let a stale cached entry shadow freshly fetched data
+      this.cache.delete(k)
     }
   }
 
@@ -84,10 +188,97 @@ export class ChunkLoader {
    */
   mergeRealOsmChunks(newChunks: Map<string, WorldChunk>): void {
     for (const [key, chunk] of newChunks) {
-      this.realOsmChunks.set(key, chunk)
+      // Accumulate: a delivery only covers the part of the chunk inside its
+      // fetch bbox, so replacing would drop everything outside it.
+      const existing = this.realOsmChunks.get(key)
+      this.realOsmChunks.set(key, existing ? unionWorldChunk(existing, chunk) : chunk)
       // Evict the old cached entry so the next load uses the real OSM data
       this.cache.delete(key)
     }
+  }
+
+  /**
+   * Resolve a chunk's DATA (cache → streamed OSM → static JSON) without
+   * building any meshes. The ChunkManager builds them incrementally.
+   */
+  async resolveData(id: ChunkId): Promise<ResolvedChunk> {
+    const cached = this.cache.get(id)
+    if (cached) return cached
+
+    const key = chunkKey(id)
+    const realOsmChunk = this.realOsmChunks.get(key)
+    if (realOsmChunk) {
+      this.cache.set(id, realOsmChunk)
+      return realOsmChunk
+    }
+
+    const url = `${this.baseUrl}/chunk_${id.x}_${id.z}.json`
+    try {
+      const resp = await fetch(url)
+      if (resp.status === 404) {
+        return 'pending'
+      }
+      if (!resp.ok) {
+        throw new Error(`HTTP ${resp.status} ${resp.statusText}`)
+      }
+      const data: WorldChunk = await resp.json()
+      this.cache.set(id, data)
+      return data
+    } catch (err) {
+      console.warn(`[ChunkLoader] Failed to load ${key}:`, err)
+      return null
+    }
+  }
+
+  /**
+   * Incremental twin of _buildGroup: identical scene output, but yields after
+   * every feature and inside the optimizer so the work can be spread over
+   * frames. `withSlab` adds the ground slab (full chunk build); merge deltas
+   * are built without one.
+   */
+  *buildGroupIncremental(
+    chunk: WorldChunk,
+    allRoads: readonly Road[],
+    withSlab: boolean,
+  ): Generator<number | void, THREE.Group, void> {
+    const group = new THREE.Group()
+    group.name = `chunk_${chunkKey(chunk.id)}`
+
+    if (withSlab) {
+      const center = chunkCenter(chunk.id)
+      const slabMesh = new THREE.Mesh(URBAN_SLAB_GEOMETRY, URBAN_SLAB_MATERIAL)
+      slabMesh.rotation.x = -Math.PI / 2
+      slabMesh.position.set(center.x, 0.001, center.z)
+      slabMesh.receiveShadow = true
+      slabMesh.renderOrder = 0
+      slabMesh.userData['skipMerge'] = true
+      group.add(slabMesh)
+    }
+
+    // Each yield announces the rough cost (ms) of the NEXT step so the
+    // scheduler can defer heavy ones to a slice that can afford them.
+    for (const waterway of chunk.waterways ?? []) {
+      yield 1.0
+      const mesh = WaterwayMeshGenerator.generate(waterway)
+      if (mesh) group.add(mesh)
+    }
+    for (const park of chunk.parks ?? []) {
+      yield estimateParkMs(park)
+      const parkGroup = ParkMeshGenerator.generate(park, allRoads as Road[])
+      if (parkGroup) group.add(parkGroup)
+    }
+    for (const road of chunk.roads) {
+      yield estimateRoadMs(road)
+      const roadGroup = RoadMeshGenerator.generate(road, allRoads as Road[])
+      if (roadGroup) group.add(roadGroup)
+    }
+    for (const building of chunk.buildings) {
+      yield 0.2 + 0.03 * building.footprint.length
+      const buildingGroup = BuildingMeshGenerator.generate(building)
+      if (buildingGroup) group.add(buildingGroup)
+    }
+
+    return yield* optimizeChunkGroupIncremental(group)
   }
 
   clearCache(): void {

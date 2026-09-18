@@ -29,7 +29,7 @@ function resolveWsUrl(): string {
   const isDev = window.location.hostname === 'localhost'
   if (isDev) return 'wss://openspeed.onrender.com/'
   const proto = window.location.protocol === 'https:' ? 'wss:' : 'wss:'
-  return `${proto}//${window.location.host}`
+  return `wss://openspeed.onrender.com/`
 }
 
 const MIN_RECONNECT_MS = 1_000

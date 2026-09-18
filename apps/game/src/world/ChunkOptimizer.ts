@@ -19,7 +19,27 @@ interface MeshBucket {
   originalMeshes: THREE.Mesh[]
 }
 
+/**
+ * Synchronous form: drains the incremental optimizer in one go.
+ * (Kept for callers that build a whole chunk at once.)
+ */
 export function optimizeChunkGroup(chunkGroup: THREE.Group): THREE.Group {
+  const it = optimizeChunkGroupIncremental(chunkGroup, Number.POSITIVE_INFINITY)
+  let step = it.next()
+  while (!step.done) step = it.next()
+  return step.value
+}
+
+/**
+ * Incremental form: same result as optimizeChunkGroup(), but yields every
+ * `batchSize` meshes while transforming, and after every merged bucket, so a
+ * frame-budgeted scheduler can spread the work over several frames instead
+ * of blocking the game for the whole merge (the dominant cost of a chunk).
+ */
+export function* optimizeChunkGroupIncremental(
+  chunkGroup: THREE.Group,
+  batchSize = 48,
+): Generator<number | void, THREE.Group, void> {
   const buckets = new Map<string, MeshBucket>()
   const unmergedObjects: THREE.Object3D[] = []
 
@@ -47,7 +67,16 @@ export function optimizeChunkGroup(chunkGroup: THREE.Group): THREE.Group {
     }
   })
 
+  // Yield by amount of vertex data processed (not by mesh count): a batch of a
+  // few very large meshes must not turn into one long step.
+  const VERTS_PER_SLICE = 12_000
+  let sliceVerts = 0
   for (const mesh of allMeshes) {
+    if (Number.isFinite(batchSize) && sliceVerts >= VERTS_PER_SLICE) {
+      sliceVerts = 0
+      yield
+    }
+    sliceVerts += mesh.geometry.getAttribute('position')?.count ?? 0
     // Check if mesh should skip merging (e.g. ground slab with stencil, or multi-materials)
     if (mesh.userData['skipMerge'] || Array.isArray(mesh.material)) {
       unmergedObjects.push(mesh)
@@ -131,7 +160,9 @@ export function optimizeChunkGroup(chunkGroup: THREE.Group): THREE.Group {
       mergedMesh.renderOrder = bucket.renderOrder
       optimizedGroup.add(mergedMesh)
     } else if (bucket.geometries.length > 1) {
-      const mergedGeo = mergeGeometries(bucket.geometries, false)
+      // Bounded-step merge: copies a few geometries per slice so no single
+      // step can stall a frame (a big bucket merged in one go takes tens of ms).
+      const mergedGeo = yield* mergeNonIndexedIncremental(bucket.geometries, batchSize)
       // Clean up intermediate cloned geometries
       for (const g of bucket.geometries) {
         g.dispose()
@@ -154,7 +185,69 @@ export function optimizeChunkGroup(chunkGroup: THREE.Group): THREE.Group {
         origMesh.geometry.dispose()
       }
     }
+    yield
   }
 
   return optimizedGroup
+}
+
+/**
+ * Concatenate non-indexed geometries that all carry position / normal / uv
+ * into one BufferGeometry, yielding every `batchSize` geometries. Same result
+ * as BufferGeometryUtils.mergeGeometries(list, false) for this attribute set.
+ */
+function* mergeNonIndexedIncremental(
+  list: THREE.BufferGeometry[],
+  batchSize: number,
+): Generator<number | void, THREE.BufferGeometry | null, void> {
+  const attrNames = ['position', 'normal', 'uv'] as const
+  const itemSize: Record<(typeof attrNames)[number], number> = { position: 3, normal: 3, uv: 2 }
+
+  let totalVerts = 0
+  for (const g of list) {
+    const pos = g.getAttribute('position')
+    if (!pos) return null
+    totalVerts += pos.count
+  }
+  if (totalVerts === 0) return null
+
+  const out: Record<(typeof attrNames)[number], Float32Array> = {
+    position: new Float32Array(totalVerts * 3),
+    normal: new Float32Array(totalVerts * 3),
+    uv: new Float32Array(totalVerts * 2),
+  }
+
+  let offset = 0
+  let sinceYield = 0
+  for (const g of list) {
+    const count = g.getAttribute('position')!.count
+    for (const name of attrNames) {
+      const attr = g.getAttribute(name)
+      const size = itemSize[name]
+      const dst = out[name]
+      if (attr && attr.itemSize === size && attr.array instanceof Float32Array && attr.array.length >= count * size) {
+        dst.set(attr.array.subarray(0, count * size), offset * size)
+      } else if (attr) {
+        // Uncommon typed arrays / item sizes: copy element by element
+        for (let i = 0; i < count; i++) {
+          for (let c = 0; c < size; c++) {
+            dst[(offset + i) * size + c] = c < attr.itemSize ? attr.getComponent(i, c) : 0
+          }
+        }
+      }
+      // A missing attribute leaves zeros (matches how the callers pre-fill uv)
+    }
+    offset += count
+    sinceYield += count
+    if (Number.isFinite(batchSize) && sinceYield >= 60_000) {
+      sinceYield = 0
+      yield
+    }
+  }
+
+  const merged = new THREE.BufferGeometry()
+  merged.setAttribute('position', new THREE.BufferAttribute(out.position, 3))
+  merged.setAttribute('normal', new THREE.BufferAttribute(out.normal, 3))
+  merged.setAttribute('uv', new THREE.BufferAttribute(out.uv, 2))
+  return merged
 }

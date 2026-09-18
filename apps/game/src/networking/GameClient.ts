@@ -27,8 +27,8 @@ function resolveWsUrl(): string {
   const env = (import.meta as { env?: Record<string, string> }).env
   if (env?.['VITE_WS_URL']) return env['VITE_WS_URL']
   const isDev = window.location.hostname === 'localhost'
-  if (isDev) return 'ws://localhost:3001'
-  const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  if (isDev) return 'wss://openspeed.onrender.com/'
+  const proto = window.location.protocol === 'https:' ? 'wss:' : 'wss:'
   return `${proto}//${window.location.host}`
 }
 

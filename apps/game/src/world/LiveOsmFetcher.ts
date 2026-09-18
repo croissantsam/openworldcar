@@ -11,10 +11,40 @@ import {
   geoToWorld,
 } from '@world-drive/math'
 import { normalizeRoad, normalizeBuilding, normalizeWaterway, normalizePark } from '@world-drive/world-data'
-import { generateChunks, type ChunkMap } from '@world-drive/world-data'
+import { generateChunks, type ChunkMap, type RawOsmNode } from '@world-drive/world-data'
 
 /**
- * Shared XML parser: parses OSM XML into Road[], Building[], Waterway[], and Park[].
+ * Decode the XML character entities the OSM API emits in attribute values
+ * ("Saint-Lazare &amp; Opéra" → "Saint-Lazare & Opéra").
+ */
+function decodeXmlEntities(value: string): string {
+  if (value.indexOf('&') === -1) return value
+  return value.replace(/&(amp|quot|apos|lt|gt|#(\d+)|#x([0-9a-fA-F]+));/g, (m, name: string, dec?: string, hex?: string) => {
+    switch (name) {
+      case 'amp': return '&'
+      case 'quot': return '"'
+      case 'apos': return "'"
+      case 'lt': return '<'
+      case 'gt': return '>'
+    }
+    const code = dec !== undefined ? parseInt(dec, 10) : hex !== undefined ? parseInt(hex, 16) : NaN
+    return Number.isFinite(code) ? String.fromCodePoint(code) : m
+  })
+}
+
+/** Parse the <tag k v/> children of an element body into a decoded tag map. */
+function parseTags(body: string): Record<string, string> {
+  const tags: Record<string, string> = {}
+  for (const tg of body.matchAll(/<tag k="([^"]+)" v="([^"]+)"/g)) {
+    tags[decodeXmlEntities(tg[1]!)] = decodeXmlEntities(tg[2]!)
+  }
+  return tags
+}
+
+/**
+ * Shared XML parser: parses OSM XML into Road[], Building[], Waterway[], Park[]
+ * and the tagged nodes (shops, trees, crossings, street furniture, addresses…)
+ * that the same payload already carries.
  */
 function parseOsmXml(xmlText: string): {
   roads: Road[]
@@ -23,6 +53,8 @@ function parseOsmXml(xmlText: string): {
   parks: Park[]
   railways: Railway[]
   barriers: Barrier[]
+  /** Nodes that carry at least one tag, with decoded tag values. */
+  taggedNodes: RawOsmNode[]
 } {
   const nodes = new Map<string, [number, number]>()
   const nodeMatches = xmlText.matchAll(
@@ -30,6 +62,20 @@ function parseOsmXml(xmlText: string): {
   )
   for (const m of nodeMatches) {
     nodes.set(m[1]!, [parseFloat(m[3]!), parseFloat(m[2]!)])
+  }
+
+  // Tagged nodes are written as <node …>…<tag/>…</node> (never self-closing).
+  // The attribute part must not contain "/>" so a self-closing node can never
+  // swallow the following elements up to some later </node>.
+  const taggedNodes: RawOsmNode[] = []
+  const taggedMatches = xmlText.matchAll(/<node id="(\d+)"((?:[^>/]|\/(?!>))*)>([\s\S]*?)<\/node>/g)
+  for (const tm of taggedMatches) {
+    const body = tm[3]!
+    if (body.indexOf('<tag') === -1) continue
+    const coords = nodes.get(tm[1]!)
+    if (!coords) continue
+    const tags = parseTags(body)
+    taggedNodes.push({ id: tm[1]!, tags, lon: coords[0], lat: coords[1] })
   }
 
   const roads: Road[] = []
@@ -52,10 +98,7 @@ function parseOsmXml(xmlText: string): {
 
     if (coords.length < 2) continue
 
-    const tags: Record<string, string> = {}
-    for (const tg of body.matchAll(/<tag k="([^"]+)" v="([^"]+)"/g)) {
-      tags[tg[1]!] = tg[2]!
-    }
+    const tags = parseTags(body)
 
     const raw = { id: wayId, tags, coords }
 
@@ -72,7 +115,7 @@ function parseOsmXml(xmlText: string): {
     if (park) { parks.push(park); continue }
   }
 
-  return { roads, buildings, waterways, parks, railways, barriers }
+  return { roads, buildings, waterways, parks, railways, barriers, taggedNodes }
 }
 
 /**
@@ -138,7 +181,8 @@ export async function fetchOsmChunksForArea(
   const xmlText = await fetchOsmXml(bbox, signal)
   if (!xmlText || xmlText.length < 50) return null
 
-  const { roads, buildings, waterways, parks, railways, barriers } = parseOsmXml(xmlText)
+  const { roads, buildings, waterways, parks, railways, barriers, taggedNodes } = parseOsmXml(xmlText)
+  console.info(`[LiveOsmFetcher] ${taggedNodes.length} tagged nodes parsed (${roads.length} roads, ${buildings.length} buildings)`)
   if (roads.length === 0) return null
 
   return generateChunks(roads, buildings, [], waterways, parks, railways, barriers)
@@ -181,7 +225,8 @@ export async function fetchRealOsmArea(
   setWorldOrigin(origin)
 
   // 3. Parse ways into roads, buildings, waterways, parks, railways and barriers
-  const { roads, buildings, waterways, parks, railways, barriers } = parseOsmXml(xmlText)
+  const { roads, buildings, waterways, parks, railways, barriers, taggedNodes } = parseOsmXml(xmlText)
+  console.info(`[LiveOsmFetcher] ${taggedNodes.length} tagged nodes parsed (${roads.length} roads, ${buildings.length} buildings)`)
 
   if (roads.length === 0) {
     return null

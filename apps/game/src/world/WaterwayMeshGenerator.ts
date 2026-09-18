@@ -196,9 +196,9 @@ export class WaterwayMeshGenerator {
     if (waterway.isPolygon && pts.length >= 3) {
       try {
         const shape = new THREE.Shape()
-        shape.moveTo(pts[0]!.x, pts[0]!.z)
+        shape.moveTo(pts[0]!.x, -pts[0]!.z)
         for (let i = 1; i < pts.length; i++) {
-          shape.lineTo(pts[i]!.x, pts[i]!.z)
+          shape.lineTo(pts[i]!.x, -pts[i]!.z)
         }
         shape.closePath()
 

@@ -19,6 +19,22 @@ export type RawInput = {
 export class InputManager {
   private keys = new Set<string>()
   private disposed = false
+  private virtualInput: RawInput = {
+    throttle: 0,
+    brake: 0,
+    steering: 0,
+    handbrake: false,
+  }
+
+  /**
+   * Set virtual touch/mobile inputs.
+   */
+  setVirtualInput(partial: Partial<RawInput>): void {
+    if (partial.throttle !== undefined) this.virtualInput.throttle = partial.throttle
+    if (partial.brake !== undefined) this.virtualInput.brake = partial.brake
+    if (partial.steering !== undefined) this.virtualInput.steering = partial.steering
+    if (partial.handbrake !== undefined) this.virtualInput.handbrake = partial.handbrake
+  }
 
   private readonly onKeyDown = (e: KeyboardEvent) => {
     // Do not capture game control keys if typing in a text field

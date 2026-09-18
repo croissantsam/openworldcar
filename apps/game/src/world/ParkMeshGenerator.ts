@@ -29,40 +29,41 @@ function getGrassTexture(): THREE.CanvasTexture {
   canvas.height = 512
   const ctx = canvas.getContext('2d')!
 
-  // Deep rich grass green base
-  ctx.fillStyle = '#3a7233'
+  // Vibrant, rich Parisian lawn green base
+  ctx.fillStyle = '#4c9a3e'
   ctx.fillRect(0, 0, 512, 512)
 
   const idata = ctx.getImageData(0, 0, 512, 512)
   const d = idata.data
   for (let i = 0; i < d.length; i += 4) {
-    const noise = (Math.random() - 0.5) * 38
-    d[i] = Math.min(255, Math.max(0, 58 + noise * 0.7))      // R
-    d[i + 1] = Math.min(255, Math.max(0, 114 + noise))       // G (vibrant)
-    d[i + 2] = Math.min(255, Math.max(0, 51 + noise * 0.6))  // B
+    const noise = (Math.random() - 0.5) * 32
+    d[i] = Math.min(255, Math.max(0, 76 + noise * 0.7))      // R
+    d[i + 1] = Math.min(255, Math.max(0, 154 + noise))       // G (vibrant lush green)
+    d[i + 2] = Math.min(255, Math.max(0, 62 + noise * 0.6))  // B
     d[i + 3] = 255
   }
   ctx.putImageData(idata, 0, 0)
 
-  // Subtle grass blade strokes & organic mossy specks
-  ctx.fillStyle = 'rgba(78, 148, 66, 0.35)'
-  for (let k = 0; k < 1200; k++) {
+  // Grass blade strokes
+  ctx.fillStyle = 'rgba(92, 175, 76, 0.40)'
+  for (let k = 0; k < 1500; k++) {
     const x = Math.random() * 512
     const y = Math.random() * 512
-    const h = 2 + Math.random() * 5
+    const h = 2.5 + Math.random() * 5
     ctx.fillRect(x, y, 1.5, h)
   }
 
-  ctx.fillStyle = 'rgba(38, 74, 34, 0.30)'
-  for (let k = 0; k < 800; k++) {
+  // Organic shade specks
+  ctx.fillStyle = 'rgba(45, 95, 38, 0.35)'
+  for (let k = 0; k < 1000; k++) {
     const x = Math.random() * 512
     const y = Math.random() * 512
     ctx.fillRect(x, y, 2, 2)
   }
 
   // Very subtle earth speckles
-  ctx.fillStyle = 'rgba(102, 82, 52, 0.12)'
-  for (let k = 0; k < 300; k++) {
+  ctx.fillStyle = 'rgba(102, 82, 52, 0.10)'
+  for (let k = 0; k < 250; k++) {
     ctx.fillRect(Math.random() * 512, Math.random() * 512, 2, 2)
   }
 
@@ -108,19 +109,19 @@ const grassTex = getGrassTexture()
 const barkTex = getBarkTexture()
 
 const PARK_MATS: Record<ParkType, THREE.MeshStandardMaterial> = {
-  park:        new THREE.MeshStandardMaterial({ map: grassTex, color: 0x3e7a36, roughness: 0.88, metalness: 0.0, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1.0, polygonOffsetUnits: -1.0 }),
-  garden:      new THREE.MeshStandardMaterial({ map: grassTex, color: 0x44823a, roughness: 0.86, metalness: 0.0, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1.0, polygonOffsetUnits: -1.0 }),
-  grass:       new THREE.MeshStandardMaterial({ map: grassTex, color: 0x48863e, roughness: 0.90, metalness: 0.0, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1.0, polygonOffsetUnits: -1.0 }),
-  forest:      new THREE.MeshStandardMaterial({ map: grassTex, color: 0x285025, roughness: 0.92, metalness: 0.0, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1.0, polygonOffsetUnits: -1.0 }),
-  recreation:  new THREE.MeshStandardMaterial({ map: grassTex, color: 0x428038, roughness: 0.85, metalness: 0.0, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1.0, polygonOffsetUnits: -1.0 }),
+  park:        new THREE.MeshStandardMaterial({ map: grassTex, color: 0xffffff, roughness: 0.85, metalness: 0.0, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1.0, polygonOffsetUnits: -1.0 }),
+  garden:      new THREE.MeshStandardMaterial({ map: grassTex, color: 0xf5fff0, roughness: 0.82, metalness: 0.0, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1.0, polygonOffsetUnits: -1.0 }),
+  grass:       new THREE.MeshStandardMaterial({ map: grassTex, color: 0xffffff, roughness: 0.88, metalness: 0.0, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1.0, polygonOffsetUnits: -1.0 }),
+  forest:      new THREE.MeshStandardMaterial({ map: grassTex, color: 0x90b888, roughness: 0.90, metalness: 0.0, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1.0, polygonOffsetUnits: -1.0 }),
+  recreation:  new THREE.MeshStandardMaterial({ map: grassTex, color: 0xf0fff0, roughness: 0.82, metalness: 0.0, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1.0, polygonOffsetUnits: -1.0 }),
   // Other types
   cemetery:    new THREE.MeshStandardMaterial({ color: 0x8a8880, roughness: 0.95, metalness: 0.0, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1.0, polygonOffsetUnits: -1.0 }),
   farmland:    new THREE.MeshStandardMaterial({ color: 0x9a7c48, roughness: 0.98, metalness: 0.0, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1.0, polygonOffsetUnits: -1.0 }),
   parking_lot: new THREE.MeshStandardMaterial({ color: 0x909498, roughness: 0.85, metalness: 0.04, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1.0, polygonOffsetUnits: -1.0 }),
-  pitch:       new THREE.MeshStandardMaterial({ color: 0x2a7a28, roughness: 0.95, metalness: 0.0, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1.0, polygonOffsetUnits: -1.0 }),
+  pitch:       new THREE.MeshStandardMaterial({ color: 0x2e8540, roughness: 0.95, metalness: 0.0, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1.0, polygonOffsetUnits: -1.0 }),
   beach:       new THREE.MeshStandardMaterial({ color: 0xe8d898, roughness: 0.98, metalness: 0.0, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1.0, polygonOffsetUnits: -1.0 }),
   cliff:       new THREE.MeshStandardMaterial({ color: 0x8c7a6a, roughness: 0.96, metalness: 0.02, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1.0, polygonOffsetUnits: -1.0 }),
-  scrub:       new THREE.MeshStandardMaterial({ color: 0x608048, roughness: 0.96, metalness: 0.0, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1.0, polygonOffsetUnits: -1.0 }),
+  scrub:       new THREE.MeshStandardMaterial({ color: 0x6e8e54, roughness: 0.96, metalness: 0.0, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1.0, polygonOffsetUnits: -1.0 }),
 }
 
 // Tree bark
@@ -459,41 +460,66 @@ export class ParkMeshGenerator {
     const pts = park.polygon
     if (pts.length < 3) return null
 
+    // ── 0. Deduplicate and clean polygon points ────────────────────────────
+    const cleanPts: { x: number; z: number }[] = []
+    for (let i = 0; i < pts.length; i++) {
+      const p = pts[i]!
+      if (cleanPts.length > 0) {
+        const prev = cleanPts[cleanPts.length - 1]!
+        if (Math.hypot(p.x - prev.x, p.z - prev.z) < 0.01) continue
+      }
+      cleanPts.push(p)
+    }
+    if (cleanPts.length > 2) {
+      const first = cleanPts[0]!
+      const last = cleanPts[cleanPts.length - 1]!
+      if (Math.hypot(first.x - last.x, first.z - last.z) < 0.01) {
+        cleanPts.pop()
+      }
+    }
+    if (cleanPts.length < 3) return null
+
     const roadObs = buildRoadObstacles(roads)
     const group = new THREE.Group()
     group.userData['parkId'] = park.id
 
     // ── 1. Park Lawn Surface ────────────────────────────────────────────────
-    // Placed at y = 0.016m (cleanly above urban slab at 0.001m, and below road asphalt at 0.028m).
-    const shape = new THREE.Shape()
-    shape.moveTo(pts[0]!.x, pts[0]!.z)
-    for (let i = 1; i < pts.length; i++) {
-      shape.lineTo(pts[i]!.x, pts[i]!.z)
-    }
-    shape.closePath()
-
-    const geo = new THREE.ShapeGeometry(shape)
-    geo.rotateX(-Math.PI / 2)
-    geo.translate(0, 0.020, 0)
-
-    // Compute seamless world-space planar UV mapping for grass texture
-    const posAttr = geo.getAttribute('position')
-    if (posAttr) {
-      const uvs = new Float32Array(posAttr.count * 2)
-      for (let i = 0; i < posAttr.count; i++) {
-        uvs[i * 2] = posAttr.getX(i) / 10.0 // repeat every 10m in world space
-        uvs[i * 2 + 1] = posAttr.getZ(i) / 10.0
+    // Placed at y = 0.022m (cleanly above urban slab at 0.001m, and flush/below road asphalt at 0.028m).
+    // In Three.js, Shape is constructed in 2D (x, y). When rotateX(-PI/2) is applied,
+    // (x, y, 0) -> (x, 0, -y). Therefore, to get world (x, 0, z), we must pass (x, -z) to Shape!
+    try {
+      const shape = new THREE.Shape()
+      shape.moveTo(cleanPts[0]!.x, -cleanPts[0]!.z)
+      for (let i = 1; i < cleanPts.length; i++) {
+        shape.lineTo(cleanPts[i]!.x, -cleanPts[i]!.z)
       }
-      geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2))
+      shape.closePath()
+
+      const geo = new THREE.ShapeGeometry(shape)
+      geo.rotateX(-Math.PI / 2)
+      geo.translate(0, 0.022, 0)
+
+      // Compute seamless world-space planar UV mapping for grass texture (repeats every 8m)
+      const posAttr = geo.getAttribute('position')
+      if (posAttr) {
+        const uvs = new Float32Array(posAttr.count * 2)
+        for (let i = 0; i < posAttr.count; i++) {
+          uvs[i * 2] = posAttr.getX(i) / 8.0
+          uvs[i * 2 + 1] = posAttr.getZ(i) / 8.0
+        }
+        geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2))
+      }
+
+      geo.computeVertexNormals()
+
+      const mat = PARK_MATS[park.type] ?? PARK_MATS['park']
+      const lawn = new THREE.Mesh(geo, mat)
+      lawn.receiveShadow = true
+      lawn.renderOrder = 2
+      group.add(lawn)
+    } catch (err) {
+      console.warn(`[ParkMeshGenerator] Failed to triangulate park ${park.id}:`, err)
     }
-
-    geo.computeVertexNormals()
-
-    const mat = PARK_MATS[park.type] ?? PARK_MATS['park']
-    const lawn = new THREE.Mesh(geo, mat)
-    lawn.receiveShadow = true
-    lawn.renderOrder = 2
-    group.add(lawn)
 
     // ── 2. Type-specific overlays (Cemetery, Parking lot, Pitch) ───────────
     if (park.type === 'cemetery') {
@@ -582,15 +608,17 @@ export class ParkMeshGenerator {
       const pathW = 2.4
       const p1Geo = new THREE.BoxGeometry(width * 0.7, 0.005, pathW)
       const p1Mesh = new THREE.Mesh(p1Geo, PATH_GRAVEL_MAT)
-      p1Mesh.position.set(cX, 0.017, cZ)
+      p1Mesh.position.set(cX, 0.025, cZ)
       p1Mesh.receiveShadow = true
+      p1Mesh.renderOrder = 3
       group.add(p1Mesh)
 
       if (depth > 25 && width > 25) {
         const p2Geo = new THREE.BoxGeometry(pathW, 0.005, depth * 0.7)
         const p2Mesh = new THREE.Mesh(p2Geo, PATH_GRAVEL_MAT)
-        p2Mesh.position.set(cX, 0.017, cZ)
+        p2Mesh.position.set(cX, 0.025, cZ)
         p2Mesh.receiveShadow = true
+        p2Mesh.renderOrder = 3
         group.add(p2Mesh)
       }
     }

@@ -78,49 +78,6 @@ function createNametagSprite(title: string, borderColor: string): {
   return { sprite, canvas, texture: tex }
 }
 
-function buildRemoteShield(): {
-  group: THREE.Group
-  innerMat: THREE.MeshStandardMaterial
-  outerMat: THREE.MeshBasicMaterial
-  outerMesh: THREE.Mesh
-} {
-  const group = new THREE.Group()
-  group.name = 'remote_shield'
-
-  const innerGeo = new THREE.SphereGeometry(1, 24, 16)
-  const innerMat = new THREE.MeshStandardMaterial({
-    color: 0x00d4ff,
-    emissive: 0x0099ff,
-    emissiveIntensity: 0.8,
-    roughness: 0.15,
-    metalness: 0.15,
-    transparent: true,
-    opacity: 0.26,
-    depthWrite: false,
-    side: THREE.DoubleSide,
-  })
-  const innerMesh = new THREE.Mesh(innerGeo, innerMat)
-  innerMesh.scale.set(1.5, 1.1, 2.7)
-  innerMesh.position.set(0, 0.65, 0)
-  group.add(innerMesh)
-
-  const outerGeo = new THREE.IcosahedronGeometry(1.02, 2)
-  const outerMat = new THREE.MeshBasicMaterial({
-    color: 0x66f0ff,
-    wireframe: true,
-    transparent: true,
-    opacity: 0.22,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-  })
-  const outerMesh = new THREE.Mesh(outerGeo, outerMat)
-  outerMesh.scale.set(1.53, 1.13, 2.73)
-  outerMesh.position.set(0, 0.65, 0)
-  group.add(outerMesh)
-
-  return { group, innerMat, outerMat, outerMesh }
-}
-
 type RemotePlayer = {
   id: string
   mesh: THREE.Group
@@ -129,10 +86,6 @@ type RemotePlayer = {
   buffer: InterpolationBuffer
   lastSeen: number
   invincibleUntil: number
-  shieldGroup: THREE.Group
-  shieldInnerMat: THREE.MeshStandardMaterial
-  shieldOuterMat: THREE.MeshBasicMaterial
-  shieldOuterMesh: THREE.Mesh
   nametagCanvas: HTMLCanvasElement | null
   nametagTexture: THREE.CanvasTexture | null
   paletteHex: string
@@ -240,27 +193,9 @@ export class RemotePlayerManager {
         player.collider.setEnabled(canCollide)
       }
 
-      // ── 3D Shield & Nametag Animation ───────────────────────────────────
+      // ── Nametag Badge Update ────────────────────────────────────────────
       if (remoteInvincible) {
-        player.shieldGroup.visible = true
-        player.shieldOuterMesh.rotation.y += _dt * 0.45
-        player.shieldOuterMesh.rotation.z += _dt * 0.18
         const remainingSec = Math.max(0, (player.invincibleUntil - nowMs) / 1000)
-        if (remainingSec <= 5.0) {
-          const flash = Math.sin(nowMs * 0.015) > 0
-          player.shieldInnerMat.color.setHex(flash ? 0xff3b00 : 0xffaa00)
-          player.shieldInnerMat.emissive.setHex(flash ? 0xff2200 : 0xff6600)
-          player.shieldOuterMat.color.setHex(flash ? 0xff7700 : 0xffdd44)
-          player.shieldInnerMat.opacity = flash ? 0.40 : 0.15
-        } else {
-          const pulse = Math.sin(nowMs * 0.004) * 0.07
-          player.shieldInnerMat.color.setHex(0x00d4ff)
-          player.shieldInnerMat.emissive.setHex(0x0088ff)
-          player.shieldOuterMat.color.setHex(0x66f0ff)
-          player.shieldInnerMat.opacity = 0.26 + pulse
-        }
-
-        // Nametag badge update
         const ceilSec = Math.ceil(remainingSec)
         const tagText = `🛡️ RIVAL #${id.slice(0, 4).toUpperCase()} [${ceilSec}s]`
         if (tagText !== player.lastTagText) {
@@ -271,7 +206,6 @@ export class RemotePlayerManager {
           }
         }
       } else {
-        player.shieldGroup.visible = false
         const normalTag = `RIVAL #${id.slice(0, 4).toUpperCase()}`
         if (player.lastTagText !== normalTag) {
           player.lastTagText = normalTag
@@ -374,15 +308,10 @@ export class RemotePlayerManager {
     const { sprite: nametag, canvas: nametagCanvas, texture: nametagTexture } = createNametagSprite(shortTag, palette.hex)
     group.add(nametag)
 
-    // 7. Holographic Shield Bubble
-    const shield = buildRemoteShield()
-    group.add(shield.group)
-    shield.group.visible = false
-
     group.position.set(snap.position.x, snap.position.y, snap.position.z)
     this.scene.add(group)
 
-    // 8. Rapier Kinematic Rigid Body with Chassis Collider
+    // 7. Rapier Kinematic Rigid Body with Chassis Collider
     let body: RAPIER.RigidBody | null = null
     let collider: RAPIER.Collider | null = null
     if (this.world) {
@@ -415,10 +344,6 @@ export class RemotePlayerManager {
       buffer,
       lastSeen: performance.now(),
       invincibleUntil,
-      shieldGroup: shield.group,
-      shieldInnerMat: shield.innerMat,
-      shieldOuterMat: shield.outerMat,
-      shieldOuterMesh: shield.outerMesh,
       nametagCanvas,
       nametagTexture,
       paletteHex: palette.hex,

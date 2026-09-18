@@ -407,8 +407,8 @@ function buildMansardRoof(
 
   // Upper flat deck
   const upperShape = new THREE.Shape()
-  upperShape.moveTo(innerVerts[0]!.x, innerVerts[0]!.y)
-  for (let i = 1; i < innerVerts.length; i++) upperShape.lineTo(innerVerts[i]!.x, innerVerts[i]!.y)
+  upperShape.moveTo(innerVerts[0]!.x, -innerVerts[0]!.y)
+  for (let i = 1; i < innerVerts.length; i++) upperShape.lineTo(innerVerts[i]!.x, -innerVerts[i]!.y)
   upperShape.closePath()
 
   const upperGeo = new THREE.ShapeGeometry(upperShape)
@@ -562,8 +562,8 @@ function buildOpenCanopy(
 
   // Roof slab
   const shape = new THREE.Shape()
-  shape.moveTo(fp[0]!.x, fp[0]!.y)
-  for (let i = 1; i < fp.length; i++) shape.lineTo(fp[i]!.x, fp[i]!.y)
+  shape.moveTo(fp[0]!.x, -fp[0]!.y)
+  for (let i = 1; i < fp.length; i++) shape.lineTo(fp[i]!.x, -fp[i]!.y)
   shape.closePath()
 
   const roofGeo = new THREE.ExtrudeGeometry(shape, { depth: 0.35, bevelEnabled: false })

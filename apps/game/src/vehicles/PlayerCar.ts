@@ -91,11 +91,6 @@ export class PlayerCar {
 
   // ── Invincibility System ──────────────────────────────────────────────────
   private invincibleUntil: number = Date.now() + 30_000
-  private shieldGroup!: THREE.Group
-  private shieldInnerMat!: THREE.MeshStandardMaterial
-  private shieldOuterMat!: THREE.MeshBasicMaterial
-  private shieldOuterMesh!: THREE.Mesh
-  private shieldTime = 0
   private lastWarningPlayed = false
   private wasInvincible = true
 
@@ -152,8 +147,6 @@ export class PlayerCar {
 
     // ── Visual mesh ─────────────────────────────────────────────────────────
     this.mesh = this._buildMesh()
-    this.shieldGroup = this._buildShieldMesh()
-    this.mesh.add(this.shieldGroup)
     scene.add(this.mesh)
   }
 
@@ -522,46 +515,6 @@ export class PlayerCar {
     return car
   }
 
-  private _buildShieldMesh(): THREE.Group {
-    const group = new THREE.Group()
-    group.name = 'player_shield'
-
-    // Inner glowing aerodynamic forcefield ellipsoid
-    const innerGeo = new THREE.SphereGeometry(1, 32, 20)
-    this.shieldInnerMat = new THREE.MeshStandardMaterial({
-      color: 0x00d4ff,
-      emissive: 0x0099ff,
-      emissiveIntensity: 0.85,
-      roughness: 0.1,
-      metalness: 0.15,
-      transparent: true,
-      opacity: 0.28,
-      depthWrite: false,
-      side: THREE.DoubleSide,
-    })
-    const innerMesh = new THREE.Mesh(innerGeo, this.shieldInnerMat)
-    innerMesh.scale.set(1.5, 1.1, 2.7)
-    innerMesh.position.set(0, 0.65, 0)
-    group.add(innerMesh)
-
-    // Outer lattice wireframe shell with additive glow
-    const outerGeo = new THREE.IcosahedronGeometry(1.02, 3)
-    this.shieldOuterMat = new THREE.MeshBasicMaterial({
-      color: 0x66f0ff,
-      wireframe: true,
-      transparent: true,
-      opacity: 0.25,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-    })
-    this.shieldOuterMesh = new THREE.Mesh(outerGeo, this.shieldOuterMat)
-    this.shieldOuterMesh.scale.set(1.53, 1.13, 2.73)
-    this.shieldOuterMesh.position.set(0, 0.65, 0)
-    group.add(this.shieldOuterMesh)
-
-    return group
-  }
-
   triggerInvincibility(durationMs = 30_000): void {
     this.invincibleUntil = Date.now() + durationMs
     this.lastWarningPlayed = false
@@ -740,7 +693,7 @@ export class PlayerCar {
       }
     }
 
-    // ── 5. Invincibility Forcefield Animation ────────────────────────────────
+    // ── 5. Invincibility State Tracking ─────────────────────────────────────
     const remaining = this.getInvincibilityRemaining()
     const currentlyInvincible = remaining > 0
     if (currentlyInvincible !== this.wasInvincible) {
@@ -748,33 +701,11 @@ export class PlayerCar {
       this.onInvincibilityChanged?.(currentlyInvincible)
     }
 
-    if (currentlyInvincible) {
-      this.shieldGroup.visible = true
-      this.shieldTime += dt
-      this.shieldOuterMesh.rotation.y += dt * 0.45
-      this.shieldOuterMesh.rotation.z += dt * 0.18
-
-      if (remaining <= 5.0) {
-        if (!this.lastWarningPlayed) {
-          this.lastWarningPlayed = true
-          this.onInvincibilityWarning?.()
-        }
-        const flash = Math.sin(this.shieldTime * 14) > 0
-        this.shieldInnerMat.color.setHex(flash ? 0xff3b00 : 0xffaa00)
-        this.shieldInnerMat.emissive.setHex(flash ? 0xff2200 : 0xff6600)
-        this.shieldOuterMat.color.setHex(flash ? 0xff7700 : 0xffdd44)
-        this.shieldInnerMat.opacity = flash ? 0.42 : 0.16
-        this.shieldOuterMat.opacity = flash ? 0.35 : 0.12
-      } else {
-        const pulse = Math.sin(this.shieldTime * 3.5) * 0.08
-        this.shieldInnerMat.color.setHex(0x00d4ff)
-        this.shieldInnerMat.emissive.setHex(0x0088ff)
-        this.shieldOuterMat.color.setHex(0x66f0ff)
-        this.shieldInnerMat.opacity = 0.28 + pulse
-        this.shieldOuterMat.opacity = 0.22 + pulse * 0.5
+    if (currentlyInvincible && remaining <= 5.0) {
+      if (!this.lastWarningPlayed) {
+        this.lastWarningPlayed = true
+        this.onInvincibilityWarning?.()
       }
-    } else {
-      this.shieldGroup.visible = false
     }
   }
 

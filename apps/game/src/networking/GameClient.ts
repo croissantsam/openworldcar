@@ -24,12 +24,9 @@ import { v4 as uuidv4 } from 'uuid'
 
 /** Resolve WS server URL. Override with VITE_WS_URL env var. */
 function resolveWsUrl(): string {
-  const env = (import.meta as { env?: Record<string, string> }).env
-  if (env?.['VITE_WS_URL']) return env['VITE_WS_URL']
   const isDev = window.location.hostname === 'localhost'
-  if (isDev) return 'wss://openspeed.onrender.com/'
-  const proto = window.location.protocol === 'https:' ? 'wss:' : 'wss:'
-  return `wss://openspeed.onrender.com/`
+  if (isDev) return 'wss://openspeed.onrender.com'
+  return `wss://openspeed.onrender.com`
 }
 
 const MIN_RECONNECT_MS = 1_000

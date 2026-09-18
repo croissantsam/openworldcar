@@ -14,7 +14,25 @@ export type HighwayType =
   | 'path'
   | 'footway'
   | 'cycleway'
+  | 'pedestrian'
+  | 'steps'
   | 'unclassified'
+
+/** OSM surface tag values that affect visual rendering. */
+export type RoadSurface =
+  | 'asphalt'
+  | 'concrete'
+  | 'cobblestone'
+  | 'sett'
+  | 'paved'
+  | 'unpaved'
+  | 'gravel'
+  | 'fine_gravel'
+  | 'dirt'
+  | 'ground'
+  | 'sand'
+
+export type RoadElevationMode = 'ground' | 'bridge' | 'tunnel'
 
 export type Road = {
   id: string
@@ -22,15 +40,89 @@ export type Road = {
   name?: string
   lanes: number
   maxSpeed?: number
+  /** Whether this is a roundabout (junction=roundabout). */
+  isRoundabout?: boolean
+  /** Road surface material from OSM surface tag. */
+  surface?: RoadSurface
   /** Whether this segment has bridge tag. */
   bridge: boolean
   /** Whether this segment has tunnel tag. */
   tunnel: boolean
+  /** OSM layer relative vertical level (-1 = tunnel, 0 = ground, 1 = overpass/bridge). */
+  layer: number
+  /** Elevation classification according to pont.txt (ground, bridge, tunnel). */
+  elevationMode: RoadElevationMode
+  /** Estimated or calculated vertical clearance/height for bridges (metres). */
+  bridgeHeight?: number
+  /** Sidewalk presence mode: both, left, right, or none (from sidewalk=*). */
+  sidewalkMode?: 'both' | 'left' | 'right' | 'none'
+  /** Cycleway infrastructure associated with road (from cycleway=*). */
+  cycleway?: 'lane' | 'track' | 'shared_lane' | 'both' | 'right' | 'left' | 'none'
+  /** Whether the road is one-way (from oneway=yes). */
+  oneway?: boolean
+  /** Roadside parking bays along the curb (from parking:lane=*). */
+  parkingLane?: 'both' | 'right' | 'left' | 'none'
+  /** Whether road has a dedicated bus lane (from bus:lanes=*). */
+  hasBusLane?: boolean
+  /** Whether road has street lighting (from lit=yes). */
+  lit?: boolean
+  /** Explicit roadway width measured in metres from OSM (width=* or est_width=*). */
+  explicitWidth?: number
   /** Ordered list of world-space points along the road centre-line. */
   points: WorldPosition[]
 }
 
 // ─── Building ────────────────────────────────────────────────────────────────
+
+/** OSM building type values that affect visual rendering. */
+export type BuildingType =
+  | 'house'
+  | 'detached'
+  | 'semidetached_house'
+  | 'terrace'
+  | 'apartments'
+  | 'bungalow'
+  | 'hut'
+  | 'garage'
+  | 'garages'
+  | 'carport'
+  | 'warehouse'
+  | 'industrial'
+  | 'commercial'
+  | 'retail'
+  | 'office'
+  | 'supermarket'
+  | 'hotel'
+  | 'hospital'
+  | 'school'
+  | 'university'
+  | 'kindergarten'
+  | 'church'
+  | 'cathedral'
+  | 'mosque'
+  | 'temple'
+  | 'synagogue'
+  | 'train_station'
+  | 'stadium'
+  | 'sports_hall'
+  | 'fire_station'
+  | 'government'
+  | 'civic'
+  | 'public'
+  | 'service'
+  | 'parking'
+  | 'hangar'
+  | 'farm'
+  | 'farm_auxiliary'
+  | 'stable'
+  | 'roof'
+  | 'monument'
+  | 'castle'
+  | 'manor'
+  | 'yes'
+
+/** OSM roof:shape values. */
+export type RoofShape = 'flat' | 'gabled' | 'hipped' | 'pyramidal' | 'dome' | 'round' | 'mansard' | 'skillion'
 
 export type Building = {
   id: string
@@ -38,6 +130,19 @@ export type Building = {
   footprint: WorldPosition[]
   height: number
   levels: number
+  minHeight?: number
+  /** OSM building=* value for type-specific rendering. */
+  buildingType?: BuildingType
+  material?: string
+  /** OSM building:colour or colour tag (CSS hex string, e.g. "#8a867e"). */
+  colour?: string
+  /** OSM roof:shape tag. */
+  roofShape?: RoofShape
+  roofMaterial?: string
+  /** OSM roof:colour tag. */
+  roofColour?: string
+  roofHeight?: number
+  name?: string
 }
 
 // ─── Point of Interest ───────────────────────────────────────────────────────
@@ -75,13 +180,47 @@ export type Waterway = {
 
 // ─── Parks & Green Spaces ───────────────────────────────────────────────────
 
-export type ParkType = 'park' | 'garden' | 'grass' | 'forest' | 'recreation'
+export type ParkType =
+  | 'park'
+  | 'garden'
+  | 'grass'
+  | 'forest'
+  | 'recreation'
+  | 'cemetery'
+  | 'farmland'
+  | 'parking_lot'
+  | 'pitch'
+  | 'beach'
+  | 'cliff'
+  | 'scrub'
 
 export type Park = {
   id: string
   type: ParkType
   name?: string
   polygon: WorldPosition[]
+}
+
+// ─── Railway ─────────────────────────────────────────────────────────────────
+
+export type RailwayType = 'rail' | 'tram' | 'light_rail' | 'subway' | 'monorail' | 'narrow_gauge'
+
+export type Railway = {
+  id: string
+  type: RailwayType
+  name?: string
+  points: WorldPosition[]
+}
+
+// ─── Barrier ─────────────────────────────────────────────────────────────────
+
+export type BarrierType = 'wall' | 'fence' | 'hedge' | 'guard_rail'
+
+export type Barrier = {
+  id: string
+  type: BarrierType
+  height?: number
+  points: WorldPosition[]
 }
 
 // ─── Chunk ───────────────────────────────────────────────────────────────────
@@ -93,7 +232,10 @@ export type WorldChunk = {
   pointsOfInterest: PointOfInterest[]
   waterways: Waterway[]
   parks: Park[]
+  railways: Railway[]
+  barriers?: Barrier[]
 }
+
 
 // ─── Road graph ──────────────────────────────────────────────────────────────
 

@@ -2,10 +2,17 @@
  * Normalize raw OSM GeoJSON features into game types.
  */
 
-import type { Road, Building, PointOfInterest, HighwayType, PoiCategory, Waterway, WaterwayType, Park, ParkType } from '@world-drive/shared'
+import type {
+  Road, RoadElevationMode, Building, PointOfInterest, HighwayType, RoadSurface, BuildingType, RoofShape,
+  PoiCategory, Waterway, WaterwayType, Park, ParkType, Railway, RailwayType,
+  Barrier, BarrierType,
+} from '@world-drive/shared'
 import type { WorldPosition } from '@world-drive/math'
 import { lonLatArrayToWorld } from '../geo/projection.js'
-import { isWantedHighway, isWantedBuilding, isWantedPoi, isWantedPark, type OsmTags } from './filter.js'
+import {
+  isWantedHighway, isWantedBuilding, isWantedPoi, isWantedPark, isWantedRailway, isWantedBarrier,
+  type OsmTags,
+} from './filter.js'
 
 const DEFAULT_FLOOR_HEIGHT = 3.5 // metres
 
@@ -20,9 +27,9 @@ function normalizeLanes(raw: string | undefined, highway: string): number {
     const n = parseInt(raw, 10)
     if (!isNaN(n)) return Math.max(2, n)
   }
-  // - Grosses avenues (primary, motorway, trunk) : 4 voies (2 voies dans chaque sens)
+  // Grosses avenues (primary, motorway, trunk) : 4 voies
   if (highway === 'motorway' || highway === 'trunk' || highway === 'primary') return 4
-  // - Rues de ville & boulevards (secondary, tertiary, residential, pedestrian, etc.) : 2 voies
+  // Rues de ville & boulevards : 2 voies
   return 2
 }
 
@@ -37,11 +44,37 @@ function normalizeHighwayType(raw: string): HighwayType {
     residential: 'residential',
     service: 'service',
     living_street: 'residential',
-    pedestrian: 'residential',
+    pedestrian: 'pedestrian',
+    cycleway: 'cycleway',
+    footway: 'footway',
+    path: 'path',
+    steps: 'steps',
     unclassified: 'unclassified',
     road: 'unclassified',
   }
   return map[raw] ?? 'unclassified'
+}
+
+function normalizeRoadSurface(raw: string | undefined): RoadSurface | undefined {
+  if (!raw) return undefined
+  const map: Record<string, RoadSurface> = {
+    asphalt: 'asphalt',
+    concrete: 'concrete',
+    'concrete:lanes': 'concrete',
+    'concrete:plates': 'concrete',
+    cobblestone: 'cobblestone',
+    sett: 'sett',
+    paved: 'paved',
+    unpaved: 'unpaved',
+    gravel: 'gravel',
+    fine_gravel: 'fine_gravel',
+    dirt: 'dirt',
+    ground: 'ground',
+    sand: 'sand',
+    compacted: 'gravel',
+    brick: 'sett',
+  }
+  return map[raw] ?? undefined
 }
 
 export type RawOsmWay = {
@@ -58,6 +91,56 @@ export type RawOsmNode = {
   lat: number
 }
 
+function normalizeSidewalk(tags: OsmTags, highway: string): 'both' | 'left' | 'right' | 'none' {
+  const sw = tags['sidewalk']
+  const swBoth = tags['sidewalk:both']
+  const swLeft = tags['sidewalk:left']
+  const swRight = tags['sidewalk:right']
+
+  if (sw === 'none' || sw === 'no') return 'none'
+  if (sw === 'both' || sw === 'yes' || (swBoth && swBoth !== 'no')) return 'both'
+  if (sw === 'left' || (swLeft && swLeft !== 'no' && (!swRight || swRight === 'no'))) return 'left'
+  if (sw === 'right' || (swRight && swRight !== 'no' && (!swLeft || swLeft === 'no'))) return 'right'
+  if (swLeft && swLeft !== 'no' && swRight && swRight !== 'no') return 'both'
+
+  // Default: motorways, trunks, and link ramps have no pedestrian sidewalks
+  if (highway === 'motorway' || highway === 'trunk' || highway.endsWith('_link')) {
+    return 'none'
+  }
+  return 'both'
+}
+
+function normalizeCycleway(tags: OsmTags): 'lane' | 'track' | 'shared_lane' | 'both' | 'right' | 'left' | 'none' | undefined {
+  const cw = tags['cycleway']
+  const cwBoth = tags['cycleway:both']
+  const cwRight = tags['cycleway:right']
+  const cwLeft = tags['cycleway:left']
+
+  if (cw === 'no' || cw === 'none') return 'none'
+  if (cw === 'lane' || cwBoth === 'lane') return 'lane'
+  if (cw === 'track' || cwBoth === 'track') return 'track'
+  if (cw === 'shared_lane') return 'shared_lane'
+  if (cw === 'both' || (cwRight && cwLeft)) return 'both'
+  if (cw === 'right' || cwRight) return 'right'
+  if (cw === 'left' || cwLeft) return 'left'
+  if (cw && cw !== 'no') return 'lane'
+  return undefined
+}
+
+function normalizeParkingLane(tags: OsmTags): 'both' | 'right' | 'left' | 'none' | undefined {
+  const pk = tags['parking:lane']
+  const pkBoth = tags['parking:lane:both']
+  const pkRight = tags['parking:lane:right']
+  const pkLeft = tags['parking:lane:left']
+
+  if (pk === 'none' || pk === 'no') return 'none'
+  if (pk === 'both' || (pkRight && pkLeft) || (pkBoth && pkBoth !== 'no')) return 'both'
+  if (pk === 'right' || (pkRight && pkRight !== 'no')) return 'right'
+  if (pk === 'left' || (pkLeft && pkLeft !== 'no')) return 'left'
+  if (pk && (pk === 'parallel' || pk === 'diagonal' || pk === 'perpendicular' || pk === 'yes')) return 'both'
+  return undefined
+}
+
 export function normalizeRoad(way: RawOsmWay): Road | null {
   if (!isWantedHighway(way.tags)) return null
   const points = lonLatArrayToWorld(way.coords)
@@ -66,16 +149,146 @@ export function normalizeRoad(way: RawOsmWay): Road | null {
   const highway = way.tags['highway'] ?? 'unclassified'
   const name = way.tags['name']
   const maxSpeed = parseMaxSpeed(way.tags['maxspeed'])
+  const surface = normalizeRoadSurface(way.tags['surface'])
+  const isRoundabout = way.tags['junction'] === 'roundabout'
+
+  const layer = parseInt(way.tags['layer'] ?? '0', 10) || 0
+  const isBridge = way.tags['bridge'] === 'yes' || way.tags['bridge'] === 'viaduct' || layer > 0
+  const isTunnel = way.tags['tunnel'] === 'yes' || way.tags['tunnel'] === 'building_passage' || layer < 0
+
+  let elevationMode: RoadElevationMode = 'ground'
+  if (isBridge) elevationMode = 'bridge'
+  else if (isTunnel) elevationMode = 'tunnel'
+
+  // Bridge clearance height calculation (from pont.txt sections 6, 10, 21)
+  const bridgeHeight = isBridge ? Math.max(3.8, Math.abs(layer) * 4.5 || 4.5) : undefined
+
+  const onewayTag = way.tags['oneway']
+  const isOneway = onewayTag === 'yes' || onewayTag === '1' || onewayTag === '-1' || isRoundabout || highway === 'motorway' || highway === 'motorway_link'
+
+  const hasBusLane = Boolean(
+    way.tags['bus:lanes'] ||
+    way.tags['lanes:bus'] ||
+    way.tags['busway'] ||
+    way.tags['busway:right'] ||
+    way.tags['busway:left'] ||
+    way.tags['busway:both'] ||
+    highway === 'busway'
+  )
+
+  const sidewalkMode = normalizeSidewalk(way.tags, highway)
+  const cycleway = normalizeCycleway(way.tags)
+  const parkingLane = normalizeParkingLane(way.tags)
+  const isLit = way.tags['lit'] === 'yes'
+
+  const rawWidth = parseFloat(way.tags['width'] ?? way.tags['est_width'] ?? '0')
+  const explicitWidth = rawWidth > 0 && !isNaN(rawWidth) ? rawWidth : undefined
+
   return {
     id: way.id,
     highway: normalizeHighwayType(highway),
     ...(name !== undefined ? { name } : {}),
     lanes: normalizeLanes(way.tags['lanes'], highway),
     ...(maxSpeed !== undefined ? { maxSpeed } : {}),
-    bridge: way.tags['bridge'] === 'yes',
-    tunnel: way.tags['tunnel'] === 'yes',
+    ...(surface !== undefined ? { surface } : {}),
+    ...(isRoundabout ? { isRoundabout: true } : {}),
+    bridge: isBridge,
+    tunnel: isTunnel,
+    layer,
+    elevationMode,
+    ...(bridgeHeight !== undefined ? { bridgeHeight } : {}),
+    sidewalkMode,
+    ...(cycleway !== undefined ? { cycleway } : {}),
+    ...(isOneway ? { oneway: true } : {}),
+    ...(parkingLane !== undefined ? { parkingLane } : {}),
+    ...(hasBusLane ? { hasBusLane: true } : {}),
+    ...(isLit ? { lit: true } : {}),
+    ...(explicitWidth !== undefined ? { explicitWidth } : {}),
     points,
   }
+}
+
+/** Type-specific default height fallbacks (metres) */
+const BUILDING_TYPE_HEIGHTS: Partial<Record<BuildingType, number>> = {
+  house: 6,
+  detached: 6,
+  semidetached_house: 7,
+  terrace: 8,
+  apartments: 18, // 5-6 storey residential apartment building (typical Paris/European)
+  bungalow: 4,
+  hut: 3,
+  garage: 3,
+  garages: 3,
+  carport: 2.8,
+  warehouse: 9,
+  industrial: 8,
+  commercial: 14,
+  retail: 8,
+  office: 24,
+  supermarket: 6,
+  hotel: 20,
+  hospital: 22,
+  school: 10,
+  university: 16,
+  kindergarten: 5,
+  church: 18,
+  cathedral: 32,
+  mosque: 16,
+  temple: 14,
+  synagogue: 14,
+  train_station: 12,
+  stadium: 22,
+  sports_hall: 9,
+  fire_station: 9,
+  government: 18,
+  civic: 15,
+  public: 14,
+  service: 5,
+  parking: 14,
+  hangar: 11,
+  farm: 6,
+  farm_auxiliary: 5,
+  stable: 4.5,
+  roof: 3.5,
+  monument: 15,
+  castle: 25,
+  manor: 12,
+  yes: 8,
+}
+
+function parseCssColour(raw: string | undefined): string | undefined {
+  if (!raw) return undefined
+  // Accept both "#rrggbb" and plain 6-hex "rrggbb"
+  if (/^#[0-9a-fA-F]{3,6}$/.test(raw)) return raw
+  if (/^[0-9a-fA-F]{6}$/.test(raw)) return `#${raw}`
+  return undefined
+}
+
+function normalizeRoofShape(raw: string | undefined): RoofShape | undefined {
+  if (!raw) return undefined
+  const valid: RoofShape[] = ['flat', 'gabled', 'hipped', 'pyramidal', 'dome', 'round', 'mansard', 'skillion']
+  return valid.includes(raw as RoofShape) ? (raw as RoofShape) : undefined
+}
+
+function normalizeBuildingType(raw: string | undefined, tags?: OsmTags): BuildingType | undefined {
+  if (tags?.['historic']) {
+    const h = tags['historic']
+    if (h === 'monument' || h === 'memorial') return 'monument'
+    if (h === 'castle') return 'castle'
+    if (h === 'manor') return 'manor'
+    if (h === 'church') return 'church'
+  }
+  if (!raw) return undefined
+  const valid: BuildingType[] = [
+    'house', 'detached', 'semidetached_house', 'terrace', 'apartments', 'bungalow',
+    'hut', 'garage', 'garages', 'carport', 'warehouse', 'industrial', 'commercial',
+    'retail', 'office', 'supermarket', 'hotel', 'hospital', 'school', 'university',
+    'kindergarten', 'church', 'cathedral', 'mosque', 'temple', 'synagogue',
+    'train_station', 'stadium', 'sports_hall', 'fire_station', 'government',
+    'civic', 'public', 'service', 'parking', 'hangar', 'farm', 'farm_auxiliary',
+    'stable', 'roof', 'monument', 'castle', 'manor', 'yes',
+  ]
+  return valid.includes(raw as BuildingType) ? (raw as BuildingType) : 'yes'
 }
 
 export function normalizeBuilding(way: RawOsmWay): Building | null {
@@ -83,15 +296,48 @@ export function normalizeBuilding(way: RawOsmWay): Building | null {
   const footprint = lonLatArrayToWorld(way.coords)
   if (footprint.length < 3) return null
 
-  const levels = parseInt(way.tags['building:levels'] ?? '0', 10) || 2
+  const buildingTag = way.tags['building'] ?? way.tags['building:part'] ?? (way.tags['historic'] ? 'yes' : undefined)
+  const buildingType = normalizeBuildingType(buildingTag, way.tags)
+  const levels = parseInt(way.tags['building:levels'] ?? '0', 10) || 0
+  const minLevel = parseInt(way.tags['building:min_level'] ?? '0', 10) || 0
   const heightTag = parseFloat(way.tags['height'] ?? '0')
-  const height = heightTag > 0 ? heightTag : levels * DEFAULT_FLOOR_HEIGHT
+  const minHeightTag = parseFloat(way.tags['min_height'] ?? '0')
+  const typeDefaultHeight = buildingType ? (BUILDING_TYPE_HEIGHTS[buildingType] ?? 8) : 8
+  const floorH = (buildingType === 'office' || buildingType === 'commercial' || buildingType === 'hotel') ? 3.6 : DEFAULT_FLOOR_HEIGHT
+  const height = heightTag > 0
+    ? heightTag
+    : levels > 0
+      ? levels * floorH
+      : typeDefaultHeight
+
+  const minHeight = minHeightTag > 0
+    ? minHeightTag
+    : minLevel > 0
+      ? minLevel * floorH
+      : undefined
+
+  const colour = parseCssColour(way.tags['building:colour'] ?? way.tags['colour'])
+  const roofColour = parseCssColour(way.tags['roof:colour'])
+  const roofShape = normalizeRoofShape(way.tags['roof:shape'])
+  const roofHeight = parseFloat(way.tags['roof:height'] ?? '0') || undefined
+  const material = way.tags['building:material'] ?? way.tags['material']
+  const roofMaterial = way.tags['roof:material']
+  const name = way.tags['name']
 
   return {
     id: way.id,
     footprint,
     height,
-    levels,
+    levels: levels || Math.round(height / floorH),
+    ...(minHeight !== undefined ? { minHeight } : {}),
+    ...(buildingType ? { buildingType } : {}),
+    ...(material ? { material } : {}),
+    ...(colour ? { colour } : {}),
+    ...(roofShape ? { roofShape } : {}),
+    ...(roofMaterial ? { roofMaterial } : {}),
+    ...(roofColour ? { roofColour } : {}),
+    ...(roofHeight !== undefined ? { roofHeight } : {}),
+    ...(name !== undefined ? { name } : {}),
   }
 }
 
@@ -121,48 +367,60 @@ export function normalizePoi(
 }
 
 const WATERWAY_WIDTHS: Record<string, number> = {
-  river: 22,
-  canal: 14,
-  stream: 5,
-  drain: 2,
-  dock: 30,
-  lake: 50,
-  basin: 30,
-  water: 25,
+  river: 90,
+  canal: 26,
+  stream: 6,
+  drain: 3,
+  ditch: 3,
+  tidal_channel: 20,
+  dock: 50,
+  lake: 60,
+  basin: 45,
+  water: 35,
 }
 
 export function normalizeWaterway(way: RawOsmWay): Waterway | null {
+  // Exclude subterranean aqueducts, underground culverts, buried rivers, and covered canals
+  if (way.tags['tunnel'] && way.tags['tunnel'] !== 'no') return null
+  if (way.tags['covered'] === 'yes') return null
+  if (way.tags['location'] === 'underground') return null
+  const layer = parseInt(way.tags['layer'] ?? '0', 10)
+  if (layer < 0) return null
+
   const waterwayTag = way.tags['waterway']
+  // Exclude roadside storm drains and ditches (not major open surface water features)
+  if (waterwayTag === 'drain' || waterwayTag === 'ditch') return null
+
   const naturalTag = way.tags['natural']
   const waterSubTag = way.tags['water']
   const landuseTag = way.tags['landuse']
 
   // Determine if this is water
   let type: WaterwayType = 'water'
-  let isPolygon = false
 
-  if (waterwayTag === 'riverbank' || naturalTag === 'water' || landuseTag === 'basin' || landuseTag === 'reservoir') {
-    isPolygon = true
+  if (waterwayTag === 'riverbank' || naturalTag === 'water' || landuseTag === 'basin' || landuseTag === 'reservoir' || waterSubTag) {
     if (waterSubTag === 'river' || waterwayTag === 'riverbank') type = 'river'
     else if (waterSubTag === 'canal' || waterwayTag === 'canal') type = 'canal'
-    else if (waterSubTag === 'lake' || naturalTag === 'water') type = 'lake'
-    else if (landuseTag === 'basin' || waterSubTag === 'basin') type = 'basin'
+    else if (waterSubTag === 'lake' || waterSubTag === 'pond' || naturalTag === 'water') type = 'lake'
+    else if (landuseTag === 'basin' || waterSubTag === 'basin' || landuseTag === 'reservoir' || waterSubTag === 'reservoir') type = 'basin'
     else type = 'water'
   } else if (waterwayTag) {
-    if (['river', 'stream', 'canal', 'drain', 'dock'].includes(waterwayTag)) {
+    if (['river', 'stream', 'canal', 'dock'].includes(waterwayTag)) {
       type = waterwayTag as WaterwayType
+    } else if (['dock', 'lock', 'tidal_channel'].includes(waterwayTag)) {
+      type = 'dock'
     } else {
       type = 'water'
     }
-  } else if (waterSubTag) {
-    type = 'water'
   } else {
     return null
   }
 
-  // Check if closed polygon
   const coords = way.coords
   if (coords.length < 2) return null
+
+  // A way is ONLY a polygon if it is genuinely a closed loop (>= 4 coords, first === last)
+  let isPolygon = false
   if (coords.length >= 4) {
     const first = coords[0]!
     const last = coords[coords.length - 1]!
@@ -175,8 +433,14 @@ export function normalizeWaterway(way: RawOsmWay): Waterway | null {
   if (points.length < 2) return null
 
   const widthTag = parseFloat(way.tags['width'] ?? '0')
-  const width = widthTag > 0 ? widthTag : (WATERWAY_WIDTHS[type] ?? 10)
+  let width = widthTag > 0 ? widthTag : (WATERWAY_WIDTHS[type] ?? 15)
+
   const name = way.tags['name']
+  // If it's a major famous river like La Seine, give it realistic Parisian river width (120-140m)
+  if (name && /seine/i.test(name)) {
+    width = Math.max(width, 130)
+    type = 'river'
+  }
 
   return {
     id: way.id,
@@ -194,12 +458,22 @@ export function normalizePark(way: RawOsmWay): Park | null {
   const leisure = way.tags['leisure']
   const landuse = way.tags['landuse']
   const natural = way.tags['natural']
+  const amenity = way.tags['amenity']
 
   let type: ParkType = 'park'
   if (leisure === 'garden') type = 'garden'
+  else if (leisure === 'pitch') type = 'pitch'
+  else if (leisure === 'swimming_pool') type = 'recreation' // pool — blue rectangle
   else if (landuse === 'grass' || landuse === 'village_green' || landuse === 'meadow') type = 'grass'
   else if (landuse === 'forest' || natural === 'wood') type = 'forest'
-  else if (leisure === 'pitch' || leisure === 'recreation_ground' || leisure === 'playground') type = 'recreation'
+  else if (natural === 'scrub' || natural === 'heath') type = 'scrub'
+  else if (natural === 'beach' || natural === 'sand') type = 'beach'
+  else if (natural === 'cliff') type = 'cliff'
+  else if (landuse === 'cemetery' || amenity === 'grave_yard') type = 'cemetery'
+  else if (landuse === 'farmland' || landuse === 'farmyard' || landuse === 'orchard' || landuse === 'vineyard' || landuse === 'allotments') type = 'farmland'
+  else if (landuse === 'parking') type = 'parking_lot'
+  else if (natural === 'grassland' || natural === 'wetland' || natural === 'marsh') type = 'grass'
+  else if (leisure === 'recreation_ground' || leisure === 'playground' || leisure === 'dog_park' || leisure === 'common') type = 'recreation'
   else type = 'park'
 
   const coords = way.coords
@@ -216,4 +490,12 @@ export function normalizePark(way: RawOsmWay): Park | null {
     ...(name !== undefined ? { name } : {}),
     polygon: points,
   }
+}
+
+export function normalizeRailway(_way: RawOsmWay): Railway | null {
+  return null
+}
+
+export function normalizeBarrier(_way: RawOsmWay): Barrier | null {
+  return null
 }

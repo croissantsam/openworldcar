@@ -2,90 +2,387 @@
  * ParkMeshGenerator — renders OSM parks, gardens, and green spaces.
  *
  * Features:
- *   - Rich PBR lawn surfaces for parks, gardens, and urban grass
- *   - Delimited low perimeter fence / railing with stone base and metal bars
- *   - Regular entrance openings (portes / passages piétons) flanked by stone pillars
- *   - Procedural 3D trees scattered inside park boundaries
- *   - Low-poly stylized trees with trunks and lush foliage
+ *   - Rich PBR lawn surfaces with seamless procedural grass texture
+ *   - Completely open perimeter (no fences or blocking barriers)
+ *   - Highly realistic Parisian tree archetypes (Platanes, Tilleuls, Arbres d'ornement)
+ *     with authentic bark trunks, spreading boughs, and lush billowing leafy crowns
+ *   - Authentic Parisian park furniture (Bancs publics Davioud en fonte et bois)
+ *   - Organic shrubs, flowerbeds, and compacted gravel walking paths
+ *   - Accurate Rapier tree-trunk colliders (open access for driving on grass)
  */
 
 import * as THREE from 'three'
 import RAPIER from '@dimforge/rapier3d-compat'
 import type { Park, ParkType, Road } from '@world-drive/shared'
 
-// ── Park grass materials ───────────────────────────────────────────────────
-// Depth offset pushes park lawn into background so road asphalt & sidewalks always win depth testing
-const PARK_MATS: Record<ParkType, THREE.MeshStandardMaterial> = {
-  park:       new THREE.MeshStandardMaterial({ color: 0x3a6e35, roughness: 0.94, metalness: 0.0, polygonOffset: true, polygonOffsetFactor: 4.0, polygonOffsetUnits: 4.0 }),
-  garden:     new THREE.MeshStandardMaterial({ color: 0x427c3d, roughness: 0.92, metalness: 0.0, polygonOffset: true, polygonOffsetFactor: 4.0, polygonOffsetUnits: 4.0 }),
-  grass:      new THREE.MeshStandardMaterial({ color: 0x4c8544, roughness: 0.95, metalness: 0.0, polygonOffset: true, polygonOffsetFactor: 4.0, polygonOffsetUnits: 4.0 }),
-  forest:     new THREE.MeshStandardMaterial({ color: 0x2b5428, roughness: 0.90, metalness: 0.0, polygonOffset: true, polygonOffsetFactor: 4.0, polygonOffsetUnits: 4.0 }),
-  recreation: new THREE.MeshStandardMaterial({ color: 0x487e40, roughness: 0.92, metalness: 0.0, polygonOffset: true, polygonOffsetFactor: 4.0, polygonOffsetUnits: 4.0 }),
+// ── Procedural Textures ───────────────────────────────────────────────────
+
+let _grassTexture: THREE.CanvasTexture | null = null
+function getGrassTexture(): THREE.CanvasTexture {
+  if (_grassTexture) return _grassTexture
+  if (typeof document === 'undefined') {
+    return new THREE.CanvasTexture({} as HTMLCanvasElement)
+  }
+
+  const canvas = document.createElement('canvas')
+  canvas.width = 512
+  canvas.height = 512
+  const ctx = canvas.getContext('2d')!
+
+  // Deep rich grass green base
+  ctx.fillStyle = '#3a7233'
+  ctx.fillRect(0, 0, 512, 512)
+
+  const idata = ctx.getImageData(0, 0, 512, 512)
+  const d = idata.data
+  for (let i = 0; i < d.length; i += 4) {
+    const noise = (Math.random() - 0.5) * 38
+    d[i] = Math.min(255, Math.max(0, 58 + noise * 0.7))      // R
+    d[i + 1] = Math.min(255, Math.max(0, 114 + noise))       // G (vibrant)
+    d[i + 2] = Math.min(255, Math.max(0, 51 + noise * 0.6))  // B
+    d[i + 3] = 255
+  }
+  ctx.putImageData(idata, 0, 0)
+
+  // Subtle grass blade strokes & organic mossy specks
+  ctx.fillStyle = 'rgba(78, 148, 66, 0.35)'
+  for (let k = 0; k < 1200; k++) {
+    const x = Math.random() * 512
+    const y = Math.random() * 512
+    const h = 2 + Math.random() * 5
+    ctx.fillRect(x, y, 1.5, h)
+  }
+
+  ctx.fillStyle = 'rgba(38, 74, 34, 0.30)'
+  for (let k = 0; k < 800; k++) {
+    const x = Math.random() * 512
+    const y = Math.random() * 512
+    ctx.fillRect(x, y, 2, 2)
+  }
+
+  // Very subtle earth speckles
+  ctx.fillStyle = 'rgba(102, 82, 52, 0.12)'
+  for (let k = 0; k < 300; k++) {
+    ctx.fillRect(Math.random() * 512, Math.random() * 512, 2, 2)
+  }
+
+  _grassTexture = new THREE.CanvasTexture(canvas)
+  _grassTexture.wrapS = THREE.RepeatWrapping
+  _grassTexture.wrapT = THREE.RepeatWrapping
+  _grassTexture.repeat.set(1, 1)
+  return _grassTexture
 }
 
-// ── Tree materials ─────────────────────────────────────────────────────────
+let _barkTexture: THREE.CanvasTexture | null = null
+function getBarkTexture(): THREE.CanvasTexture {
+  if (_barkTexture) return _barkTexture
+  if (typeof document === 'undefined') {
+    return new THREE.CanvasTexture({} as HTMLCanvasElement)
+  }
+
+  const canvas = document.createElement('canvas')
+  canvas.width = 256
+  canvas.height = 256
+  const ctx = canvas.getContext('2d')!
+
+  ctx.fillStyle = '#3a2719'
+  ctx.fillRect(0, 0, 256, 256)
+
+  // Vertical bark fissures and grain
+  for (let x = 0; x < 256; x += 3) {
+    const shade = Math.floor(35 + Math.random() * 30)
+    ctx.fillStyle = `rgb(${shade + 15}, ${shade}, ${Math.floor(shade * 0.65)})`
+    ctx.fillRect(x, 0, 2 + Math.random() * 2, 256)
+  }
+
+  _barkTexture = new THREE.CanvasTexture(canvas)
+  _barkTexture.wrapS = THREE.RepeatWrapping
+  _barkTexture.wrapT = THREE.RepeatWrapping
+  _barkTexture.repeat.set(1, 2)
+  return _barkTexture
+}
+
+// ── Materials ─────────────────────────────────────────────────────────────
+
+const grassTex = getGrassTexture()
+const barkTex = getBarkTexture()
+
+const PARK_MATS: Record<ParkType, THREE.MeshStandardMaterial> = {
+  park:        new THREE.MeshStandardMaterial({ map: grassTex, color: 0x427c3a, roughness: 0.88, metalness: 0.0, polygonOffset: true, polygonOffsetFactor: 1.0, polygonOffsetUnits: 1.0 }),
+  garden:      new THREE.MeshStandardMaterial({ map: grassTex, color: 0x48843e, roughness: 0.86, metalness: 0.0, polygonOffset: true, polygonOffsetFactor: 1.0, polygonOffsetUnits: 1.0 }),
+  grass:       new THREE.MeshStandardMaterial({ map: grassTex, color: 0x4c8842, roughness: 0.90, metalness: 0.0, polygonOffset: true, polygonOffsetFactor: 1.0, polygonOffsetUnits: 1.0 }),
+  forest:      new THREE.MeshStandardMaterial({ map: grassTex, color: 0x2b5428, roughness: 0.92, metalness: 0.0, polygonOffset: true, polygonOffsetFactor: 1.0, polygonOffsetUnits: 1.0 }),
+  recreation:  new THREE.MeshStandardMaterial({ map: grassTex, color: 0x46823c, roughness: 0.85, metalness: 0.0, polygonOffset: true, polygonOffsetFactor: 1.0, polygonOffsetUnits: 1.0 }),
+  // Other types
+  cemetery:    new THREE.MeshStandardMaterial({ color: 0x8a8880, roughness: 0.95, metalness: 0.0, polygonOffset: true, polygonOffsetFactor: 1.0, polygonOffsetUnits: 1.0 }),
+  farmland:    new THREE.MeshStandardMaterial({ color: 0x9a7c48, roughness: 0.98, metalness: 0.0, polygonOffset: true, polygonOffsetFactor: 1.0, polygonOffsetUnits: 1.0 }),
+  parking_lot: new THREE.MeshStandardMaterial({ color: 0x909498, roughness: 0.85, metalness: 0.04, polygonOffset: true, polygonOffsetFactor: 1.0, polygonOffsetUnits: 1.0 }),
+  pitch:       new THREE.MeshStandardMaterial({ color: 0x2a7a28, roughness: 0.95, metalness: 0.0, polygonOffset: true, polygonOffsetFactor: 1.0, polygonOffsetUnits: 1.0 }),
+  beach:       new THREE.MeshStandardMaterial({ color: 0xe8d898, roughness: 0.98, metalness: 0.0, polygonOffset: true, polygonOffsetFactor: 1.0, polygonOffsetUnits: 1.0 }),
+  cliff:       new THREE.MeshStandardMaterial({ color: 0x8c7a6a, roughness: 0.96, metalness: 0.02, polygonOffset: true, polygonOffsetFactor: 1.0, polygonOffsetUnits: 1.0 }),
+  scrub:       new THREE.MeshStandardMaterial({ color: 0x608048, roughness: 0.96, metalness: 0.0, polygonOffset: true, polygonOffsetFactor: 1.0, polygonOffsetUnits: 1.0 }),
+}
+
+// Tree bark
 const TRUNK_MAT = new THREE.MeshStandardMaterial({
-  color: 0x3d2817, // dark bark wood
+  map: barkTex,
+  color: 0x4a3220,
   roughness: 0.90,
+  metalness: 0.05,
 })
 
+// Rich organic foliage tones
 const FOLIAGE_MATS = [
-  new THREE.MeshStandardMaterial({ color: 0x286326, roughness: 0.84 }),
-  new THREE.MeshStandardMaterial({ color: 0x32752e, roughness: 0.84 }),
-  new THREE.MeshStandardMaterial({ color: 0x225420, roughness: 0.84 }),
-  new THREE.MeshStandardMaterial({ color: 0x3d8236, roughness: 0.84 }),
+  new THREE.MeshStandardMaterial({ color: 0x2d6829, roughness: 0.76, metalness: 0.02, flatShading: true }), // Deep chestnut / plane green
+  new THREE.MeshStandardMaterial({ color: 0x3a7833, roughness: 0.74, metalness: 0.02, flatShading: true }), // Summer oak green
+  new THREE.MeshStandardMaterial({ color: 0x488c3a, roughness: 0.72, metalness: 0.02, flatShading: true }), // Sunlit linden green
+  new THREE.MeshStandardMaterial({ color: 0x245422, roughness: 0.78, metalness: 0.02, flatShading: true }), // Shaded forest crown
 ]
 
-// ── Perimeter fence materials ──────────────────────────────────────────────
-const FENCE_STONE_MAT = new THREE.MeshStandardMaterial({
-  color: 0xc4bead, // Light Paris limestone / sandstone
-  roughness: 0.86,
-  metalness: 0.04,
+// Parisian bench materials (Davioud style)
+const BENCH_IRON_MAT = new THREE.MeshStandardMaterial({
+  color: 0x182c20, // Parisian park dark green cast iron
+  roughness: 0.45,
+  metalness: 0.55,
 })
 
-const FENCE_METAL_MAT = new THREE.MeshStandardMaterial({
-  color: 0x1c2420, // Dark wrought iron / heritage green-black
-  roughness: 0.55,
-  metalness: 0.50,
+const BENCH_WOOD_MAT = new THREE.MeshStandardMaterial({
+  color: 0x7c4928, // Varnished oak slats
+  roughness: 0.65,
+  metalness: 0.05,
 })
 
-// Reusable tree prototype
-let _treeTemplate: THREE.Group | null = null
-function getTreeTemplate(): THREE.Group {
-  if (_treeTemplate) return _treeTemplate
+// Park walking path material (sable de Paris / compacted limestone gravel)
+const PATH_GRAVEL_MAT = new THREE.MeshStandardMaterial({
+  color: 0xd2c4a4,
+  roughness: 0.96,
+  metalness: 0.0,
+  polygonOffset: true,
+  polygonOffsetFactor: 0.5,
+  polygonOffsetUnits: 0.5,
+})
 
+// Shrub and flowerbed materials
+const SHRUB_MAT = new THREE.MeshStandardMaterial({
+  color: 0x2e6628,
+  roughness: 0.80,
+  flatShading: true,
+})
+
+const FLOWER_BLOSSOM_MATS = [
+  new THREE.MeshStandardMaterial({ color: 0xf4f0dc, roughness: 0.7 }), // Cream white
+  new THREE.MeshStandardMaterial({ color: 0xdf6f88, roughness: 0.7 }), // Rose pink
+  new THREE.MeshStandardMaterial({ color: 0x8a66c4, roughness: 0.7 }), // Lavender purple
+]
+
+// ── Realistic Tree Templates ──────────────────────────────────────────────
+
+let _plataneTemplate: THREE.Group | null = null
+let _lindenTemplate: THREE.Group | null = null
+let _ornamentalTemplate: THREE.Group | null = null
+
+/**
+ * Archetype 1: Parisian Plane Tree / Horse Chestnut (Platane / Marronnier)
+ * Majestic spreading crown with multiple organic leafy tiers and branching boughs.
+ */
+function getPlataneTemplate(): THREE.Group {
+  if (_plataneTemplate) return _plataneTemplate
   const group = new THREE.Group()
 
-  // Trunk (height 2.4m)
-  const trunkGeo = new THREE.CylinderGeometry(0.18, 0.26, 2.4, 6)
-  trunkGeo.translate(0, 1.2, 0)
+  // Main Trunk (height 3.2m, tapering)
+  const trunkGeo = new THREE.CylinderGeometry(0.28, 0.44, 3.2, 8)
+  trunkGeo.translate(0, 1.6, 0)
   const trunk = new THREE.Mesh(trunkGeo, TRUNK_MAT)
   trunk.castShadow = true
   group.add(trunk)
 
-  // Foliage tier 1 (lower)
-  const foliageGeo1 = new THREE.ConeGeometry(1.6, 2.5, 7)
-  foliageGeo1.translate(0, 3.2, 0)
-  const foliage1 = new THREE.Mesh(foliageGeo1, FOLIAGE_MATS[0]!)
-  foliage1.castShadow = true
-  foliage1.receiveShadow = true
-  group.add(foliage1)
+  // 3 Angled Branching Boughs spreading outward from trunk top
+  const branchAngles = [0, (Math.PI * 2) / 3, (Math.PI * 4) / 3]
+  for (const angle of branchAngles) {
+    const bGeo = new THREE.CylinderGeometry(0.12, 0.20, 1.8, 6)
+    bGeo.rotateZ(0.55)
+    bGeo.rotateY(angle)
+    bGeo.translate(Math.sin(angle) * 0.6, 3.4, Math.cos(angle) * 0.6)
+    const bMesh = new THREE.Mesh(bGeo, TRUNK_MAT)
+    bMesh.castShadow = true
+    group.add(bMesh)
+  }
 
-  // Foliage tier 2 (upper)
-  const foliageGeo2 = new THREE.ConeGeometry(1.2, 2.2, 7)
-  foliageGeo2.translate(0, 4.4, 0)
-  const foliage2 = new THREE.Mesh(foliageGeo2, FOLIAGE_MATS[1]!)
-  foliage2.castShadow = true
-  foliage2.receiveShadow = true
-  group.add(foliage2)
+  // Voluminous Organic Canopy Clusters (Dodecahedrons for rich foliage clusters)
+  const clusterDefs = [
+    { x: 0, y: 5.2, z: 0, r: 2.1, matIdx: 0 },
+    { x: 1.4, y: 4.5, z: 0.6, r: 1.7, matIdx: 1 },
+    { x: -1.3, y: 4.6, z: -0.5, r: 1.8, matIdx: 2 },
+    { x: 0.4, y: 4.7, z: 1.3, r: 1.6, matIdx: 1 },
+    { x: -0.5, y: 4.8, z: -1.3, r: 1.6, matIdx: 0 },
+    { x: 0.1, y: 6.2, z: 0.1, r: 1.5, matIdx: 2 },
+  ]
 
-  _treeTemplate = group
-  return _treeTemplate
+  for (const c of clusterDefs) {
+    const fGeo = new THREE.DodecahedronGeometry(c.r, 1)
+    fGeo.translate(c.x, c.y, c.z)
+    const fMesh = new THREE.Mesh(fGeo, FOLIAGE_MATS[c.matIdx]!)
+    fMesh.castShadow = true
+    fMesh.receiveShadow = true
+    group.add(fMesh)
+  }
+
+  _plataneTemplate = group
+  return _plataneTemplate
 }
 
 /**
- * Point in polygon test (2D Ray-casting).
+ * Archetype 2: Linden / Oak Tree (Tilleul noble / Chêne)
+ * Stately upright trunk with tall, layered oval canopy.
  */
+function getLindenTemplate(): THREE.Group {
+  if (_lindenTemplate) return _lindenTemplate
+  const group = new THREE.Group()
+
+  // Trunk (height 3.8m)
+  const trunkGeo = new THREE.CylinderGeometry(0.24, 0.38, 3.8, 8)
+  trunkGeo.translate(0, 1.9, 0)
+  const trunk = new THREE.Mesh(trunkGeo, TRUNK_MAT)
+  trunk.castShadow = true
+  group.add(trunk)
+
+  // Stratified Tall Canopy Clusters
+  const clusterDefs = [
+    { x: 0, y: 4.8, z: 0, r: 2.2, matIdx: 1 },
+    { x: 0.8, y: 5.4, z: 0.5, r: 1.7, matIdx: 2 },
+    { x: -0.7, y: 5.5, z: -0.6, r: 1.7, matIdx: 0 },
+    { x: 0, y: 6.6, z: 0, r: 1.6, matIdx: 2 },
+    { x: 0, y: 7.7, z: 0, r: 1.2, matIdx: 1 },
+  ]
+
+  for (const c of clusterDefs) {
+    const fGeo = new THREE.DodecahedronGeometry(c.r, 1)
+    fGeo.translate(c.x, c.y, c.z)
+    const fMesh = new THREE.Mesh(fGeo, FOLIAGE_MATS[c.matIdx]!)
+    fMesh.castShadow = true
+    fMesh.receiveShadow = true
+    group.add(fMesh)
+  }
+
+  _lindenTemplate = group
+  return _lindenTemplate
+}
+
+/**
+ * Archetype 3: Ornamental Park Tree / Birch / Flowering (Arbre d'ornement)
+ * Graceful slender trunk with delicate spreading canopy.
+ */
+function getOrnamentalTemplate(): THREE.Group {
+  if (_ornamentalTemplate) return _ornamentalTemplate
+  const group = new THREE.Group()
+
+  // Slender Trunk (height 2.8m)
+  const trunkGeo = new THREE.CylinderGeometry(0.16, 0.26, 2.8, 7)
+  trunkGeo.translate(0, 1.4, 0)
+  const trunk = new THREE.Mesh(trunkGeo, TRUNK_MAT)
+  trunk.castShadow = true
+  group.add(trunk)
+
+  // Delicate rounded foliage dome
+  const clusterDefs = [
+    { x: 0, y: 3.8, z: 0, r: 1.7, matIdx: 2 },
+    { x: 0.8, y: 4.2, z: 0.5, r: 1.3, matIdx: 1 },
+    { x: -0.7, y: 4.1, z: -0.5, r: 1.3, matIdx: 2 },
+    { x: 0, y: 5.0, z: 0, r: 1.1, matIdx: 3 },
+  ]
+
+  for (const c of clusterDefs) {
+    const fGeo = new THREE.DodecahedronGeometry(c.r, 1)
+    fGeo.translate(c.x, c.y, c.z)
+    const fMesh = new THREE.Mesh(fGeo, FOLIAGE_MATS[c.matIdx]!)
+    fMesh.castShadow = true
+    fMesh.receiveShadow = true
+    group.add(fMesh)
+  }
+
+  _ornamentalTemplate = group
+  return _ornamentalTemplate
+}
+
+// ── Parisian Park Furniture (Banc Davioud) ─────────────────────────────────
+
+let _benchTemplate: THREE.Group | null = null
+function getBenchTemplate(): THREE.Group {
+  if (_benchTemplate) return _benchTemplate
+  const group = new THREE.Group()
+
+  // 2 Cast Iron End Legs
+  for (const xOff of [-0.75, 0.75]) {
+    const legGeo = new THREE.BoxGeometry(0.06, 0.44, 0.52)
+    legGeo.translate(xOff, 0.22, 0)
+    const leg = new THREE.Mesh(legGeo, BENCH_IRON_MAT)
+    leg.castShadow = true
+    group.add(leg)
+
+    // Backrest upright support
+    const upGeo = new THREE.BoxGeometry(0.05, 0.45, 0.05)
+    upGeo.translate(xOff, 0.60, -0.22)
+    const up = new THREE.Mesh(upGeo, BENCH_IRON_MAT)
+    up.castShadow = true
+    group.add(up)
+  }
+
+  // Wooden Seat Slats
+  for (let s = 0; s < 3; s++) {
+    const slatGeo = new THREE.BoxGeometry(1.65, 0.035, 0.12)
+    slatGeo.translate(0, 0.44, -0.16 + s * 0.15)
+    const slat = new THREE.Mesh(slatGeo, BENCH_WOOD_MAT)
+    slat.castShadow = true
+    group.add(slat)
+  }
+
+  // Wooden Backrest Slats
+  for (let b = 0; b < 2; b++) {
+    const backGeo = new THREE.BoxGeometry(1.65, 0.12, 0.035)
+    backGeo.translate(0, 0.62 + b * 0.15, -0.24)
+    const back = new THREE.Mesh(backGeo, BENCH_WOOD_MAT)
+    back.castShadow = true
+    group.add(back)
+  }
+
+  _benchTemplate = group
+  return _benchTemplate
+}
+
+// ── Organic Flowering Shrub Template ───────────────────────────────────────
+
+let _shrubTemplate: THREE.Group | null = null
+function getShrubTemplate(): THREE.Group {
+  if (_shrubTemplate) return _shrubTemplate
+  const group = new THREE.Group()
+
+  const mainGeo = new THREE.DodecahedronGeometry(0.75, 1)
+  mainGeo.scale(1.2, 0.8, 1.0)
+  mainGeo.translate(0, 0.55, 0)
+  const shrub = new THREE.Mesh(mainGeo, SHRUB_MAT)
+  shrub.castShadow = true
+  shrub.receiveShadow = true
+  group.add(shrub)
+
+  // Blossom accents
+  const blossomCount = 8
+  for (let i = 0; i < blossomCount; i++) {
+    const bGeo = new THREE.SphereGeometry(0.08, 4, 4)
+    const ang = (i / blossomCount) * Math.PI * 2
+    const bx = Math.cos(ang) * 0.6
+    const bz = Math.sin(ang) * 0.5
+    const by = 0.55 + Math.sin(i * 2.3) * 0.25
+    bGeo.translate(bx, by, bz)
+    const bMesh = new THREE.Mesh(bGeo, FLOWER_BLOSSOM_MATS[i % FLOWER_BLOSSOM_MATS.length]!)
+    group.add(bMesh)
+  }
+
+  _shrubTemplate = group
+  return _shrubTemplate
+}
+
+// ── Helper: Point in polygon test (2D Ray-casting) ─────────────────────────
+
 function isPointInPolygon(px: number, pz: number, polygon: { x: number; z: number }[]): boolean {
   let inside = false
   for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
@@ -97,73 +394,7 @@ function isPointInPolygon(px: number, pz: number, polygon: { x: number; z: numbe
   return inside
 }
 
-/**
- * Helper to push an oriented 3D cuboid into vertex/normal/index arrays.
- */
-function addOrientedBox(
-  posList: number[],
-  normList: number[],
-  idxList: number[],
-  cx: number,
-  cz: number,
-  yMin: number,
-  yMax: number,
-  halfLen: number,
-  halfWidth: number,
-  ux: number,
-  uz: number,
-  nx: number,
-  nz: number,
-) {
-  const baseIdx = posList.length / 3
-
-  const c0x = cx - ux * halfLen - nx * halfWidth
-  const c0z = cz - uz * halfLen - nz * halfWidth
-
-  const c1x = cx + ux * halfLen - nx * halfWidth
-  const c1z = cz + uz * halfLen - nz * halfWidth
-
-  const c2x = cx + ux * halfLen + nx * halfWidth
-  const c2z = cz + uz * halfLen + nz * halfWidth
-
-  const c3x = cx - ux * halfLen + nx * halfWidth
-  const c3z = cz - uz * halfLen + nz * halfWidth
-
-  // Face 0: Top (+Y)
-  posList.push(c0x, yMax, c0z,  c1x, yMax, c1z,  c2x, yMax, c2z,  c3x, yMax, c3z)
-  normList.push(0, 1, 0,  0, 1, 0,  0, 1, 0,  0, 1, 0)
-  idxList.push(baseIdx, baseIdx + 1, baseIdx + 2, baseIdx, baseIdx + 2, baseIdx + 3)
-
-  // Face 1: Bottom (-Y)
-  const b1 = baseIdx + 4
-  posList.push(c3x, yMin, c3z,  c2x, yMin, c2z,  c1x, yMin, c1z,  c0x, yMin, c0z)
-  normList.push(0, -1, 0,  0, -1, 0,  0, -1, 0,  0, -1, 0)
-  idxList.push(b1, b1 + 1, b1 + 2, b1, b1 + 2, b1 + 3)
-
-  // Face 2: Side +N
-  const b2 = baseIdx + 8
-  posList.push(c2x, yMin, c2z,  c3x, yMin, c3z,  c3x, yMax, c3z,  c2x, yMax, c2z)
-  normList.push(nx, 0, nz,  nx, 0, nz,  nx, 0, nz,  nx, 0, nz)
-  idxList.push(b2, b2 + 1, b2 + 2, b2, b2 + 2, b2 + 3)
-
-  // Face 3: Side -N
-  const b3 = baseIdx + 12
-  posList.push(c0x, yMin, c0z,  c1x, yMin, c1z,  c1x, yMax, c1z,  c0x, yMax, c0z)
-  normList.push(-nx, 0, -nz,  -nx, 0, -nz,  -nx, 0, -nz,  -nx, 0, -nz)
-  idxList.push(b3, b3 + 1, b3 + 2, b3, b3 + 2, b3 + 3)
-
-  // Face 4: End +U
-  const b4 = baseIdx + 16
-  posList.push(c1x, yMin, c1z,  c2x, yMin, c2z,  c2x, yMax, c2z,  c1x, yMax, c1z)
-  normList.push(ux, 0, uz,  ux, 0, uz,  ux, 0, uz,  ux, 0, uz)
-  idxList.push(b4, b4 + 1, b4 + 2, b4, b4 + 2, b4 + 3)
-
-  // Face 5: End -U
-  const b5 = baseIdx + 20
-  posList.push(c3x, yMin, c3z,  c0x, yMin, c0z,  c0x, yMax, c0z,  c3x, yMax, c3z)
-  normList.push(-ux, 0, -uz,  -ux, 0, -uz,  -ux, 0, -uz,  -ux, 0, -uz)
-  idxList.push(b5, b5 + 1, b5 + 2, b5, b5 + 2, b5 + 3)
-}
+// ── Road Obstacle Avoidance ────────────────────────────────────────────────
 
 interface RoadObstacleSeg {
   x1: number; z1: number; x2: number; z2: number
@@ -201,7 +432,7 @@ function buildRoadObstacles(roads?: Road[]): RoadObstacleSeg[] {
   return obs
 }
 
-function isPointInRoadObstacles(px: number, pz: number, obs: RoadObstacleSeg[], margin = 0.5): boolean {
+function isPointInRoadObstacles(px: number, pz: number, obs: RoadObstacleSeg[], margin = 0.8): boolean {
   for (let i = 0; i < obs.length; i++) {
     const ob = obs[i]!
     const r = ob.halfW + margin
@@ -215,10 +446,14 @@ function isPointInRoadObstacles(px: number, pz: number, obs: RoadObstacleSeg[], 
   return false
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// ParkMeshGenerator Class
+// ─────────────────────────────────────────────────────────────────────────────
+
 export class ParkMeshGenerator {
   /**
-   * Generate a 3D park group with grass lawn, low perimeter boundary fences
-   * with entrance openings, and procedural trees.
+   * Generate a 3D park group with rich procedural lawn, realistic tree archetypes,
+   * benches, flowerbeds, and walking paths (without any blocking fences or barriers).
    */
   static generate(park: Park, roads?: Road[]): THREE.Group | null {
     const pts = park.polygon
@@ -229,8 +464,7 @@ export class ParkMeshGenerator {
     group.userData['parkId'] = park.id
 
     // ── 1. Park Lawn Surface ────────────────────────────────────────────────
-    // Lowered to y = 0.003m and using polygonOffset so asphalt roads & sidewalks
-    // always render cleanly on top with zero z-fighting.
+    // Placed at y = 0.016m (cleanly above urban slab at 0.001m, and below road asphalt at 0.028m).
     const shape = new THREE.Shape()
     shape.moveTo(pts[0]!.x, pts[0]!.z)
     for (let i = 1; i < pts.length; i++) {
@@ -240,7 +474,19 @@ export class ParkMeshGenerator {
 
     const geo = new THREE.ShapeGeometry(shape)
     geo.rotateX(-Math.PI / 2)
-    geo.translate(0, 0.003, 0)
+    geo.translate(0, 0.016, 0)
+
+    // Compute seamless world-space planar UV mapping for grass texture
+    const posAttr = geo.getAttribute('position')
+    if (posAttr) {
+      const uvs = new Float32Array(posAttr.count * 2)
+      for (let i = 0; i < posAttr.count; i++) {
+        uvs[i * 2] = posAttr.getX(i) / 10.0 // repeat every 10m in world space
+        uvs[i * 2 + 1] = posAttr.getZ(i) / 10.0
+      }
+      geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2))
+    }
+
     geo.computeVertexNormals()
 
     const mat = PARK_MATS[park.type] ?? PARK_MATS['park']
@@ -249,261 +495,196 @@ export class ParkMeshGenerator {
     lawn.renderOrder = 1
     group.add(lawn)
 
-    // ── 2. Delimited Low Barrier / Fence with Openings ──────────────────────
-    // Parks, gardens and squares have urban perimeter fences with pedestrian openings.
-    if (park.type !== 'forest') {
-      const stonePos: number[] = []
-      const stoneNorm: number[] = []
-      const stoneIdx: number[] = []
-
-      const metalPos: number[] = []
-      const metalNorm: number[] = []
-      const metalIdx: number[] = []
-
-      const GATE_WIDTH = 3.6 // 3.6m wide entrance opening
-      const HALF_GATE = GATE_WIDTH / 2
-      const N = pts.length
-
-      for (let i = 0; i < N; i++) {
-        const A = pts[i]!
-        const B = pts[(i + 1) % N]!
-
-        // Skip fence segments that cross or run inside a road corridor
-        if (
-          isPointInRoadObstacles(A.x, A.z, roadObs, 0.6) ||
-          isPointInRoadObstacles(B.x, B.z, roadObs, 0.6) ||
-          isPointInRoadObstacles((A.x + B.x) / 2, (A.z + B.z) / 2, roadObs, 0.6)
-        ) {
-          continue
-        }
-
-        const dx = B.x - A.x
-        const dz = B.z - A.z
-        const edgeLen = Math.hypot(dx, dz)
-        if (edgeLen < 3.0) continue
-
-        const ux = dx / edgeLen
-        const uz = dz / edgeLen
-        const nx = -uz
-        const nz = ux
-
-        // Corner pillar at vertex A
-        addOrientedBox(
-          stonePos, stoneNorm, stoneIdx,
-          A.x, A.z,
-          0.0, 0.78,
-          0.16, 0.16,
-          ux, uz, nx, nz
-        )
-        // Corner decorative cap
-        addOrientedBox(
-          stonePos, stoneNorm, stoneIdx,
-          A.x, A.z,
-          0.78, 0.88,
-          0.20, 0.20,
-          ux, uz, nx, nz
-        )
-
-        // Calculate gate openings along this edge
-        type Segment = { start: number; end: number }
-        const fenceSegments: Segment[] = []
-        const gateCutoffs: number[] = []
-
-        if (edgeLen < 9.5) {
-          // Short edge: single continuous fence without opening
-          fenceSegments.push({ start: 0.25, end: edgeLen - 0.25 })
-        } else if (edgeLen < 26.0) {
-          // Medium edge: 1 centered opening
-          const center = edgeLen / 2
-          const gStart = Math.max(1.2, center - HALF_GATE)
-          const gEnd = Math.min(edgeLen - 1.2, center + HALF_GATE)
-
-          if (gStart - 0.25 > 0.6) fenceSegments.push({ start: 0.25, end: gStart })
-          gateCutoffs.push(gStart, gEnd)
-          if (edgeLen - 0.25 - gEnd > 0.6) fenceSegments.push({ start: gEnd, end: edgeLen - 0.25 })
-        } else {
-          // Long edge: multiple openings spaced ~22m to 28m apart
-          const numGates = Math.max(1, Math.round(edgeLen / 26))
-          const gateSpacing = edgeLen / (numGates + 1)
-
-          let cursor = 0.25
-          for (let g = 1; g <= numGates; g++) {
-            const gCenter = g * gateSpacing
-            const gStart = gCenter - HALF_GATE
-            const gEnd = gCenter + HALF_GATE
-
-            if (gStart - cursor > 0.6) {
-              fenceSegments.push({ start: cursor, end: gStart })
-            }
-            gateCutoffs.push(gStart, gEnd)
-            cursor = gEnd
-          }
-          if (edgeLen - 0.25 - cursor > 0.6) {
-            fenceSegments.push({ start: cursor, end: edgeLen - 0.25 })
-          }
-        }
-
-        // Stone entrance pillars flanking each opening
-        for (const tGate of gateCutoffs) {
-          const px = A.x + ux * tGate
-          const pz = A.z + uz * tGate
-
-          // Stately entrance pillar shaft (0.90m high)
-          addOrientedBox(
-            stonePos, stoneNorm, stoneIdx,
-            px, pz,
-            0.0, 0.88,
-            0.20, 0.20,
-            ux, uz, nx, nz
-          )
-          // Pillar capital / cap with slight overhang
-          addOrientedBox(
-            stonePos, stoneNorm, stoneIdx,
-            px, pz,
-            0.88, 0.98,
-            0.25, 0.25,
-            ux, uz, nx, nz
-          )
-        }
-
-        // Build low barrier components for each fence segment
-        for (const seg of fenceSegments) {
-          const segLen = seg.end - seg.start
-          if (segLen < 0.5) continue
-
-          const midT = (seg.start + seg.end) / 2
-          const cx = A.x + ux * midT
-          const cz = A.z + uz * midT
-          const halfLen = segLen / 2
-
-          // 1. Low stone plinth curb (0.12m high)
-          addOrientedBox(
-            stonePos, stoneNorm, stoneIdx,
-            cx, cz,
-            0.0, 0.12,
-            halfLen, 0.11,
-            ux, uz, nx, nz
-          )
-
-          // 2. Top railing bar (at 0.70m)
-          addOrientedBox(
-            metalPos, metalNorm, metalIdx,
-            cx, cz,
-            0.64, 0.70,
-            halfLen, 0.035,
-            ux, uz, nx, nz
-          )
-
-          // 3. Mid railing bar (at 0.36m)
-          addOrientedBox(
-            metalPos, metalNorm, metalIdx,
-            cx, cz,
-            0.33, 0.37,
-            halfLen, 0.025,
-            ux, uz, nx, nz
-          )
-
-          // 4. Sturdy intermediate posts every ~2.5m
-          const postCount = Math.max(1, Math.round(segLen / 2.5))
-          for (let p = 0; p <= postCount; p++) {
-            const pT = seg.start + p * (segLen / postCount)
-            const px = A.x + ux * pT
-            const pz = A.z + uz * pT
-            addOrientedBox(
-              metalPos, metalNorm, metalIdx,
-              px, pz,
-              0.12, 0.74,
-              0.038, 0.038,
-              ux, uz, nx, nz
-            )
-          }
-
-          // 5. Vertical pickets (barreaux) spaced every ~0.5m
-          const picketCount = Math.max(1, Math.floor(segLen / 0.55))
-          for (let k = 1; k <= picketCount; k++) {
-            const pkT = seg.start + k * (segLen / (picketCount + 1))
-            const pkx = A.x + ux * pkT
-            const pkz = A.z + uz * pkT
-            addOrientedBox(
-              metalPos, metalNorm, metalIdx,
-              pkx, pkz,
-              0.12, 0.67,
-              0.016, 0.016,
-              ux, uz, nx, nz
-            )
-          }
-        }
-      }
-
-      // Add stone fence mesh if geometry was generated
-      if (stonePos.length > 0) {
-        const stoneGeo = new THREE.BufferGeometry()
-        stoneGeo.setAttribute('position', new THREE.Float32BufferAttribute(stonePos, 3))
-        stoneGeo.setAttribute('normal', new THREE.Float32BufferAttribute(stoneNorm, 3))
-        stoneGeo.setIndex(stoneIdx)
-        const stoneMesh = new THREE.Mesh(stoneGeo, FENCE_STONE_MAT)
-        stoneMesh.castShadow = true
-        stoneMesh.receiveShadow = true
-        group.add(stoneMesh)
-      }
-
-      // Add metal railing mesh if geometry was generated
-      if (metalPos.length > 0) {
-        const metalGeo = new THREE.BufferGeometry()
-        metalGeo.setAttribute('position', new THREE.Float32BufferAttribute(metalPos, 3))
-        metalGeo.setAttribute('normal', new THREE.Float32BufferAttribute(metalNorm, 3))
-        metalGeo.setIndex(metalIdx)
-        const metalMesh = new THREE.Mesh(metalGeo, FENCE_METAL_MAT)
-        metalMesh.castShadow = true
-        metalMesh.receiveShadow = true
-        group.add(metalMesh)
+    // ── 2. Type-specific overlays (Cemetery, Parking lot, Pitch) ───────────
+    if (park.type === 'cemetery') {
+      let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity
+      for (const p of pts) { minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x); minZ = Math.min(minZ, p.z); maxZ = Math.max(maxZ, p.z) }
+      const w = maxX - minX; const d = maxZ - minZ
+      let seed = 0
+      for (let i = 0; i < park.id.length; i++) seed = (seed * 31 + park.id.charCodeAt(i)) >>> 0
+      const pseudoR = () => { seed = (seed * 9301 + 49297) % 233280; return seed / 233280 }
+      const crossMat = new THREE.MeshStandardMaterial({ color: 0xb0a898, roughness: 0.88, metalness: 0.04 })
+      const numCrosses = Math.min(20, Math.floor((w * d) / 30) + 2)
+      for (let c = 0; c < numCrosses * 3; c++) {
+        const cx = minX + pseudoR() * w; const cz = minZ + pseudoR() * d
+        if (!isPointInPolygon(cx, cz, pts)) continue
+        const hGeo = new THREE.BoxGeometry(0.8, 0.08, 0.08)
+        const hMesh = new THREE.Mesh(hGeo, crossMat)
+        hMesh.position.set(cx, 0.7, cz)
+        group.add(hMesh)
+        const vGeo = new THREE.BoxGeometry(0.08, 1.1, 0.08)
+        const vMesh = new THREE.Mesh(vGeo, crossMat)
+        vMesh.position.set(cx, 0.55, cz)
+        group.add(vMesh)
+        if (group.children.length > 200) break
       }
     }
 
-    // ── 3. Procedural Trees Scatter ─────────────────────────────────────────
-    let minX = Infinity, maxX = -Infinity
-    let minZ = Infinity, maxZ = -Infinity
+    if (park.type === 'parking_lot') {
+      let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity
+      for (const p of pts) { minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x); minZ = Math.min(minZ, p.z); maxZ = Math.max(maxZ, p.z) }
+      const lineMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.4, emissive: 0xffffff, emissiveIntensity: 0.08, polygonOffset: true, polygonOffsetFactor: 2.0, polygonOffsetUnits: 2.0 })
+      const bayW = 2.5
+      const bayDepth = 5.0
+      for (let x = minX; x < maxX; x += bayW) {
+        for (let z = minZ; z < maxZ - bayDepth; z += bayDepth) {
+          const lineGeo = new THREE.BoxGeometry(0.08, 0.01, bayDepth)
+          const lineMesh = new THREE.Mesh(lineGeo, lineMat)
+          lineMesh.position.set(x, 0.018, z + bayDepth / 2)
+          group.add(lineMesh)
+        }
+      }
+    }
+
+    if (park.type === 'pitch') {
+      let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity
+      for (const p of pts) { minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x); minZ = Math.min(minZ, p.z); maxZ = Math.max(maxZ, p.z) }
+      const cX = (minX + maxX) / 2; const cZ = (minZ + maxZ) / 2
+      const w = maxX - minX; const d = maxZ - minZ
+      const lineMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.5, emissive: 0xffffff, emissiveIntensity: 0.1, polygonOffset: true, polygonOffsetFactor: 2.0, polygonOffsetUnits: 2.0 })
+      const borders: [number, number, number, number][] = [
+        [minX, cZ, 0.10, d],
+        [maxX, cZ, 0.10, d],
+        [cX, minZ, w, 0.10],
+        [cX, maxZ, w, 0.10],
+        [cX, cZ, 0.10, d],
+      ]
+      for (const [bx, bz, bw, bd] of borders) {
+        const bg = new THREE.BoxGeometry(bw, 0.01, bd)
+        const bm = new THREE.Mesh(bg, lineMat)
+        bm.position.set(bx, 0.02, bz)
+        group.add(bm)
+      }
+      const circleR = Math.min(w, d) * 0.12
+      const circleGeo = new THREE.TorusGeometry(circleR, 0.05, 4, 32)
+      circleGeo.rotateX(Math.PI / 2)
+      const circleMesh = new THREE.Mesh(circleGeo, lineMat)
+      circleMesh.position.set(cX, 0.02, cZ)
+      group.add(circleMesh)
+    }
+
+    // ── 3. Internal Compacted Sand Walking Path (for larger gardens) ───────
+    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity
     for (const p of pts) {
       if (p.x < minX) minX = p.x
       if (p.x > maxX) maxX = p.x
       if (p.z < minZ) minZ = p.z
       if (p.z > maxZ) maxZ = p.z
     }
-
     const width = maxX - minX
     const depth = maxZ - minZ
     const approxArea = width * depth
 
-    if (approxArea >= 60) {
-      // Scale number of trees according to park size (capped at 25 for 60 FPS performance)
-      const numCandidates = Math.min(25, Math.floor(approxArea / 200) + 2)
-      const treeTemplate = getTreeTemplate()
+    if ((park.type === 'park' || park.type === 'garden') && approxArea >= 350) {
+      const cX = (minX + maxX) / 2
+      const cZ = (minZ + maxZ) / 2
+      // Draw a cross or central path
+      const pathW = 2.4
+      const p1Geo = new THREE.BoxGeometry(width * 0.7, 0.005, pathW)
+      const p1Mesh = new THREE.Mesh(p1Geo, PATH_GRAVEL_MAT)
+      p1Mesh.position.set(cX, 0.017, cZ)
+      p1Mesh.receiveShadow = true
+      group.add(p1Mesh)
 
-      // Deterministic seed based on park id
-      let seed = 0
-      for (let i = 0; i < park.id.length; i++) seed = (seed * 31 + park.id.charCodeAt(i)) >>> 0
-
-      function pseudoRandom(): number {
-        seed = (seed * 9301 + 49297) % 233280
-        return seed / 233280
+      if (depth > 25 && width > 25) {
+        const p2Geo = new THREE.BoxGeometry(pathW, 0.005, depth * 0.7)
+        const p2Mesh = new THREE.Mesh(p2Geo, PATH_GRAVEL_MAT)
+        p2Mesh.position.set(cX, 0.017, cZ)
+        p2Mesh.receiveShadow = true
+        group.add(p2Mesh)
       }
+    }
 
-      let treesPlaced = 0
-      for (let attempt = 0; attempt < numCandidates * 2 && treesPlaced < numCandidates; attempt++) {
-        const candidateX = minX + pseudoRandom() * width
-        const candidateZ = minZ + pseudoRandom() * depth
+    // ── 4. Realistic 3D Trees Scatter ──────────────────────────────────────
+    const treeTypes: ParkType[] = ['park', 'garden', 'grass', 'forest', 'recreation', 'scrub', 'cemetery']
+    if (treeTypes.includes(park.type)) {
+      if (approxArea >= 50) {
+        // Density tuned for visual lushness & 60 FPS performance
+        const numCandidates = Math.min(30, Math.floor(approxArea / 160) + 3)
 
-        if (
-          isPointInPolygon(candidateX, candidateZ, pts) &&
-          !isPointInRoadObstacles(candidateX, candidateZ, roadObs, 1.5)
-        ) {
-          const tree = treeTemplate.clone()
-          const scale = 0.8 + pseudoRandom() * 0.45
-          tree.scale.set(scale, scale, scale)
-          tree.rotation.y = pseudoRandom() * Math.PI * 2
-          tree.position.set(candidateX, 0, candidateZ)
-          group.add(tree)
-          treesPlaced++
+        const archetypes = [
+          getPlataneTemplate(),    // Marronnier / Platane parisien
+          getLindenTemplate(),     // Tilleul / Chêne
+          getOrnamentalTemplate(), // Arbre d'ornement / Cerisier
+        ]
+
+        let seed = 0
+        for (let i = 0; i < park.id.length; i++) seed = (seed * 31 + park.id.charCodeAt(i)) >>> 0
+        function pseudoRandom(): number {
+          seed = (seed * 9301 + 49297) % 233280
+          return seed / 233280
+        }
+
+        let treesPlaced = 0
+        const treeLocations: Array<{ x: number; z: number }> = []
+
+        for (let attempt = 0; attempt < numCandidates * 3 && treesPlaced < numCandidates; attempt++) {
+          const candidateX = minX + pseudoRandom() * width
+          const candidateZ = minZ + pseudoRandom() * depth
+
+          if (
+            isPointInPolygon(candidateX, candidateZ, pts) &&
+            !isPointInRoadObstacles(candidateX, candidateZ, roadObs, 1.6)
+          ) {
+            // Pick archetype based on random roll
+            const archIdx = Math.floor(pseudoRandom() * archetypes.length)
+            const template = archetypes[archIdx]!
+            const tree = template.clone()
+
+            // Natural variations in scale, orientation, and subtle tilt
+            const scale = 0.85 + pseudoRandom() * 0.40
+            tree.scale.set(scale, scale, scale)
+            tree.rotation.y = pseudoRandom() * Math.PI * 2
+            tree.rotation.z = (pseudoRandom() - 0.5) * 0.08 // natural slight lean
+
+            tree.position.set(candidateX, 0, candidateZ)
+            group.add(tree)
+
+            treeLocations.push({ x: candidateX, z: candidateZ })
+            treesPlaced++
+          }
+        }
+
+        // ── 5. Park Furniture: Parisian Davioud Benches & Shrubs ────────────
+        if ((park.type === 'park' || park.type === 'garden') && treeLocations.length > 0) {
+          const benchTemplate = getBenchTemplate()
+          const shrubTemplate = getShrubTemplate()
+
+          // Place 2 to 6 benches under shade trees
+          const numBenches = Math.min(6, Math.max(2, Math.floor(treeLocations.length / 3)))
+          for (let b = 0; b < numBenches && b < treeLocations.length; b++) {
+            const loc = treeLocations[b * 2 % treeLocations.length]!
+            const bench = benchTemplate.clone()
+            const bDist = 2.2 + pseudoRandom() * 0.8
+            const bAng = pseudoRandom() * Math.PI * 2
+            const bx = loc.x + Math.cos(bAng) * bDist
+            const bz = loc.z + Math.sin(bAng) * bDist
+
+            if (isPointInPolygon(bx, bz, pts) && !isPointInRoadObstacles(bx, bz, roadObs, 1.0)) {
+              bench.position.set(bx, 0.016, bz)
+              bench.rotation.y = bAng + Math.PI // Face outward from tree
+              group.add(bench)
+            }
+          }
+
+          // Place flowering shrubs near trees
+          const numShrubs = Math.min(10, Math.max(3, Math.floor(treeLocations.length / 2)))
+          for (let s = 0; s < numShrubs && s < treeLocations.length; s++) {
+            const loc = treeLocations[(s * 3 + 1) % treeLocations.length]!
+            const shrub = shrubTemplate.clone()
+            const sDist = 1.8 + pseudoRandom() * 1.2
+            const sAng = pseudoRandom() * Math.PI * 2
+            const sx = loc.x + Math.cos(sAng) * sDist
+            const sz = loc.z + Math.sin(sAng) * sDist
+
+            if (isPointInPolygon(sx, sz, pts) && !isPointInRoadObstacles(sx, sz, roadObs, 0.8)) {
+              const sScale = 0.75 + pseudoRandom() * 0.5
+              shrub.scale.set(sScale, sScale, sScale)
+              shrub.position.set(sx, 0.016, sz)
+              shrub.rotation.y = pseudoRandom() * Math.PI * 2
+              group.add(shrub)
+            }
+          }
         }
       }
     }
@@ -512,7 +693,9 @@ export class ParkMeshGenerator {
   }
 
   /**
-   * Generates Rapier static colliders for park fences, entrance posts, and tree trunks.
+   * Generates Rapier static colliders for park tree trunks ONLY.
+   * Perimeter fences and barrier colliders are completely omitted,
+   * allowing cars to drive seamlessly onto park grass.
    */
   static createColliderDescs(park: Park, roads?: Road[]): RAPIER.ColliderDesc[] {
     const pts = park.polygon
@@ -521,92 +704,7 @@ export class ParkMeshGenerator {
     const colliders: RAPIER.ColliderDesc[] = []
     const roadObs = buildRoadObstacles(roads)
 
-    // 1. Perimeter fence barriers and corner pillars
-    if (park.type !== 'forest') {
-      const GATE_WIDTH = 3.6
-      const HALF_GATE = GATE_WIDTH / 2
-      const N = pts.length
-
-      for (let i = 0; i < N; i++) {
-        const A = pts[i]!
-        const B = pts[(i + 1) % N]!
-
-        if (
-          isPointInRoadObstacles(A.x, A.z, roadObs, 0.6) ||
-          isPointInRoadObstacles(B.x, B.z, roadObs, 0.6) ||
-          isPointInRoadObstacles((A.x + B.x) / 2, (A.z + B.z) / 2, roadObs, 0.6)
-        ) {
-          continue
-        }
-
-        const dx = B.x - A.x
-        const dz = B.z - A.z
-        const edgeLen = Math.hypot(dx, dz)
-        if (edgeLen < 3.0) continue
-
-        const ux = dx / edgeLen
-        const uz = dz / edgeLen
-
-        // Corner pillar at vertex A
-        colliders.push(
-          RAPIER.ColliderDesc.cuboid(0.18, 0.44, 0.18)
-            .setTranslation(A.x, 0.44, A.z)
-        )
-
-        // Calculate gate openings along this edge
-        type Segment = { start: number; end: number }
-        const fenceSegments: Segment[] = []
-
-        if (edgeLen < 9.5) {
-          fenceSegments.push({ start: 0.25, end: edgeLen - 0.25 })
-        } else if (edgeLen < 26.0) {
-          const center = edgeLen / 2
-          const gStart = Math.max(1.2, center - HALF_GATE)
-          const gEnd = Math.min(edgeLen - 1.2, center + HALF_GATE)
-
-          if (gStart - 0.25 > 0.6) fenceSegments.push({ start: 0.25, end: gStart })
-          if (edgeLen - 0.25 - gEnd > 0.6) fenceSegments.push({ start: gEnd, end: edgeLen - 0.25 })
-        } else {
-          const numGates = Math.max(1, Math.round(edgeLen / 26))
-          const gateSpacing = edgeLen / (numGates + 1)
-          let cursor = 0.25
-          for (let g = 1; g <= numGates; g++) {
-            const gCenter = g * gateSpacing
-            const gStart = gCenter - HALF_GATE
-            const gEnd = gCenter + HALF_GATE
-            if (gStart - cursor > 0.6) {
-              fenceSegments.push({ start: cursor, end: gStart })
-            }
-            cursor = gEnd
-          }
-          if (edgeLen - 0.25 - cursor > 0.6) {
-            fenceSegments.push({ start: cursor, end: edgeLen - 0.25 })
-          }
-        }
-
-        // Add colliders for each fence barrier segment
-        for (const seg of fenceSegments) {
-          const segLen = seg.end - seg.start
-          if (segLen < 0.4) continue
-          const midDist = (seg.start + seg.end) / 2
-          const cx = A.x + ux * midDist
-          const cz = A.z + uz * midDist
-
-          const q = new THREE.Quaternion().setFromUnitVectors(
-            new THREE.Vector3(1, 0, 0),
-            new THREE.Vector3(ux, 0, uz),
-          )
-
-          colliders.push(
-            RAPIER.ColliderDesc.cuboid(segLen / 2, 0.44, 0.14)
-              .setTranslation(cx, 0.44, cz)
-              .setRotation({ x: q.x, y: q.y, z: q.z, w: q.w }),
-          )
-        }
-      }
-    }
-
-    // 2. Tree trunk colliders
+    // Tree trunk solid colliders
     let minX = Infinity, maxX = -Infinity
     let minZ = Infinity, maxZ = -Infinity
     for (const p of pts) {
@@ -620,8 +718,9 @@ export class ParkMeshGenerator {
     const depth = maxZ - minZ
     const approxArea = width * depth
 
-    if (approxArea >= 60) {
-      const numCandidates = Math.min(25, Math.floor(approxArea / 200) + 2)
+    const treeTypes: ParkType[] = ['park', 'garden', 'grass', 'forest', 'recreation', 'scrub', 'cemetery']
+    if (treeTypes.includes(park.type) && approxArea >= 50) {
+      const numCandidates = Math.min(30, Math.floor(approxArea / 160) + 3)
       let seed = 0
       for (let i = 0; i < park.id.length; i++) seed = (seed * 31 + park.id.charCodeAt(i)) >>> 0
 
@@ -631,17 +730,18 @@ export class ParkMeshGenerator {
       }
 
       let treesPlaced = 0
-      for (let attempt = 0; attempt < numCandidates * 2 && treesPlaced < numCandidates; attempt++) {
+      for (let attempt = 0; attempt < numCandidates * 3 && treesPlaced < numCandidates; attempt++) {
         const candidateX = minX + pseudoRandom() * width
         const candidateZ = minZ + pseudoRandom() * depth
 
         if (
           isPointInPolygon(candidateX, candidateZ, pts) &&
-          !isPointInRoadObstacles(candidateX, candidateZ, roadObs, 1.5)
+          !isPointInRoadObstacles(candidateX, candidateZ, roadObs, 1.6)
         ) {
+          // Tree trunk solid cylinder collider (radius 0.32m, half-height 1.6m centered at y = 1.6m)
           colliders.push(
-            RAPIER.ColliderDesc.cylinder(1.4, 0.28)
-              .setTranslation(candidateX, 1.4, candidateZ),
+            RAPIER.ColliderDesc.cylinder(1.6, 0.32)
+              .setTranslation(candidateX, 1.6, candidateZ),
           )
           treesPlaced++
         }

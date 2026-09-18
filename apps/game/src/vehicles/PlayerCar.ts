@@ -117,7 +117,8 @@ export class PlayerCar {
       .setMass(CAR_MASS * 0.6)
       .setRestitution(0.12)
       .setFriction(0.25)
-    world.createCollider(chassisDesc, this.body)
+    const chassisCol = world.createCollider(chassisDesc, this.body)
+    this.colliders.push(chassisCol)
 
     // 2. 4 Rolling wheel colliders that contact the asphalt
     const wheelOffsets = [
@@ -132,12 +133,38 @@ export class PlayerCar {
         .setMass(CAR_MASS * 0.1)
         .setFriction(0.2)
         .setRestitution(0.04)
-      world.createCollider(wheelDesc, this.body)
+      const wheelCol = world.createCollider(wheelDesc, this.body)
+      this.colliders.push(wheelCol)
     }
 
     // ── Visual mesh ─────────────────────────────────────────────────────────
     this.mesh = this._buildMesh()
     scene.add(this.mesh)
+  }
+
+  private isNearTunnel = false
+  private lastInTunnel = false
+  private colliders: RAPIER.Collider[] = []
+
+  setNearTunnel(near: boolean): void {
+    this.isNearTunnel = near
+    this._updateCollisionGroups()
+  }
+
+  private _updateCollisionGroups(): void {
+    const pos = this.body.translation()
+    // In tunnel mode if near tunnel corridor OR already below surface (pos.y < 0.38)
+    const inTunnel = this.isNearTunnel || pos.y < 0.38
+    if (inTunnel !== this.lastInTunnel) {
+      this.lastInTunnel = inTunnel
+      const GROUP_CAR = 0x0001
+      const GROUP_GROUND = 0x0002
+      const filter = inTunnel ? (0xffff & ~GROUP_GROUND) : 0xffff
+      const groups = (GROUP_CAR << 16) | filter
+      for (const col of this.colliders) {
+        col.setCollisionGroups(groups)
+      }
+    }
   }
 
   private _buildMesh(): THREE.Group {
@@ -485,6 +512,7 @@ export class PlayerCar {
    * Called once per physics tick.
    */
   applyInput(input: RawInput, dt: number): void {
+    this._updateCollisionGroups()
     const forwardSpeed = this.getForwardSpeed()
     const speed = this.getSpeed()
 
@@ -646,6 +674,11 @@ export class PlayerCar {
   getPosition(): WorldPosition {
     const t = this.body.translation()
     return { x: t.x, y: t.y, z: t.z }
+  }
+
+  getVelocity(): { x: number; y: number; z: number } {
+    const v = this.body.linvel()
+    return { x: v.x, y: v.y, z: v.z }
   }
 
   getSpeed(): number {

@@ -3,7 +3,7 @@
  * directly from OpenStreetMap on the fly.
  */
 
-import type { WorldChunk, Road, Building, Waterway, Park } from '@world-drive/shared'
+import type { WorldChunk, Road, Building, Waterway, Park, Railway, Barrier } from '@world-drive/shared'
 import {
   type GeoPosition,
   type WorldPosition,
@@ -16,7 +16,14 @@ import { generateChunks, type ChunkMap } from '@world-drive/world-data'
 /**
  * Shared XML parser: parses OSM XML into Road[], Building[], Waterway[], and Park[].
  */
-function parseOsmXml(xmlText: string): { roads: Road[]; buildings: Building[]; waterways: Waterway[]; parks: Park[] } {
+function parseOsmXml(xmlText: string): {
+  roads: Road[]
+  buildings: Building[]
+  waterways: Waterway[]
+  parks: Park[]
+  railways: Railway[]
+  barriers: Barrier[]
+} {
   const nodes = new Map<string, [number, number]>()
   const nodeMatches = xmlText.matchAll(
     /<node id="(\d+)"[^>]*lat="([\d.-]+)"[^>]*lon="([\d.-]+)"/g,
@@ -29,6 +36,8 @@ function parseOsmXml(xmlText: string): { roads: Road[]; buildings: Building[]; w
   const buildings: Building[] = []
   const waterways: Waterway[] = []
   const parks: Park[] = []
+  const railways: Railway[] = []
+  const barriers: Barrier[] = []
 
   const wayMatches = xmlText.matchAll(/<way id="(\d+)"[^>]*>([\s\S]*?)<\/way>/g)
   for (const wm of wayMatches) {
@@ -60,10 +69,10 @@ function parseOsmXml(xmlText: string): { roads: Road[]; buildings: Building[]; w
     if (waterway) { waterways.push(waterway); continue }
 
     const park = normalizePark(raw)
-    if (park) { parks.push(park) }
+    if (park) { parks.push(park); continue }
   }
 
-  return { roads, buildings, waterways, parks }
+  return { roads, buildings, waterways, parks, railways, barriers }
 }
 
 /**
@@ -129,10 +138,10 @@ export async function fetchOsmChunksForArea(
   const xmlText = await fetchOsmXml(bbox, signal)
   if (!xmlText || xmlText.length < 50) return null
 
-  const { roads, buildings, waterways, parks } = parseOsmXml(xmlText)
+  const { roads, buildings, waterways, parks, railways, barriers } = parseOsmXml(xmlText)
   if (roads.length === 0) return null
 
-  return generateChunks(roads, buildings, [], waterways, parks)
+  return generateChunks(roads, buildings, [], waterways, parks, railways, barriers)
 }
 
 export interface RealOsmAreaResult {
@@ -169,15 +178,15 @@ export async function fetchRealOsmArea(
   // Ensure coordinate projection origin is set
   setWorldOrigin(origin)
 
-  // 3. Parse ways into roads, buildings, waterways and parks
-  const { roads, buildings, waterways, parks } = parseOsmXml(xmlText)
+  // 3. Parse ways into roads, buildings, waterways, parks, railways and barriers
+  const { roads, buildings, waterways, parks, railways, barriers } = parseOsmXml(xmlText)
 
   if (roads.length === 0) {
     return null
   }
 
   // 4. Partition into chunk grid
-  const chunks = generateChunks(roads, buildings, [], waterways, parks)
+  const chunks = generateChunks(roads, buildings, [], waterways, parks, railways, barriers)
 
   // 5. Find the best on-road spawn point closest to world (0, 0)
   let bestDistSq = Infinity

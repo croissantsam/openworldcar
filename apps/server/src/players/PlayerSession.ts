@@ -9,8 +9,10 @@ import type { WebSocket } from 'ws'
 export type PlayerState = {
   id: string
   position: WorldPosition
-  rotation: { x: number; y: number; z: number }
+  rotation: { x: number; y: number; z: number; w?: number }
   velocity: { x: number; y: number; z: number }
+  steering?: number
+  speed?: number
 }
 
 export class PlayerSession {
@@ -19,6 +21,7 @@ export class PlayerSession {
   state: PlayerState
   lastInput: PlayerInput | null = null
   lastProcessedSeq = 0
+  hasClientState = false
   connectedAt: number
 
   constructor(id: string, ws: WebSocket) {

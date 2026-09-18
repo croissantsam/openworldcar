@@ -1,0 +1,2836 @@
+OPENSTREETMAP — RÉFÉRENCE DES DONNÉES POUR UNE MAP 3D
+
+Ce fichier liste les principaux objets, tags et valeurs OpenStreetMap (OSM), avec leur signification dans le monde réel et leur interprétation possible dans une map 3D.
+
+IMPORTANT :
+- OSM est une base de données ouverte et extensible.
+- Tous les tags ne sont pas présents sur tous les objets.
+- La couverture varie selon les pays, régions et contributeurs.
+- Cette liste couvre les catégories et tags les plus utiles pour une map 3D / jeu de conduite, mais ne constitue pas la totalité des tags OSM existants.
+
+
+======================================================================
+1. STRUCTURE DE BASE OSM
+======================================================================
+
+node
+→ Point géographique.
+
+Exemples :
+- feu de circulation
+- arbre
+- borne
+- arrêt de bus
+- sommet
+- adresse
+- POI
+
+way
+→ Ensemble ordonné de nodes.
+
+Peut représenter :
+- une ligne
+- un contour
+- un polygone
+
+Exemples :
+- route
+- rivière
+- bâtiment
+- forêt
+- lac
+- parking
+
+relation
+→ Ensemble de nodes, ways et/ou autres relations avec une signification commune.
+
+Exemples :
+- restriction de virage
+- ligne de bus
+- ligne de train
+- multipolygone
+- frontière administrative
+- itinéraire
+
+tags
+→ Paires clé/valeur décrivant l'objet.
+
+Exemple :
+highway=residential
+lanes=2
+maxspeed=50
+oneway=yes
+
+
+======================================================================
+2. ROUTES — highway=*
+======================================================================
+
+highway=motorway
+→ Autoroute.
+
+highway=motorway_link
+→ Bretelle d'autoroute.
+
+highway=trunk
+→ Voie rapide / route majeure.
+
+highway=trunk_link
+→ Bretelle de voie rapide.
+
+highway=primary
+→ Route principale.
+
+highway=primary_link
+→ Bretelle de route principale.
+
+highway=secondary
+→ Route secondaire.
+
+highway=secondary_link
+→ Bretelle de route secondaire.
+
+highway=tertiary
+→ Route tertiaire.
+
+highway=tertiary_link
+→ Bretelle de route tertiaire.
+
+highway=unclassified
+→ Route locale non classifiée.
+
+highway=residential
+→ Rue résidentielle.
+
+highway=living_street
+→ Rue résidentielle à circulation apaisée.
+
+highway=service
+→ Voie de service / accès interne.
+
+highway=track
+→ Chemin agricole, forestier ou similaire.
+
+highway=pedestrian
+→ Rue ou zone principalement piétonne.
+
+highway=footway
+→ Chemin piéton.
+
+highway=path
+→ Sentier générique.
+
+highway=cycleway
+→ Piste cyclable.
+
+highway=bridleway
+→ Chemin équestre.
+
+highway=steps
+→ Escaliers.
+
+highway=construction
+→ Route en construction.
+
+highway=proposed
+→ Route proposée.
+
+highway=raceway
+→ Circuit automobile.
+
+highway=escape
+→ Voie de détresse.
+
+
+======================================================================
+3. ATTRIBUTS DE ROUTES
+======================================================================
+
+lanes=*
+→ Nombre de voies de circulation.
+
+lanes:forward=*
+→ Nombre de voies dans le sens de la géométrie.
+
+lanes:backward=*
+→ Nombre de voies dans le sens inverse.
+
+maxspeed=*
+→ Vitesse maximale.
+
+maxspeed:forward=*
+→ Vitesse maximale dans le sens avant.
+
+maxspeed:backward=*
+→ Vitesse maximale dans le sens arrière.
+
+oneway=yes
+→ Sens unique dans le sens de la géométrie.
+
+oneway=no
+→ Circulation dans les deux sens.
+
+oneway=-1
+→ Sens unique opposé à la direction de la géométrie.
+
+surface=asphalt
+→ Asphalte.
+
+surface=concrete
+→ Béton.
+
+surface=concrete:lanes
+→ Béton par voie.
+
+surface=paved
+→ Surface revêtue.
+
+surface=unpaved
+→ Surface non revêtue.
+
+surface=gravel
+→ Gravier.
+
+surface=fine_gravel
+→ Gravier fin.
+
+surface=dirt
+→ Terre.
+
+surface=ground
+→ Sol naturel.
+
+surface=sand
+→ Sable.
+
+surface=compacted
+→ Sol compacté.
+
+surface=cobblestone
+→ Pavés.
+
+surface=sett
+→ Pavés réguliers.
+
+surface=brick
+→ Briques.
+
+width=*
+→ Largeur de la route.
+
+est_width=*
+→ Largeur estimée.
+
+incline=*
+→ Pente.
+
+smoothness=*
+→ Qualité / praticabilité de la surface.
+
+lit=yes
+→ Route éclairée.
+
+lit=no
+→ Route non éclairée.
+
+toll=yes
+→ Péage.
+
+toll=no
+→ Sans péage.
+
+access=*
+→ Règles générales d'accès.
+
+access=yes
+→ Accès autorisé.
+
+access=no
+→ Accès interdit.
+
+access=private
+→ Accès privé.
+
+vehicle=*
+→ Accès des véhicules.
+
+motor_vehicle=*
+→ Accès aux véhicules motorisés.
+
+motorcar=*
+→ Accès aux voitures.
+
+bus=*
+→ Accès aux bus.
+
+hgv=*
+→ Accès aux poids lourds.
+
+bicycle=*
+→ Accès aux vélos.
+
+foot=*
+→ Accès piéton.
+
+name=*
+→ Nom de la route.
+
+ref=*
+→ Référence officielle de la route.
+
+destination=*
+→ Destination indiquée sur la route.
+
+junction=roundabout
+→ Rond-point.
+
+junction=motorway_junction
+→ Échangeur / sortie d'autoroute.
+
+bridge=yes
+→ La route passe sur un pont.
+
+tunnel=yes
+→ La route passe dans un tunnel.
+
+covered=yes
+→ Route couverte.
+
+ford=yes
+→ Passage à gué.
+
+
+======================================================================
+4. MARQUAGES ET CIRCULATION
+======================================================================
+
+highway=traffic_signals
+→ Feu de circulation.
+
+highway=stop
+→ Stop.
+
+highway=give_way
+→ Cédez-le-passage.
+
+highway=crossing
+→ Passage piéton / traversée.
+
+crossing=*
+→ Type de passage.
+
+crossing=traffic_signals
+→ Passage piéton avec feu.
+
+crossing=zebra
+→ Passage piéton type zébra.
+
+crossing=uncontrolled
+→ Passage sans contrôle par feu.
+
+crossing=island
+→ Passage avec îlot.
+
+traffic_sign=*
+→ Panneau de signalisation.
+
+highway=street_lamp
+→ Lampadaire.
+
+barrier=bollard
+→ Potelet.
+
+barrier=gate
+→ Portail.
+
+barrier=lift_gate
+→ Barrière levante.
+
+
+======================================================================
+5. ROUTES ET VOIES SPÉCIFIQUES
+======================================================================
+
+cycleway=*
+→ Infrastructure cyclable associée à une route.
+
+cycleway=lane
+→ Bande cyclable.
+
+cycleway=track
+→ Piste cyclable séparée.
+
+cycleway=shared_lane
+→ Voie partagée avec vélos.
+
+sidewalk=*
+→ Trottoir.
+
+sidewalk=both
+→ Trottoir des deux côtés.
+
+sidewalk=left
+→ Trottoir à gauche.
+
+sidewalk=right
+→ Trottoir à droite.
+
+parking:lane=*
+→ Parking situé le long de la route.
+
+bus:lanes=*
+→ Voies réservées / utilisées par les bus.
+
+
+======================================================================
+6. BÂTIMENTS — building=*
+======================================================================
+
+building=yes
+→ Bâtiment générique.
+
+building=house
+→ Maison.
+
+building=detached
+→ Maison individuelle.
+
+building=semidetached_house
+→ Maison jumelée.
+
+building=terrace
+→ Maisons mitoyennes.
+
+building=apartments
+→ Immeuble d'appartements.
+
+building=bungalow
+→ Bungalow.
+
+building=hut
+→ Cabane.
+
+building=garage
+→ Garage.
+
+building=garages
+→ Ensemble de garages.
+
+building=carport
+→ Abri pour voiture.
+
+building=warehouse
+→ Entrepôt.
+
+building=industrial
+→ Bâtiment industriel.
+
+building=commercial
+→ Bâtiment commercial.
+
+building=retail
+→ Bâtiment commercial / magasin.
+
+building=office
+→ Bâtiment de bureaux.
+
+building=supermarket
+→ Supermarché.
+
+building=hotel
+→ Hôtel.
+
+building=hospital
+→ Hôpital.
+
+building=school
+→ École.
+
+building=university
+→ Université.
+
+building=kindergarten
+→ École maternelle / crèche.
+
+building=church
+→ Église.
+
+building=cathedral
+→ Cathédrale.
+
+building=mosque
+→ Mosquée.
+
+building=temple
+→ Temple.
+
+building=synagogue
+→ Synagogue.
+
+building=train_station
+→ Gare.
+
+building=stadium
+→ Stade.
+
+building=sports_hall
+→ Salle de sport.
+
+building=fire_station
+→ Caserne de pompiers.
+
+building=government
+→ Bâtiment administratif.
+
+building=civic
+→ Bâtiment civique.
+
+building=public
+→ Bâtiment public.
+
+building=service
+→ Bâtiment de service.
+
+building=parking
+→ Parking couvert.
+
+building=hangar
+→ Hangar.
+
+building=farm
+→ Bâtiment agricole.
+
+building=farm_auxiliary
+→ Bâtiment agricole auxiliaire.
+
+building=stable
+→ Écurie.
+
+building=roof
+→ Structure avec toit.
+
+
+======================================================================
+7. DIMENSIONS DES BÂTIMENTS
+======================================================================
+
+height=*
+→ Hauteur du bâtiment.
+
+building:levels=*
+→ Nombre de niveaux / étages.
+
+building:min_level=*
+→ Premier niveau occupé / niveau minimum indiqué.
+
+building:max_level=*
+→ Niveau maximum.
+
+building:levels:underground=*
+→ Nombre de niveaux souterrains.
+
+building:material=*
+→ Matériau du bâtiment.
+
+building:colour=*
+→ Couleur du bâtiment.
+
+roof:shape=*
+→ Forme du toit.
+
+roof:height=*
+→ Hauteur du toit.
+
+roof:levels=*
+→ Nombre de niveaux du toit.
+
+roof:material=*
+→ Matériau du toit.
+
+roof:colour=*
+→ Couleur du toit.
+
+roof:orientation=*
+→ Orientation du toit.
+
+
+======================================================================
+8. FORMES DE TOITS — roof:shape=*
+======================================================================
+
+roof:shape=flat
+→ Toit plat.
+
+roof:shape=gabled
+→ Toit à deux pans.
+
+roof:shape=hipped
+→ Toit à quatre pans.
+
+roof:shape=pyramidal
+→ Toit pyramidal.
+
+roof:shape=round
+→ Toit arrondi.
+
+roof:shape=skillion
+→ Toit à une pente.
+
+roof:shape=mansard
+→ Toit mansardé.
+
+roof:shape=dome
+→ Dôme.
+
+
+======================================================================
+9. NATURE — natural=*
+======================================================================
+
+natural=water
+→ Surface d'eau.
+
+natural=wood
+→ Zone boisée.
+
+natural=forest
+→ Forêt.
+
+natural=grassland
+→ Prairie / zone herbeuse.
+
+natural=scrub
+→ Broussailles.
+
+natural=heath
+→ Landes.
+
+natural=wetland
+→ Zone humide.
+
+natural=marsh
+→ Marais.
+
+natural=beach
+→ Plage.
+
+natural=sand
+→ Zone sablonneuse.
+
+natural=shingle
+→ Plage de galets.
+
+natural=bare_rock
+→ Roche nue.
+
+natural=rock
+→ Zone rocheuse.
+
+natural=cliff
+→ Falaise.
+
+natural=peak
+→ Sommet.
+
+natural=saddle
+→ Col.
+
+natural=valley
+→ Vallée.
+
+natural=glacier
+→ Glacier.
+
+natural=tree
+→ Arbre individuel.
+
+natural=shrub
+→ Arbuste.
+
+natural=scree
+→ Éboulis.
+
+
+======================================================================
+10. UTILISATION DES SOLS — landuse=*
+======================================================================
+
+landuse=residential
+→ Zone résidentielle.
+
+landuse=commercial
+→ Zone commerciale.
+
+landuse=retail
+→ Zone commerciale / magasins.
+
+landuse=industrial
+→ Zone industrielle.
+
+landuse=construction
+→ Zone en construction.
+
+landuse=farmland
+→ Terrain agricole.
+
+landuse=farmyard
+→ Cour / zone d'une ferme.
+
+landuse=forest
+→ Forêt.
+
+landuse=orchard
+→ Verger.
+
+landuse=vineyard
+→ Vignoble.
+
+landuse=meadow
+→ Prairie.
+
+landuse=grass
+→ Zone herbeuse.
+
+landuse=allotments
+→ Jardins partagés.
+
+landuse=cemetery
+→ Cimetière.
+
+landuse=recreation_ground
+→ Terrain de loisirs.
+
+landuse=quarry
+→ Carrière.
+
+landuse=landfill
+→ Décharge.
+
+landuse=military
+→ Zone militaire.
+
+landuse=garages
+→ Zone de garages.
+
+landuse=railway
+→ Emprise ferroviaire.
+
+landuse=port
+→ Zone portuaire.
+
+
+======================================================================
+11. EAU — waterway=*
+======================================================================
+
+waterway=river
+→ Fleuve / grande rivière.
+
+waterway=stream
+→ Ruisseau.
+
+waterway=tidal_channel
+→ Chenal soumis aux marées.
+
+waterway=ditch
+→ Fossé.
+
+waterway=drain
+→ Canalisation / drainage.
+
+waterway=canal
+→ Canal.
+
+waterway=dam
+→ Barrage.
+
+waterway=weir
+→ Seuil.
+
+waterway=lock_gate
+→ Porte d'écluse.
+
+waterway=lock
+→ Écluse.
+
+waterway=dock
+→ Bassin portuaire.
+
+waterway=boatyard
+→ Chantier naval.
+
+water=lake
+→ Lac.
+
+water=pond
+→ Étang.
+
+water=reservoir
+→ Réservoir.
+
+water=river
+→ Eau de rivière.
+
+water=canal
+→ Eau de canal.
+
+
+======================================================================
+12. TRANSPORT FERROVIAIRE — railway=*
+======================================================================
+
+railway=rail
+→ Voie ferrée classique.
+
+railway=light_rail
+→ Métro léger / train léger.
+
+railway=subway
+→ Métro.
+
+railway=tram
+→ Tramway.
+
+railway=monorail
+→ Monorail.
+
+railway=narrow_gauge
+→ Voie étroite.
+
+railway=station
+→ Gare.
+
+railway=halt
+→ Petit arrêt ferroviaire.
+
+railway=stop
+→ Arrêt ferroviaire.
+
+railway=tram_stop
+→ Arrêt de tram.
+
+railway=subway_entrance
+→ Entrée de métro.
+
+railway=level_crossing
+→ Passage à niveau.
+
+railway=crossing
+→ Traversée ferroviaire.
+
+railway=signal
+→ Signal ferroviaire.
+
+railway=buffer_stop
+→ Butoir.
+
+railway=turntable
+→ Pont tournant.
+
+railway=platform
+→ Quai ferroviaire.
+
+
+======================================================================
+13. TRANSPORTS PUBLICS — relations route=*
+======================================================================
+
+route=bus
+→ Ligne de bus.
+
+route=trolleybus
+→ Ligne de trolleybus.
+
+route=tram
+→ Ligne de tram.
+
+route=train
+→ Ligne de train.
+
+route=subway
+→ Ligne de métro.
+
+route=light_rail
+→ Ligne de métro léger.
+
+route=ferry
+→ Ligne de ferry.
+
+route=monorail
+→ Ligne de monorail.
+
+route=funicular
+→ Funiculaire.
+
+route=aerialway
+→ Transport par câble.
+
+
+======================================================================
+14. AÉROPORTS — aeroway=*
+======================================================================
+
+aeroway=aerodrome
+→ Aéroport / aérodrome.
+
+aeroway=runway
+→ Piste d'aéroport.
+
+aeroway=taxiway
+→ Voie de circulation des avions.
+
+aeroway=terminal
+→ Terminal.
+
+aeroway=hangar
+→ Hangar.
+
+aeroway=helipad
+→ Héliport.
+
+aeroway=apron
+→ Aire de stationnement des avions.
+
+aeroway=holding_position
+→ Position d'attente.
+
+aeroway=control_tower
+→ Tour de contrôle.
+
+aeroway=gate
+→ Porte d'embarquement.
+
+
+======================================================================
+15. COMMERCES — shop=*
+======================================================================
+
+shop=supermarket
+→ Supermarché.
+
+shop=convenience
+→ Épicerie / commerce de proximité.
+
+shop=bakery
+→ Boulangerie.
+
+shop=butcher
+→ Boucherie.
+
+shop=greengrocer
+→ Primeur.
+
+shop=clothes
+→ Magasin de vêtements.
+
+shop=shoes
+→ Magasin de chaussures.
+
+shop=electronics
+→ Magasin d'électronique.
+
+shop=computer
+→ Magasin informatique.
+
+shop=mobile_phone
+→ Magasin de téléphones.
+
+shop=furniture
+→ Magasin de meubles.
+
+shop=hardware
+→ Quincaillerie.
+
+shop=car
+→ Concession automobile.
+
+shop=car_repair
+→ Garage automobile.
+
+shop=car_parts
+→ Pièces automobiles.
+
+shop=bicycle
+→ Magasin de vélos.
+
+shop=books
+→ Librairie.
+
+shop=stationery
+→ Papeterie.
+
+shop=hairdresser
+→ Coiffeur.
+
+shop=beauty
+→ Beauté / esthétique.
+
+shop=florist
+→ Fleuriste.
+
+shop=jewelry
+→ Bijouterie.
+
+shop=gift
+→ Boutique de cadeaux.
+
+shop=toys
+→ Jouets.
+
+shop=sports
+→ Articles de sport.
+
+shop=pet
+→ Animalerie.
+
+shop=doityourself
+→ Bricolage.
+
+shop=paint
+→ Peinture.
+
+shop=optician
+→ Opticien.
+
+shop=travel_agency
+→ Agence de voyage.
+
+
+======================================================================
+16. SERVICES — amenity=*
+======================================================================
+
+amenity=restaurant
+→ Restaurant.
+
+amenity=cafe
+→ Café.
+
+amenity=fast_food
+→ Fast-food.
+
+amenity=bar
+→ Bar.
+
+amenity=pub
+→ Pub.
+
+amenity=food_court
+→ Aire de restauration.
+
+amenity=bank
+→ Banque.
+
+amenity=atm
+→ Distributeur automatique.
+
+amenity=pharmacy
+→ Pharmacie.
+
+amenity=hospital
+→ Hôpital.
+
+amenity=clinic
+→ Clinique.
+
+amenity=doctors
+→ Cabinet médical / médecin.
+
+amenity=dentist
+→ Dentiste.
+
+amenity=veterinary
+→ Vétérinaire.
+
+amenity=school
+→ École.
+
+amenity=college
+→ Collège.
+
+amenity=university
+→ Université.
+
+amenity=kindergarten
+→ École maternelle / crèche.
+
+amenity=police
+→ Commissariat / police.
+
+amenity=fire_station
+→ Caserne de pompiers.
+
+amenity=post_office
+→ Bureau de poste.
+
+amenity=fuel
+→ Station-service.
+
+amenity=charging_station
+→ Station / borne de recharge électrique.
+
+amenity=parking
+→ Parking.
+
+amenity=bicycle_parking
+→ Parking vélos.
+
+amenity=motorcycle_parking
+→ Parking motos.
+
+amenity=toilets
+→ Toilettes publiques.
+
+amenity=cinema
+→ Cinéma.
+
+amenity=theatre
+→ Théâtre.
+
+amenity=library
+→ Bibliothèque.
+
+amenity=community_centre
+→ Centre communautaire.
+
+amenity=townhall
+→ Hôtel de ville.
+
+amenity=prison
+→ Prison.
+
+amenity=courthouse
+→ Tribunal.
+
+amenity=place_of_worship
+→ Lieu de culte.
+
+amenity=grave_yard
+→ Cimetière / lieu d'inhumation.
+
+amenity=drinking_water
+→ Point d'eau potable.
+
+amenity=recycling
+→ Point de recyclage.
+
+amenity=waste_disposal
+→ Dépôt de déchets.
+
+
+======================================================================
+17. LOISIRS — leisure=*
+======================================================================
+
+leisure=park
+→ Parc.
+
+leisure=garden
+→ Jardin.
+
+leisure=playground
+→ Aire de jeux.
+
+leisure=stadium
+→ Stade.
+
+leisure=sports_centre
+→ Centre sportif.
+
+leisure=fitness_centre
+→ Salle de sport.
+
+leisure=swimming_pool
+→ Piscine.
+
+leisure=pitch
+→ Terrain de sport.
+
+leisure=golf_course
+→ Terrain de golf.
+
+leisure=marina
+→ Marina.
+
+leisure=dog_park
+→ Parc pour chiens.
+
+leisure=water_park
+→ Parc aquatique.
+
+leisure=track
+→ Piste sportive.
+
+leisure=common
+→ Espace commun.
+
+
+======================================================================
+18. TOURISME — tourism=*
+======================================================================
+
+tourism=hotel
+→ Hôtel.
+
+tourism=motel
+→ Motel.
+
+tourism=guest_house
+→ Maison d'hôtes.
+
+tourism=hostel
+→ Auberge de jeunesse.
+
+tourism=camp_site
+→ Camping.
+
+tourism=caravan_site
+→ Aire pour caravanes.
+
+tourism=attraction
+→ Attraction touristique.
+
+tourism=museum
+→ Musée.
+
+tourism=gallery
+→ Galerie.
+
+tourism=viewpoint
+→ Point de vue.
+
+tourism=information
+→ Point d'information.
+
+tourism=picnic_site
+→ Aire de pique-nique.
+
+tourism=theme_park
+→ Parc à thème.
+
+tourism=zoo
+→ Zoo.
+
+tourism=aquarium
+→ Aquarium.
+
+
+======================================================================
+19. HISTOIRE ET PATRIMOINE — historic=*
+======================================================================
+
+historic=castle
+→ Château.
+
+historic=fort
+→ Fort.
+
+historic=fortification
+→ Fortification.
+
+historic=ruins
+→ Ruines.
+
+historic=monument
+→ Monument.
+
+historic=memorial
+→ Mémorial.
+
+historic=archaeological_site
+→ Site archéologique.
+
+historic=building
+→ Bâtiment historique.
+
+historic=church
+→ Église historique.
+
+historic=citywalls
+→ Remparts.
+
+historic=manor
+→ Manoir.
+
+historic=tomb
+→ Tombeau.
+
+historic=wayside_cross
+→ Croix / monument religieux au bord d'une route.
+
+
+======================================================================
+20. BARRIÈRES — barrier=*
+======================================================================
+
+barrier=wall
+→ Mur.
+
+barrier=fence
+→ Clôture.
+
+barrier=hedge
+→ Haie.
+
+barrier=bollard
+→ Potelet.
+
+barrier=gate
+→ Portail.
+
+barrier=lift_gate
+→ Barrière levante.
+
+barrier=swing_gate
+→ Portail battant.
+
+barrier=block
+→ Bloc / obstacle.
+
+barrier=jersey_barrier
+→ Barrière béton.
+
+barrier=cycle_barrier
+→ Barrière empêchant le passage des véhicules.
+
+barrier=chain
+→ Chaîne.
+
+barrier=debris
+→ Obstacle / débris.
+
+
+======================================================================
+21. INFRASTRUCTURE — man_made=*
+======================================================================
+
+man_made=tower
+→ Tour.
+
+man_made=communications_tower
+→ Tour de communication.
+
+man_made=water_tower
+→ Château d'eau.
+
+man_made=storage_tank
+→ Réservoir.
+
+man_made=silo
+→ Silo.
+
+man_made=bridge
+→ Pont.
+
+man_made=pipeline
+→ Pipeline.
+
+man_made=surveillance
+→ Installation de surveillance.
+
+man_made=works
+→ Installation industrielle.
+
+
+======================================================================
+22. ÉLECTRICITÉ — power=*
+======================================================================
+
+power=pole
+→ Poteau électrique.
+
+power=tower
+→ Pylône électrique.
+
+power=minor_line
+→ Ligne électrique secondaire.
+
+power=line
+→ Ligne électrique.
+
+power=substation
+→ Poste électrique.
+
+power=generator
+→ Générateur.
+
+power=plant
+→ Centrale électrique.
+
+power=transformer
+→ Transformateur.
+
+
+======================================================================
+23. ÉQUIPEMENTS DE RUE
+======================================================================
+
+highway=street_lamp
+→ Lampadaire.
+
+highway=bus_stop
+→ Arrêt de bus.
+
+public_transport=platform
+→ Quai / plateforme de transport public.
+
+public_transport=stop_position
+→ Position d'arrêt d'un véhicule.
+
+amenity=bench
+→ Banc.
+
+amenity=waste_basket
+→ Corbeille.
+
+amenity=drinking_water
+→ Fontaine / eau potable.
+
+amenity=bicycle_parking
+→ Parking vélo.
+
+amenity=parking
+→ Parking.
+
+amenity=telephone
+→ Téléphone public.
+
+
+======================================================================
+24. PARKING
+======================================================================
+
+amenity=parking
+→ Parking.
+
+parking=surface
+→ Parking au sol.
+
+parking=multi-storey
+→ Parking à étages.
+
+parking=underground
+→ Parking souterrain.
+
+parking=street_side
+→ Parking en bord de rue.
+
+parking=rooftop
+→ Parking sur toit.
+
+capacity=*
+→ Capacité.
+
+fee=yes
+→ Parking payant.
+
+fee=no
+→ Parking gratuit.
+
+maxheight=*
+→ Hauteur maximale autorisée.
+
+
+======================================================================
+25. STATIONS-SERVICE
+======================================================================
+
+amenity=fuel
+→ Station-service.
+
+fuel:diesel=yes
+→ Diesel disponible.
+
+fuel:octane_95=yes
+→ Essence 95 disponible.
+
+fuel:octane_98=yes
+→ Essence 98 disponible.
+
+fuel:e10=yes
+→ Essence E10 disponible.
+
+fuel:lpg=yes
+→ GPL disponible.
+
+fuel:cng=yes
+→ GNV disponible.
+
+fuel:charging_station=yes
+→ Recharge électrique disponible.
+
+brand=*
+→ Marque.
+
+operator=*
+→ Opérateur.
+
+
+======================================================================
+26. RECHARGE ÉLECTRIQUE
+======================================================================
+
+amenity=charging_station
+→ Station de recharge.
+
+capacity=*
+→ Nombre de points / capacité selon le contexte.
+
+socket:type2=*
+→ Connecteur Type 2.
+
+socket:ccs=*
+→ Connecteur CCS.
+
+socket:chademo=*
+→ Connecteur CHAdeMO.
+
+charging_station:output=*
+→ Puissance de recharge.
+
+operator=*
+→ Opérateur.
+
+brand=*
+→ Marque.
+
+
+======================================================================
+27. ARBRES ET VÉGÉTATION
+======================================================================
+
+natural=tree
+→ Arbre individuel.
+
+natural=shrub
+→ Arbuste.
+
+species=*
+→ Espèce.
+
+genus=*
+→ Genre botanique.
+
+leaf_type=*
+→ Type de feuillage.
+
+leaf_cycle=*
+→ Cycle du feuillage.
+
+height=*
+→ Hauteur.
+
+diameter_crown=*
+→ Diamètre de la couronne.
+
+circumference=*
+→ Circonférence du tronc.
+
+
+======================================================================
+28. FRONTIÈRES ET ADMINISTRATION
+======================================================================
+
+boundary=administrative
+→ Frontière administrative.
+
+admin_level=*
+→ Niveau administratif.
+
+boundary=national_park
+→ Limite d'un parc national.
+
+boundary=protected_area
+→ Zone protégée.
+
+place=city
+→ Ville importante.
+
+place=town
+→ Ville.
+
+place=village
+→ Village.
+
+place=hamlet
+→ Hameau.
+
+place=suburb
+→ Banlieue / quartier périphérique.
+
+place=neighbourhood
+→ Quartier.
+
+place=district
+→ District / secteur.
+
+place=island
+→ Île.
+
+place=islet
+→ Îlot.
+
+
+======================================================================
+29. ADRESSES
+======================================================================
+
+addr:housenumber=*
+→ Numéro de bâtiment.
+
+addr:street=*
+→ Nom de rue.
+
+addr:postcode=*
+→ Code postal.
+
+addr:city=*
+→ Ville.
+
+addr:state=*
+→ Région / état.
+
+addr:country=*
+→ Pays.
+
+addr:unit=*
+→ Appartement / unité.
+
+addr:place=*
+→ Nom de lieu.
+
+
+======================================================================
+30. NOMS ET IDENTIFIANTS
+======================================================================
+
+name=*
+→ Nom principal.
+
+name:fr=*
+→ Nom français.
+
+name:en=*
+→ Nom anglais.
+
+name:de=*
+→ Nom allemand.
+
+name:es=*
+→ Nom espagnol.
+
+name:it=*
+→ Nom italien.
+
+name:pt=*
+→ Nom portugais.
+
+name:ja=*
+→ Nom japonais.
+
+name:zh=*
+→ Nom chinois.
+
+name:ko=*
+→ Nom coréen.
+
+alt_name=*
+→ Nom alternatif.
+
+short_name=*
+→ Nom court.
+
+official_name=*
+→ Nom officiel.
+
+old_name=*
+→ Ancien nom.
+
+loc_name=*
+→ Nom local.
+
+ref=*
+→ Référence officielle.
+
+operator=*
+→ Opérateur.
+
+brand=*
+→ Marque.
+
+
+======================================================================
+31. INFORMATIONS DE CONTACT
+======================================================================
+
+website=*
+→ Site web.
+
+contact:website=*
+→ Site web de contact.
+
+phone=*
+→ Téléphone.
+
+contact:phone=*
+→ Téléphone de contact.
+
+email=*
+→ Email.
+
+contact:email=*
+→ Email de contact.
+
+opening_hours=*
+→ Horaires d'ouverture.
+
+
+======================================================================
+32. ACCÈS ET RESTRICTIONS
+======================================================================
+
+access=*
+→ Accès général.
+
+vehicle=*
+→ Véhicules.
+
+motor_vehicle=*
+→ Véhicules motorisés.
+
+motorcar=*
+→ Voitures.
+
+motorcycle=*
+→ Motos.
+
+bus=*
+→ Bus.
+
+taxi=*
+→ Taxis.
+
+hgv=*
+→ Poids lourds.
+
+bicycle=*
+→ Vélos.
+
+foot=*
+→ Piétons.
+
+horse=*
+→ Chevaux.
+
+wheelchair=*
+→ Accessibilité fauteuil roulant.
+
+
+======================================================================
+33. RESTRICTIONS DE VIRAGE — RELATIONS
+======================================================================
+
+type=restriction
+→ Relation de restriction de circulation.
+
+restriction=no_left_turn
+→ Interdiction de tourner à gauche.
+
+restriction=no_right_turn
+→ Interdiction de tourner à droite.
+
+restriction=no_straight_on
+→ Interdiction d'aller tout droit.
+
+restriction=no_u_turn
+→ Demi-tour interdit.
+
+restriction=only_left_turn
+→ Seul le virage à gauche est autorisé.
+
+restriction=only_right_turn
+→ Seul le virage à droite est autorisé.
+
+restriction=only_straight_on
+→ Seul le mouvement tout droit est autorisé.
+
+Une restriction peut généralement relier :
+from
+→ route de départ
+
+via
+→ élément intermédiaire
+
+to
+→ route d'arrivée
+
+
+======================================================================
+34. RELATIONS MULTIPOLYGONES
+======================================================================
+
+type=multipolygon
+→ Permet de représenter des surfaces complexes avec trous ou plusieurs parties.
+
+Exemple :
+
+Forêt
++ lac à l'intérieur
+
+ou :
+
+Bâtiment complexe.
+
+Les rôles peuvent inclure :
+
+outer
+→ Contour extérieur.
+
+inner
+→ Trou / contour intérieur.
+
+
+======================================================================
+35. SENTIERS ET RANDONNÉES
+======================================================================
+
+route=hiking
+→ Itinéraire de randonnée.
+
+route=foot
+→ Itinéraire piéton.
+
+route=bicycle
+→ Itinéraire cyclable.
+
+route=mtb
+→ Itinéraire VTT.
+
+route=horse
+→ Itinéraire équestre.
+
+sac_scale=*
+→ Difficulté d'un itinéraire pédestre.
+
+surface=*
+→ Type de surface.
+
+tracktype=*
+→ Qualité / type de chemin.
+
+
+======================================================================
+36. MONTAGNES ET ALTITUDE
+======================================================================
+
+natural=peak
+→ Sommet.
+
+natural=saddle
+→ Col.
+
+ele=*
+→ Élévation / altitude.
+
+ele=* est généralement exprimé en mètres selon le contexte de données OSM.
+
+climbing=*
+→ Information d'escalade.
+
+Ne pas considérer OSM comme un modèle numérique d'élévation mondial complet.
+
+
+======================================================================
+37. MER / CÔTES / PORTS
+======================================================================
+
+natural=coastline
+→ Ligne de côte.
+
+natural=beach
+→ Plage.
+
+harbour=yes
+→ Port.
+
+leisure=marina
+→ Marina.
+
+amenity=ferry_terminal
+→ Terminal de ferry.
+
+route=ferry
+→ Itinéraire de ferry.
+
+
+======================================================================
+38. OBJETS MARITIMES
+======================================================================
+
+seamark:type=*
+→ Objet de navigation maritime.
+
+seamark:light:*
+→ Caractéristiques lumineuses.
+
+man_made=lighthouse
+→ Phare.
+
+natural=bay
+→ Baie.
+
+natural=cape
+→ Cap.
+
+
+======================================================================
+39. PARKS ET ESPACES VERTS
+======================================================================
+
+leisure=park
+→ Parc.
+
+leisure=garden
+→ Jardin.
+
+leisure=playground
+→ Aire de jeux.
+
+leisure=dog_park
+→ Parc à chiens.
+
+leisure=common
+→ Espace commun.
+
+leisure=recreation_ground
+→ Terrain de loisirs.
+
+landuse=grass
+→ Herbe.
+
+landuse=meadow
+→ Prairie.
+
+
+======================================================================
+40. SPORTS
+======================================================================
+
+leisure=stadium
+→ Stade.
+
+leisure=sports_centre
+→ Centre sportif.
+
+leisure=pitch
+→ Terrain de sport.
+
+leisure=track
+→ Piste.
+
+leisure=fitness_centre
+→ Salle de sport.
+
+leisure=swimming_pool
+→ Piscine.
+
+leisure=golf_course
+→ Golf.
+
+sport=*
+→ Type de sport pratiqué.
+
+Exemples :
+
+sport=football
+→ Football.
+
+sport=tennis
+→ Tennis.
+
+sport=basketball
+→ Basket-ball.
+
+sport=athletics
+→ Athlétisme.
+
+
+======================================================================
+41. CIMETIÈRES
+======================================================================
+
+landuse=cemetery
+→ Cimetière.
+
+amenity=grave_yard
+→ Zone de tombes / cimetière associé à un lieu de culte.
+
+cemetery=*
+→ Type de cimetière.
+
+religion=*
+→ Religion associée si renseignée.
+
+
+======================================================================
+42. LIEUX DE CULTE
+======================================================================
+
+amenity=place_of_worship
+→ Lieu de culte.
+
+building=church
+→ Église.
+
+building=cathedral
+→ Cathédrale.
+
+building=mosque
+→ Mosquée.
+
+building=synagogue
+→ Synagogue.
+
+building=temple
+→ Temple.
+
+religion=christian
+→ Christianisme.
+
+religion=muslim
+→ Islam.
+
+religion=jewish
+→ Judaïsme.
+
+religion=hindu
+→ Hindouisme.
+
+religion=buddhist
+→ Bouddhisme.
+
+
+======================================================================
+43. ÉCOLES / ÉDUCATION
+======================================================================
+
+amenity=school
+→ École.
+
+amenity=college
+→ Collège.
+
+amenity=university
+→ Université.
+
+amenity=kindergarten
+→ Maternelle / crèche.
+
+amenity=language_school
+→ École de langues.
+
+education=*
+→ Type d'éducation.
+
+
+======================================================================
+44. SANTÉ
+======================================================================
+
+amenity=hospital
+→ Hôpital.
+
+amenity=clinic
+→ Clinique.
+
+amenity=doctors
+→ Médecin.
+
+amenity=dentist
+→ Dentiste.
+
+amenity=pharmacy
+→ Pharmacie.
+
+amenity=veterinary
+→ Vétérinaire.
+
+
+======================================================================
+45. SÉCURITÉ / SERVICES PUBLICS
+======================================================================
+
+amenity=police
+→ Police.
+
+amenity=fire_station
+→ Pompiers.
+
+amenity=prison
+→ Prison.
+
+amenity=courthouse
+→ Tribunal.
+
+amenity=townhall
+→ Hôtel de ville.
+
+office=government
+→ Bureau / administration gouvernementale.
+
+
+======================================================================
+46. INFRASTRUCTURES ROUTIÈRES
+======================================================================
+
+highway=motorway
+→ Autoroute.
+
+highway=construction
+→ Route en construction.
+
+bridge=yes
+→ Pont.
+
+tunnel=yes
+→ Tunnel.
+
+junction=roundabout
+→ Rond-point.
+
+barrier=*
+→ Obstacle / contrôle d'accès.
+
+traffic_sign=*
+→ Panneau.
+
+highway=street_lamp
+→ Éclairage routier.
+
+highway=milestone
+→ Borne kilométrique.
+
+highway=services
+→ Aire de services.
+
+highway=rest_area
+→ Aire de repos.
+
+
+======================================================================
+47. PARKINGS ET AIRES ROUTIÈRES
+======================================================================
+
+highway=services
+→ Aire de services autoroutière.
+
+highway=rest_area
+→ Aire de repos.
+
+amenity=parking
+→ Parking.
+
+amenity=fuel
+→ Station-service.
+
+amenity=charging_station
+→ Recharge électrique.
+
+tourism=caravan_site
+→ Aire pour caravanes.
+
+
+======================================================================
+48. POI GÉNÉRIQUES
+======================================================================
+
+Pour une map 3D, ces catégories peuvent être regroupées dans un objet POI :
+
+amenity=*
+shop=*
+tourism=*
+leisure=*
+historic=*
+office=*
+craft=*
+emergency=*
+
+Attributs importants :
+
+name=*
+→ Nom.
+
+brand=*
+→ Marque.
+
+operator=*
+→ Opérateur.
+
+position
+→ Position géographique.
+
+geometry
+→ Emprise géographique si disponible.
+
+
+======================================================================
+49. ARTISANAT — craft=*
+======================================================================
+
+craft=carpenter
+→ Menuiserie.
+
+craft=shoemaker
+→ Cordonnier.
+
+craft=tailor
+→ Tailleur.
+
+craft=beekeeper
+→ Apiculture.
+
+craft=brewery
+→ Brasserie.
+
+craft=winery
+→ Exploitation / production de vin.
+
+craft=metal_construction
+→ Construction métallique.
+
+craft=plumber
+→ Plombier.
+
+craft=photographer
+→ Photographe.
+
+
+======================================================================
+50. BUREAUX — office=*
+======================================================================
+
+office=company
+→ Entreprise.
+
+office=government
+→ Administration.
+
+office=lawyer
+→ Avocat.
+
+office=estate_agent
+→ Agence immobilière.
+
+office=insurance
+→ Assurance.
+
+office=financial
+→ Service financier.
+
+office=architect
+→ Architecte.
+
+office=educational_institution
+→ Institution éducative.
+
+
+======================================================================
+51. URGENCES
+======================================================================
+
+emergency=ambulance_station
+→ Station d'ambulances.
+
+emergency=defibrillator
+→ Défibrillateur.
+
+emergency=phone
+→ Téléphone d'urgence.
+
+emergency=water_tank
+→ Réservoir d'eau d'urgence.
+
+
+======================================================================
+52. ÉNERGIE
+======================================================================
+
+power=plant
+→ Centrale.
+
+power=substation
+→ Sous-station.
+
+power=generator
+→ Générateur.
+
+power=transformer
+→ Transformateur.
+
+power=tower
+→ Pylône.
+
+power=pole
+→ Poteau.
+
+power=line
+→ Ligne électrique.
+
+power=cable
+→ Câble électrique.
+
+
+======================================================================
+53. COMMUNICATION
+======================================================================
+
+man_made=communications_tower
+→ Tour de communication.
+
+man_made=mast
+→ Mât.
+
+communication=antenna
+→ Antenne.
+
+communication=mobile_phone
+→ Infrastructure mobile.
+
+communication=radio
+→ Infrastructure radio.
+
+
+======================================================================
+54. INDUSTRIE
+======================================================================
+
+landuse=industrial
+→ Zone industrielle.
+
+industrial=*
+→ Type d'industrie.
+
+man_made=works
+→ Installation industrielle.
+
+building=industrial
+→ Bâtiment industriel.
+
+building=warehouse
+→ Entrepôt.
+
+building=factory
+→ Usine.
+
+man_made=silo
+→ Silo.
+
+man_made=storage_tank
+→ Réservoir industriel.
+
+
+======================================================================
+55. AGRICULTURE
+======================================================================
+
+landuse=farmland
+→ Terrain agricole.
+
+landuse=farmyard
+→ Ferme.
+
+landuse=orchard
+→ Verger.
+
+landuse=vineyard
+→ Vignoble.
+
+landuse=greenhouse_horticulture
+→ Serres horticoles.
+
+building=farm
+→ Bâtiment agricole.
+
+building=barn
+→ Grange.
+
+building=stable
+→ Écurie.
+
+
+======================================================================
+56. FORÊTS
+======================================================================
+
+natural=wood
+→ Zone boisée.
+
+landuse=forest
+→ Forêt.
+
+leaf_type=broadleaved
+→ Feuillus.
+
+leaf_type=needleleaved
+→ Résineux.
+
+leaf_type=mixed
+→ Forêt mixte.
+
+leaf_cycle=deciduous
+→ Feuillage caduc.
+
+leaf_cycle=evergreen
+→ Feuillage persistant.
+
+wood=*
+→ Informations complémentaires sur la forêt.
+
+
+======================================================================
+57. ZONES URBAINES
+======================================================================
+
+place=city
+→ Grande ville.
+
+place=town
+→ Ville.
+
+place=village
+→ Village.
+
+place=hamlet
+→ Hameau.
+
+place=suburb
+→ Banlieue.
+
+place=neighbourhood
+→ Quartier.
+
+place=district
+→ District / secteur.
+
+landuse=residential
+→ Zone résidentielle.
+
+landuse=commercial
+→ Zone commerciale.
+
+landuse=retail
+→ Zone commerciale.
+
+landuse=industrial
+→ Zone industrielle.
+
+
+======================================================================
+58. OBJETS GÉOMÉTRIQUES
+======================================================================
+
+Point
+→ Node.
+
+LineString
+→ Way linéaire.
+
+Polygon
+→ Way fermé représentant une surface.
+
+MultiPolygon
+→ Relation multipolygon.
+
+Pour une map 3D :
+
+Route
+→ LineString.
+
+Rivière
+→ LineString.
+
+Bâtiment
+→ Polygon.
+
+Forêt
+→ Polygon / MultiPolygon.
+
+Lac
+→ Polygon / MultiPolygon.
+
+Parking
+→ Polygon.
+
+Zone administrative
+→ Polygon / MultiPolygon.
+
+
+======================================================================
+59. DONNÉES GÉOMÉTRIQUES ET MÉTADONNÉES
+======================================================================
+
+latitude
+→ Latitude.
+
+longitude
+→ Longitude.
+
+id
+→ Identifiant OSM.
+
+version
+→ Version de l'objet.
+
+timestamp
+→ Date de dernière modification.
+
+changeset
+→ Changeset ayant modifié l'objet.
+
+uid
+→ Identifiant du contributeur dans les données où il est disponible.
+
+user
+→ Nom du contributeur dans les données où il est disponible.
+
+tags
+→ Propriétés de l'objet.
+
+
+======================================================================
+60. ATTRIBUTS UTILES POUR UNE MAP 3D
+======================================================================
+
+height=*
+→ Hauteur réelle / indiquée.
+
+width=*
+→ Largeur.
+
+length=*
+→ Longueur.
+
+ele=*
+→ Altitude.
+
+surface=*
+→ Surface / revêtement.
+
+material=*
+→ Matériau.
+
+colour=*
+→ Couleur.
+
+building:levels=*
+→ Étages.
+
+roof:shape=*
+→ Forme du toit.
+
+operator=*
+→ Opérateur.
+
+brand=*
+→ Marque.
+
+name=*
+→ Nom.
+
+ref=*
+→ Référence.
+
+description=*
+→ Description.
+
+
+======================================================================
+61. CORRESPONDANCE DIRECTE POUR UNE MAP 3D
+======================================================================
+
+OSM                         → OBJET MONDE 3D
+
+highway=motorway            → Autoroute 3D
+highway=primary             → Route principale 3D
+highway=secondary           → Route secondaire 3D
+highway=residential         → Rue 3D
+highway=service             → Voie de service 3D
+highway=cycleway            → Piste cyclable 3D
+highway=footway             → Chemin piéton 3D
+
+lanes=*                     → Nombre de voies
+maxspeed=*                  → Limitation de vitesse
+oneway=*                    → Direction du trafic
+surface=*                   → Revêtement
+bridge=yes                  → Pont
+tunnel=yes                  → Tunnel
+junction=roundabout         → Rond-point
+highway=traffic_signals     → Feu
+highway=stop                → Stop
+highway=crossing            → Passage piéton
+
+building=*                  → Bâtiment 3D
+building:levels=*           → Nombre d'étages
+height=*                    → Hauteur
+roof:shape=*                → Toit
+
+natural=water               → Eau
+waterway=river              → Rivière
+waterway=stream             → Ruisseau
+waterway=canal              → Canal
+natural=wood                → Zone forestière
+natural=tree                → Arbre
+natural=grassland           → Prairie
+natural=cliff               → Falaise
+natural=peak                → Montagne / sommet
+
+landuse=residential         → Quartier résidentiel
+landuse=industrial          → Zone industrielle
+landuse=commercial          → Zone commerciale
+landuse=farmland            → Agriculture
+landuse=forest              → Forêt
+landuse=cemetery            → Cimetière
+
+amenity=parking             → Parking
+amenity=fuel                → Station-service
+amenity=charging_station    → Recharge électrique
+amenity=restaurant          → Restaurant
+amenity=cafe                → Café
+amenity=bank                → Banque
+amenity=hospital            → Hôpital
+amenity=school              → École
+
+shop=*                      → Commerce
+tourism=*                   → Lieu touristique
+leisure=*                   → Loisir / sport
+historic=*                  → Patrimoine historique
+
+railway=rail                → Rails
+railway=station             → Gare
+railway=tram                → Tram
+railway=subway              → Métro
+
+aeroway=runway              → Piste d'aéroport
+aeroway=taxiway             → Taxiway
+aeroway=terminal            → Terminal
+
+barrier=wall                → Mur
+barrier=fence               → Clôture
+barrier=bollard             → Potelet
+barrier=gate                → Portail
+
+man_made=tower              → Tour
+man_made=water_tower        → Château d'eau
+man_made=silo               → Silo
+power=tower                 → Pylône
+power=pole                  → Poteau électrique
+
+place=city                  → Ville
+place=town                  → Ville
+place=village               → Village
+place=suburb                → Banlieue
+place=neighbourhood         → Quartier
+
+addr:*                      → Adresse
+
+name=*                      → Nom affichable
+name:xx=*                   → Nom dans une langue
+ref=*                       → Identifiant officiel
+brand=*                     → Marque
+operator=*                  → Opérateur
+
+
+======================================================================
+62. POUR UNE MAP DE CONDUITE
+======================================================================
+
+DONNÉES ROUTIÈRES À EXPLOITER EN PRIORITÉ :
+
+highway
+lanes
+maxspeed
+oneway
+surface
+bridge
+tunnel
+junction
+access
+destination
+ref
+name
+
+DONNÉES DE TRAFIC :
+
+highway=traffic_signals
+highway=stop
+highway=give_way
+highway=crossing
+relations type=restriction
+
+DONNÉES DE MONDE :
+
+building
+building:levels
+height
+roof:shape
+landuse
+natural
+waterway
+
+DONNÉES DE GAMEPLAY :
+
+amenity=fuel
+amenity=charging_station
+amenity=parking
+shop
+restaurant
+hotel
+hospital
+police
+fire_station
+airport
+railway
+
+
+======================================================================
+63. ATTENTION AUX DONNÉES MANQUANTES
+======================================================================
+
+Un objet peut être très simple :
+
+building=yes
+
+ou beaucoup plus détaillé :
+
+building=apartments
+height=24
+building:levels=8
+roof:shape=flat
+name=Example
+
+Il faut donc toujours prévoir des valeurs par défaut / fallback.
+
+Exemple :
+
+height disponible
+→ utiliser height
+
+sinon building:levels disponible
+→ estimer la hauteur
+
+sinon
+→ utiliser une hauteur générique.
+
+
+======================================================================
+64. TAGS OSM : RÈGLE GÉNÉRALE
+======================================================================
+
+Une clé OSM décrit généralement la catégorie :
+
+highway
+building
+natural
+landuse
+amenity
+shop
+tourism
+leisure
+railway
+aeroway
+barrier
+man_made
+power
+place
+historic
+
+La valeur décrit le type :
+
+highway=residential
+building=apartments
+amenity=restaurant
+shop=supermarket
+
+Les autres tags ajoutent les propriétés :
+
+lanes=2
+height=15
+name=Rue Exemple
+maxspeed=50
+oneway=yes
+surface=asphalt
+
+
+======================================================================
+65. RÉSUMÉ
+======================================================================
+
+OSM peut fournir le squelette géographique du monde :
+
+ROUTES
+→ highway=*
+
+BÂTIMENTS
+→ building=*
+
+TERRAIN / NATURE
+→ natural=*
+
+UTILISATION DES SOLS
+→ landuse=*
+
+EAU
+→ waterway=* / natural=water
+
+TRANSPORTS
+→ railway=* / route=*
+
+AÉROPORTS
+→ aeroway=*
+
+COMMERCES
+→ shop=*
+
+SERVICES
+→ amenity=*
+
+TOURISME
+→ tourism=*
+
+LOISIRS
+→ leisure=*
+
+HISTOIRE
+→ historic=*
+
+INFRASTRUCTURES
+→ man_made=* / power=*
+
+OBSTACLES
+→ barrier=*
+
+VILLES / QUARTIERS
+→ place=*
+
+ADRESSES
+→ addr:*
+
+NOMS
+→ name=* / name:xx=*
+
+RÈGLES DE CIRCULATION
+→ relations de restriction + tags highway
+
+GÉOMÉTRIE
+→ nodes + ways + relations
+
+
+Pour une map 3D mondiale, les données OSM représentent principalement :
+1. Où sont les choses.
+2. Quelle forme elles ont.
+3. Quel type de chose elles représentent.
+4. Certaines propriétés physiques.
+5. Certaines règles de circulation.
+6. Certaines informations descriptives.
+
+OSM ne fournit pas automatiquement un modèle 3D réaliste de chaque objet. La géométrie 3D, les textures, les détails, les arbres, les véhicules, les façades et une grande partie du relief doivent être générés ou provenir d'autres sources.

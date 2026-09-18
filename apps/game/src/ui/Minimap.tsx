@@ -53,7 +53,16 @@ export function Minimap({ engine }: Props) {
       const centerY = height / 2
 
       const playerPos = engine.playerCar.getPosition()
-      const playerYaw = engine.playerCar.getYaw()
+      const forward = engine.playerCar.getForwardVector()
+      // forward.x is East (+X) / West (-X)
+      // forward.z is South (+Z) / North (-Z)
+      // 2D canvas angle: +X is right (East), +Y is down (South), -Y is up (North)
+      const headingAngle = Math.atan2(forward.z, forward.x)
+
+      // In radar mode: world rotates so vehicle forward direction is always UP
+      const worldRotation = -headingAngle - Math.PI / 2
+      // In expanded mode: world is static North-Up, so player arrow rotates to face heading
+      const arrowRotation = headingAngle + Math.PI / 2
 
       // Zoom scale: world units to canvas pixels
       // In radar mode: ~1.4 px/m (shows ~150m radius). In expanded mode: ~0.4 px/m (shows ~800m)
@@ -77,9 +86,9 @@ export function Minimap({ engine }: Props) {
       ctx.save()
       ctx.translate(centerX, centerY)
 
-      // In radar mode: Heading-up display (rotate world against car yaw)
+      // In radar mode: Heading-up display (rotate world against car forward heading)
       if (!expanded) {
-        ctx.rotate(-playerYaw)
+        ctx.rotate(worldRotation)
       }
       ctx.translate(-playerPos.x * scale, -playerPos.z * scale)
 
@@ -152,12 +161,48 @@ export function Minimap({ engine }: Props) {
         ctx.stroke()
       }
 
-      // ── 2. Roads (Grosses avenues 4 voies vs Rues moyennes 2 voies vs Petites rues 1 voie) ──
+      // ── 2. Real OpenStreetMap Roads ───────────────────────────────────────
+      // Only draw real drivable road ways — skip pedestrian footways/paths and underground tunnels!
       for (const road of roads) {
         const pts = road.points
         if (pts.length < 2) continue
 
         const hw = road.highway
+        // Skip footways, steps, and paths
+        if (hw === 'footway' || hw === 'path' || hw === 'steps') continue
+
+        // Underground tunnels / underpasses: rendered as distinct dark dashed underpass
+        if (road.elevationMode === 'tunnel' || road.tunnel) {
+          ctx.save()
+          ctx.strokeStyle = '#475569'
+          ctx.lineWidth = Math.max(2.5, (road.lanes || 2) * 3.0 * scale)
+          ctx.setLineDash([6, 4])
+          ctx.beginPath()
+          ctx.moveTo(pts[0]!.x * scale, pts[0]!.z * scale)
+          for (let i = 1; i < pts.length; i++) {
+            ctx.lineTo(pts[i]!.x * scale, pts[i]!.z * scale)
+          }
+          ctx.stroke()
+          ctx.restore()
+          continue
+        }
+
+        if (hw === 'cycleway') {
+          // Cycleways drawn as a thin emerald green dashed line, never a thick road
+          ctx.save()
+          ctx.strokeStyle = 'rgba(16, 185, 129, 0.75)'
+          ctx.lineWidth = Math.max(1, 1.8 * scale)
+          ctx.setLineDash([4, 4])
+          ctx.beginPath()
+          ctx.moveTo(pts[0]!.x * scale, pts[0]!.z * scale)
+          for (let i = 1; i < pts.length; i++) {
+            ctx.lineTo(pts[i]!.x * scale, pts[i]!.z * scale)
+          }
+          ctx.stroke()
+          ctx.restore()
+          continue
+        }
+
         const isHighway = hw === 'motorway' || hw === 'trunk'
         const isMajor = hw === 'primary' || isHighway || (road.lanes && road.lanes >= 4)
         const isMedium = hw === 'secondary' || hw === 'tertiary' || (road.lanes && road.lanes === 2)
@@ -168,15 +213,30 @@ export function Minimap({ engine }: Props) {
         if (isMajor) {
           // Grosses avenues : 2 voies dans chaque sens (large et clair)
           color = '#94a3b8'
-          roadW = Math.max(6, 14 * scale)
+          roadW = Math.max(5, (road.lanes || 4) * 3.4 * scale)
         } else if (isMedium) {
           // Rues moyennes : 2 voies en double sens (1 aller + 1 retour)
           color = '#64748b'
-          roadW = Math.max(4, 7 * scale)
+          roadW = Math.max(3.5, (road.lanes || 2) * 3.2 * scale)
         } else {
           // Petites rues : 1 voie en double sens
           color = '#475569'
-          roadW = Math.max(2.5, 4.5 * scale)
+          roadW = Math.max(2.5, (road.lanes || 1) * 3.0 * scale)
+        }
+
+        // Bridges: draw outer parapet casing border first so bridges pop out over water/roads
+        if (road.elevationMode === 'bridge' || road.bridge) {
+          ctx.save()
+          ctx.strokeStyle = '#0f172a'
+          ctx.lineWidth = roadW + 2.5
+          ctx.lineCap = 'butt'
+          ctx.beginPath()
+          ctx.moveTo(pts[0]!.x * scale, pts[0]!.z * scale)
+          for (let i = 1; i < pts.length; i++) {
+            ctx.lineTo(pts[i]!.x * scale, pts[i]!.z * scale)
+          }
+          ctx.stroke()
+          ctx.restore()
         }
 
         // Chaussée
@@ -284,7 +344,7 @@ export function Minimap({ engine }: Props) {
       ctx.save()
       ctx.translate(centerX, centerY)
       if (expanded) {
-        ctx.rotate(playerYaw)
+        ctx.rotate(arrowRotation)
       }
 
       // Headlight cone (forward beam)
@@ -326,25 +386,53 @@ export function Minimap({ engine }: Props) {
         ctx.arc(centerX, centerY, radius, 0, Math.PI * 2)
         ctx.stroke()
 
-        // Cardinal directions (rotate with player yaw)
+        // Cardinal directions (North is -Z in world, so -PI/2 in 2D canvas)
         const cardinals = [
-          { label: 'N', angle: 0, color: '#ff4d6d' },
-          { label: 'E', angle: Math.PI / 2, color: 'rgba(255,255,255,0.7)' },
-          { label: 'S', angle: Math.PI, color: 'rgba(255,255,255,0.7)' },
-          { label: 'W', angle: (Math.PI * 3) / 2, color: 'rgba(255,255,255,0.7)' },
+          { label: 'N', angle: -Math.PI / 2, color: '#ff4d6d' },
+          { label: 'E', angle: 0,            color: 'rgba(255,255,255,0.85)' },
+          { label: 'S', angle: Math.PI / 2,  color: 'rgba(255,255,255,0.7)' },
+          { label: 'W', angle: Math.PI,      color: 'rgba(255,255,255,0.7)' },
         ]
 
-        ctx.font = "900 9px 'Orbitron', sans-serif"
+        ctx.font = "900 10px 'Orbitron', sans-serif"
         ctx.textAlign = 'center'
         ctx.textBaseline = 'middle'
 
         for (const c of cardinals) {
-          const a = c.angle - playerYaw - Math.PI / 2
+          const a = c.angle + worldRotation
           const cx = centerX + Math.cos(a) * (radius - 12)
           const cy = centerY + Math.sin(a) * (radius - 12)
           ctx.fillStyle = c.color
           ctx.fillText(c.label, cx, cy)
         }
+      } else {
+        // North indicator badge in top right corner of expanded map
+        const badgeX = width - 42
+        const badgeY = 42
+        ctx.save()
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.82)'
+        ctx.strokeStyle = 'rgba(0, 212, 255, 0.45)'
+        ctx.lineWidth = 1.5
+        ctx.beginPath()
+        ctx.arc(badgeX, badgeY, 18, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.stroke()
+
+        // Red arrow pointing North (Up)
+        ctx.fillStyle = '#ff4d6d'
+        ctx.beginPath()
+        ctx.moveTo(badgeX, badgeY - 11)
+        ctx.lineTo(badgeX + 4.5, badgeY - 1)
+        ctx.lineTo(badgeX - 4.5, badgeY - 1)
+        ctx.closePath()
+        ctx.fill()
+
+        ctx.font = "900 10px 'Orbitron', sans-serif"
+        ctx.textAlign = 'center'
+        ctx.textBaseline = 'top'
+        ctx.fillStyle = '#ff4d6d'
+        ctx.fillText('N', badgeX, badgeY + 1)
+        ctx.restore()
       }
 
       ctx.restore() // Restore canvas clip

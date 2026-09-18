@@ -75,16 +75,16 @@ export class Renderer {
   }
 
   private _createGroundMesh(): void {
-    // Large flat continuous terrain across the world (below chunks at y = -0.15)
+    // Large flat continuous terrain across the world (deep below riverbeds at y = -6.0)
     const geo = new THREE.PlaneGeometry(500000, 500000, 10, 10)
     const mat = new THREE.MeshLambertMaterial({
       color: 0x181a1d,
     })
     const ground = new THREE.Mesh(geo, mat)
     ground.rotation.x = -Math.PI / 2
-    ground.position.y = -0.15
+    ground.position.y = -6.0 // Deep below riverbeds (-3.4m) and water (-2.2m)
     ground.receiveShadow = true
-    ground.renderOrder = 0
+    ground.renderOrder = -10
     this.scene.add(ground)
   }
 

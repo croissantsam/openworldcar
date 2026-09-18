@@ -4,7 +4,7 @@
 
 import { WebSocketServer, WebSocket } from 'ws'
 import { v4 as uuidv4 } from 'uuid'
-import { serializeMessage, type ServerMessage } from '@world-drive/protocol'
+import { serializeMessage, type ServerMessage, type PlayerStateUpdate } from '@world-drive/protocol'
 import { PlayerSession } from './players/PlayerSession.js'
 import { PhysicsSimulation } from './simulation/PhysicsSimulation.js'
 import { NpcSimulation } from './simulation/NpcSimulation.js'
@@ -71,12 +71,14 @@ export class GameServer {
     this.physics.step()
     this.npcSim.tick(TICK_DT)
 
-    // Sync positions back to session state
+    // Sync positions back to session state only for sessions without client-authoritative states
     for (const [id, session] of this.sessions) {
-      const pos = this.physics.getPosition(id)
-      if (pos) session.state.position = pos
-      session.state.rotation = this.physics.getRotation(id)
-      session.state.velocity = this.physics.getVelocity(id)
+      if (!session.hasClientState) {
+        const pos = this.physics.getPosition(id)
+        if (pos) session.state.position = pos
+        session.state.rotation = this.physics.getRotation(id)
+        session.state.velocity = this.physics.getVelocity(id)
+      }
     }
 
     // Broadcast snapshots (interest-filtered)
@@ -117,6 +119,10 @@ export class GameServer {
 
       session.send(serializeMessage(snapshot))
     }
+  }
+
+  updatePlayerState(id: string, state: PlayerStateUpdate): void {
+    this.physics.updatePlayerState(id, state.position, state.rotation, state.velocity)
   }
 
   removePlayer(id: string): void {

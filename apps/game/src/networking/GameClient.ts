@@ -15,6 +15,7 @@ import {
   parseServerMessage,
   type ClientMessage,
   type PlayerInput,
+  type PlayerStateUpdate,
 } from '@world-drive/protocol'
 import type { NPCManager } from '../vehicles/NPCManager.js'
 import type { WorldPosition } from '@world-drive/math'
@@ -128,6 +129,18 @@ export class GameClient {
       serializeMessage({
         type: 'player_input',
         input: { ...input, timestamp: Date.now() },
+        seq: this.inputSeq,
+      }),
+    )
+  }
+
+  sendState(state: PlayerStateUpdate): void {
+    if (this.ws?.readyState !== WebSocket.OPEN) return
+    this.inputSeq++
+    this.ws.send(
+      serializeMessage({
+        type: 'player_state',
+        state: { ...state, timestamp: Date.now() },
         seq: this.inputSeq,
       }),
     )

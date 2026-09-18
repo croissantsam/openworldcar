@@ -30,6 +30,16 @@ export class MessageHandler {
         session.lastInput = msg.input
         session.lastProcessedSeq = msg.seq
         break
+      case 'player_state':
+        session.hasClientState = true
+        session.state.position = msg.state.position
+        session.state.rotation = msg.state.rotation
+        session.state.velocity = msg.state.velocity
+        session.state.steering = msg.state.steering ?? 0
+        session.state.speed = msg.state.speed ?? 0
+        session.lastProcessedSeq = msg.seq
+        this.server.updatePlayerState(session.id, msg.state)
+        break
       case 'ping':
         session.send(
           serializeMessage({

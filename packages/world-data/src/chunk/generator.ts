@@ -8,7 +8,7 @@ import {
   CHUNK_SIZE,
   type ChunkId,
 } from '@world-drive/math'
-import type { Road, Building, PointOfInterest, WorldChunk, Waterway, Park } from '@world-drive/shared'
+import type { Road, Building, PointOfInterest, WorldChunk, Waterway, Park, Railway, Barrier } from '@world-drive/shared'
 
 function chunksForLine(points: { x: number; y: number; z: number }[], level: number): ChunkId[] {
   const seen = new Set<string>()
@@ -32,6 +32,8 @@ export function generateChunks(
   pois: PointOfInterest[],
   waterways: Waterway[] = [],
   parks: Park[] = [],
+  railways: Railway[] = [],
+  barriers: Barrier[] = [],
   level = 0,
 ): ChunkMap {
   const chunks: ChunkMap = new Map()
@@ -39,7 +41,7 @@ export function generateChunks(
   function getOrCreate(id: ChunkId): WorldChunk {
     const k = chunkKey(id)
     if (!chunks.has(k)) {
-      chunks.set(k, { id, roads: [], buildings: [], pointsOfInterest: [], waterways: [], parks: [] })
+      chunks.set(k, { id, roads: [], buildings: [], pointsOfInterest: [], waterways: [], parks: [], railways: [], barriers: [] })
     }
     return chunks.get(k)!
   }
@@ -71,6 +73,18 @@ export function generateChunks(
   for (const park of parks) {
     for (const chunkId of chunksForLine(park.polygon, level)) {
       getOrCreate(chunkId).parks.push(park)
+    }
+  }
+
+  for (const railway of railways) {
+    for (const chunkId of chunksForLine(railway.points, level)) {
+      getOrCreate(chunkId).railways.push(railway)
+    }
+  }
+
+  for (const barrier of barriers) {
+    for (const chunkId of chunksForLine(barrier.points, level)) {
+      getOrCreate(chunkId).barriers!.push(barrier)
     }
   }
 

@@ -18,13 +18,14 @@ import {
   type WorldPosition,
   type GeoPosition,
 } from '@world-drive/math'
-import type { WorldChunk, Road, Building, PointOfInterest, Waterway, Park } from '@world-drive/shared'
+import type { WorldChunk, Road, Building, PointOfInterest, Waterway, Park, Railway } from '@world-drive/shared'
 import RAPIER from '@dimforge/rapier3d-compat'
 import { ChunkLoader } from './ChunkLoader.js'
 import type { LoadedChunk } from './ChunkLoader.js'
 import { ChunkState } from './ChunkState.js'
 import { BuildingMeshGenerator } from './BuildingMeshGenerator.js'
 import { ParkMeshGenerator } from './ParkMeshGenerator.js'
+import { RoadMeshGenerator } from './RoadMeshGenerator.js'
 
 /** Number of chunks loaded in each direction from the player (7x7 grid = 3.5km). */
 const LOAD_RADIUS = 3
@@ -156,6 +157,12 @@ export class ChunkManager {
           for (const park of loaded.data.parks ?? []) {
             const parkColliders = ParkMeshGenerator.createColliderDescs(park, loaded.data.roads)
             for (const colDesc of parkColliders) {
+              this.world.createCollider(colDesc, body)
+            }
+          }
+          for (const road of loaded.data.roads ?? []) {
+            const roadColliders = RoadMeshGenerator.createColliderDescs(road)
+            for (const colDesc of roadColliders) {
               this.world.createCollider(colDesc, body)
             }
           }
@@ -414,11 +421,49 @@ export class ChunkManager {
     return list
   }
 
+  getActiveRailways(): Railway[] {
+    return []
+  }
+
   get loadedCount(): number {
     let n = 0
     for (const [, c] of this.chunks) {
       if (c.state.status === 'ACTIVE') n++
     }
     return n
+  }
+
+  /**
+   * Checks whether a 2D world position is within or approaching an underground tunnel corridor.
+   * Used to dynamically toggle ground plane collision so vehicles can descend below y = 0.
+   */
+  isPointNearTunnel(x: number, z: number): boolean {
+    for (const [, chunk] of this.chunks) {
+      if (chunk.state.status !== 'ACTIVE' || !chunk.data) continue
+      for (const road of chunk.data.roads) {
+        if (road.elevationMode !== 'tunnel' && !road.tunnel) continue
+        const isMajor = road.highway === 'motorway' || road.highway === 'trunk' || road.highway === 'primary' || (road.lanes && road.lanes >= 4)
+        const lanes = Math.max(2, road.lanes || (isMajor ? 4 : 2))
+        const roadW = lanes * 3.6
+        const halfW = roadW / 2 + 1.2
+        const halfWSq = halfW * halfW
+        const pts = road.points
+        for (let i = 0; i < pts.length - 1; i++) {
+          const p1 = pts[i]!
+          const p2 = pts[i + 1]!
+          const dx = p2.x - p1.x
+          const dz = p2.z - p1.z
+          const lenSq = dx * dx + dz * dz
+          if (lenSq < 1e-4) continue
+          let t = ((x - p1.x) * dx + (z - p1.z) * dz) / lenSq
+          t = Math.max(0, Math.min(1, t))
+          const projX = p1.x + t * dx
+          const projZ = p1.z + t * dz
+          const distSq = (x - projX) ** 2 + (z - projZ) ** 2
+          if (distSq <= halfWSq) return true
+        }
+      }
+    }
+    return false
   }
 }

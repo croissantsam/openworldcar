@@ -69,6 +69,8 @@ export function generateLiveChunk(
       maxSpeed: ro.speed,
       bridge: false,
       tunnel: false,
+      layer: 0,
+      elevationMode: 'ground',
       points: [
         { x: lineX, y: 0, z: minZ - roadMargin },
         { x: lineX + c * 0.7, y: 0, z: minZ + 125 },
@@ -108,6 +110,8 @@ export function generateLiveChunk(
       maxSpeed: ro.speed,
       bridge: false,
       tunnel: false,
+      layer: 0,
+      elevationMode: 'ground',
       points: [
         { x: minX - roadMargin, y: 0, z: lineZ },
         { x: minX + 125, y: 0, z: lineZ + c * 0.7 },
@@ -128,6 +132,8 @@ export function generateLiveChunk(
       maxSpeed: 45,
       bridge: false,
       tunnel: false,
+      layer: 0,
+      elevationMode: 'ground',
       points: [
         { x: minX - roadMargin, y: 0, z: minZ + 62.5 },
         { x: minX + 125, y: 0, z: minZ + 187.5 },
@@ -273,6 +279,8 @@ export function generateLiveChunk(
     pointsOfInterest: pois,
     waterways: [],
     parks: [],
+    railways: [],
+    barriers: [],
   }
 }
 

@@ -75,6 +75,7 @@ export class GameEngine {
 
   private lastSafePos: WorldPosition = { x: 3.7, y: 0.48, z: 158.3 }
   private lastSafeYaw = 0
+  private netTimer = 0
 
   // ─── Stats ──────────────────────────────────────────────────────────────────
   private frameCount = 0
@@ -141,7 +142,7 @@ export class GameEngine {
 
     this.chunkManager = new ChunkManager(this.renderer.scene, this.world)
     this.npcManager = new NPCManager(this.renderer.scene)
-    this.remotePlayers = new RemotePlayerManager(this.renderer.scene)
+    this.remotePlayers = new RemotePlayerManager(this.renderer.scene, this.world)
     this.gameClient = new GameClient()
 
     // OSM streaming manager — continuously fetches real map data as the player drives
@@ -191,9 +192,12 @@ export class GameEngine {
     // Prevents any downward tunneling, clipping or falling through the world.
     const groundDesc = RAPIER.RigidBodyDesc.fixed().setTranslation(0, -10.0, 0)
     const groundBody = this.world.createRigidBody(groundDesc)
+    const GROUP_CAR = 0x0001
+    const GROUP_GROUND = 0x0002
     const groundCollider = RAPIER.ColliderDesc.cuboid(500000, 10.0, 500000)
       .setFriction(0.0)
       .setRestitution(0.0)
+      .setCollisionGroups((GROUP_GROUND << 16) | GROUP_CAR)
     this.world.createCollider(groundCollider, groundBody)
   }
 
@@ -235,19 +239,41 @@ export class GameEngine {
 
     // ── Water Plunge & Falling Respawn ──────────────────────────────────────
     const pos = this.playerCar.getPosition()
-    if (pos.y >= -0.2) {
-      // Car is on road/ground level — update safe respawn position
-      this.lastSafePos = { x: pos.x, y: Math.max(0.48, pos.y), z: pos.z }
-      this.lastSafeYaw = this.playerCar.getYaw()
-    } else if (pos.y < -1.4) {
-      // Car fell into water (water surface at y = -2.2) or off the world — respawn!
+    const inTunnel = this.chunkManager?.isPointNearTunnel(pos.x, pos.z) ?? false
+    this.playerCar.setNearTunnel(inTunnel)
+
+    const inWater = !inTunnel && this._isCarInWater(pos)
+
+    if (inWater || pos.y < -15.0) {
+      // Car plunged into water (Seine, canal, basin) or fell off the world — respawn!
       this.impactFX?.triggerWaterSplash(pos)
-      this.camera.addTrauma(0.6)
+      this.camera.addTrauma(0.65)
       this.playerCar.teleport(this.lastSafePos, this.lastSafeYaw)
+    } else if (pos.y >= -7.0) {
+      // Car is safely on road (surface or inside subterranean tunnel) — update safe respawn position
+      this.lastSafePos = { x: pos.x, y: pos.y, z: pos.z }
+      this.lastSafeYaw = this.playerCar.getYaw()
     }
 
     // ── Networking ─────────────────────────────────────────────────────────
     this.gameClient.sendInput(rawInput)
+
+    this.netTimer += delta
+    if (this.netTimer >= 0.05) {
+      this.netTimer = 0
+      const carPos = this.playerCar.getPosition()
+      const quat = this.playerCar.getQuaternion()
+      const vel = this.playerCar.getVelocity()
+      const speed = this.playerCar.getSpeed()
+      this.gameClient.sendState({
+        position: carPos,
+        rotation: { x: quat.x, y: quat.y, z: quat.z, w: quat.w },
+        velocity: vel,
+        steering: rawInput.steering,
+        speed,
+      })
+    }
+
     this.gameClient.processMessages(this.npcManager, pos, this.chunkManager?.getActiveRoads())
 
     // ── World streaming ────────────────────────────────────────────────────
@@ -424,6 +450,59 @@ export class GameEngine {
     }
   }
 
+  /**
+   * Detect if the player car has driven into an active waterway (Seine, canal, lake),
+   * while not safely driving across a bridge / road.
+   */
+  private _isCarInWater(pos: { x: number; y: number; z: number }): boolean {
+    if (!this.chunkManager) return false
+
+    // Water surface is at y = 0.012m.
+    // If car is elevated on a bridge/viaduct (pos.y > 1.2m),
+    // or inside a subterranean underpass/tunnel (pos.y < -1.5m), it is physically not in water!
+    if (pos.y > 1.2 || pos.y < -1.5) return false
+
+    // 1. If car is on an active road / bridge, it's safe!
+    const roads = this.chunkManager.getActiveRoads()
+    for (const r of roads) {
+      const pts = r.points
+      const isMajor = r.highway === 'motorway' || r.highway === 'trunk' || r.highway === 'primary' || (r.lanes && r.lanes >= 4)
+      const lanes = r.lanes || (isMajor ? 4 : 2)
+      const halfW = (lanes * 3.8) / 2 + (isMajor ? 3.5 : 1.8)
+      const halfWSq = halfW * halfW
+      for (let i = 0; i < pts.length - 1; i++) {
+        const p1 = pts[i]!
+        const p2 = pts[(i + 1)]!
+        if (distToSegmentSquared(pos.x, pos.z, p1.x, p1.z, p2.x, p2.z) < halfWSq) {
+          return false
+        }
+      }
+    }
+
+    // 2. Check if car is within bounds of an active waterway
+    const waterways = this.chunkManager.getActiveWaterways()
+    for (const w of waterways) {
+      const pts = w.points
+      if (w.isPolygon && pts.length >= 3) {
+        if (isPointInPolygon2D(pos.x, pos.z, pts)) {
+          return true
+        }
+      } else if (pts.length >= 2) {
+        const halfW = (w.width || 30) / 2
+        const halfWSq = halfW * halfW
+        for (let i = 0; i < pts.length - 1; i++) {
+          const p1 = pts[i]!
+          const p2 = pts[(i + 1)]!
+          if (distToSegmentSquared(pos.x, pos.z, p1.x, p1.z, p2.x, p2.z) < halfWSq) {
+            return true
+          }
+        }
+      }
+    }
+
+    return false
+  }
+
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
@@ -446,5 +525,26 @@ export class GameEngine {
       }
     }
   }
+}
+
+function distToSegmentSquared(px: number, pz: number, x1: number, z1: number, x2: number, z2: number): number {
+  const l2 = (x2 - x1) * (x2 - x1) + (z2 - z1) * (z2 - z1)
+  if (l2 === 0) return (px - x1) * (px - x1) + (pz - z1) * (pz - z1)
+  let t = ((px - x1) * (x2 - x1) + (pz - z1) * (z2 - z1)) / l2
+  t = Math.max(0, Math.min(1, t))
+  const projX = x1 + t * (x2 - x1)
+  const projZ = z1 + t * (z2 - z1)
+  return (px - projX) * (px - projX) + (pz - projZ) * (pz - projZ)
+}
+
+function isPointInPolygon2D(px: number, pz: number, polygon: { x: number; z: number }[]): boolean {
+  let inside = false
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const xi = polygon[i]!.x, zi = polygon[i]!.z
+    const xj = polygon[j]!.x, zj = polygon[j]!.z
+    const intersect = ((zi > pz) !== (zj > pz)) && (px < ((xj - xi) * (pz - zi)) / (zj - zi) + xi)
+    if (intersect) inside = !inside
+  }
+  return inside
 }
 

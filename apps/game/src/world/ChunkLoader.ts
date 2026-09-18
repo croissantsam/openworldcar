@@ -10,6 +10,7 @@ import type { WorldChunk } from '@world-drive/shared'
 import {
   chunkKey,
   chunkCenter,
+  chunkToWorld,
   CHUNK_SIZE,
   DEFAULT_ORIGIN,
   type GeoPosition,
@@ -41,6 +42,9 @@ const URBAN_SLAB_MATERIAL = new THREE.MeshStandardMaterial({
   color: 0x86827a, // Warm Parisian stone pavement foundation matching sidewalk tiles
   roughness: 0.88,
   metalness: 0.04,
+  stencilWrite: true,
+  stencilRef: 1,
+  stencilFunc: THREE.NotEqualStencilFunc,
 })
 
 export class ChunkLoader {
@@ -91,36 +95,66 @@ export class ChunkLoader {
   }
 
   /**
-   * Load a chunk from available OSM data.
-   * Returns:
-   *   - LoadedChunk if OSM data is available and has roads/buildings
-   *   - null if the chunk has OSM data but is genuinely empty (ocean/park)
-   *   - 'pending' if OSM data hasn't been fetched for this area yet
+   * Loads a chunk by ID asynchronously.
+   * Priority:
+   * 1. In-memory cache
+   * 2. Real-time OSM streamed chunks (from Overpass API)
+   * 3. Static JSON files in /chunks/
    */
-  async load(id: ChunkId, scene: THREE.Scene): Promise<LoadResult> {
-    // Check in-memory cache first
+  async load(id: ChunkId, _scene?: THREE.Scene): Promise<LoadResult> {
     const cached = this.cache.get(id)
     if (cached) {
-      const group = this._buildGroup(cached, scene)
+      const group = this._buildGroup(cached)
       return { id, group, data: cached }
     }
 
     const key = chunkKey(id)
-
-    // Use real OpenStreetMap data if available for this chunk.
-    if (this.realOsmChunks.has(key)) {
-      const data = this.realOsmChunks.get(key)!
-      this.cache.set(id, data)
-      const group = this._buildGroup(data, scene)
-      return { id, group, data }
+    const realOsmChunk = this.realOsmChunks.get(key)
+    if (realOsmChunk) {
+      this.cache.set(id, realOsmChunk)
+      const group = this._buildGroup(realOsmChunk)
+      return { id, group, data: realOsmChunk }
     }
 
-    // No OSM data yet — signal 'pending' so ChunkManager can retry
-    // when OsmStreamingManager delivers data for this area.
-    return 'pending'
+    const url = `${this.baseUrl}/chunk_${id.x}_${id.z}.json`
+    try {
+      const resp = await fetch(url)
+      if (resp.status === 404) {
+        return 'pending'
+      }
+      if (!resp.ok) {
+        throw new Error(`HTTP ${resp.status} ${resp.statusText}`)
+      }
+      const data: WorldChunk = await resp.json()
+      this.cache.set(id, data)
+      const group = this._buildGroup(data)
+      return { id, group, data }
+    } catch (err) {
+      console.warn(`[ChunkLoader] Failed to load ${key}:`, err)
+      return null
+    }
   }
 
-  private _buildGroup(chunk: WorldChunk, _scene: THREE.Scene): THREE.Group {
+  integrateStreamedOsm(chunk: WorldChunk): LoadedChunk {
+    const key = chunkKey(chunk.id)
+    this.realOsmChunks.set(key, chunk)
+    this.cache.set(chunk.id, chunk)
+    const group = this._buildGroup(chunk)
+    return { id: chunk.id, group, data: chunk }
+  }
+
+  /**
+   * Builds the complete Three.js visual group for a WorldChunk.
+   * Strict architectural layering:
+   * 0. Ground slab (bedrock sub-base)
+   * 1. Waterways (rivers, canals, basins)
+   * 2. Parks & green spaces
+   * 3. Railways & tramways
+   * 4. Road network (asphalt, sidewalks, lane markings)
+   * 5. Bridges & Viaducts (elevated decks & piers)
+   * 6. Buildings & 3D architecture
+   */
+  private _buildGroup(chunk: WorldChunk): THREE.Group {
     const group = new THREE.Group()
     group.name = `chunk_${chunkKey(chunk.id)}`
 
@@ -151,7 +185,7 @@ export class ChunkLoader {
       if (roadGroup) group.add(roadGroup)
     }
 
-    // 3. Buildings with window textures
+    // 4. Buildings with window textures
     for (const building of chunk.buildings) {
       const buildingGroup = BuildingMeshGenerator.generate(building)
       if (buildingGroup) group.add(buildingGroup)

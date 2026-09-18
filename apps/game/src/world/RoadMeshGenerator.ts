@@ -14,7 +14,8 @@
  */
 
 import * as THREE from 'three'
-import type { Road } from '@world-drive/shared'
+import RAPIER from '@dimforge/rapier3d-compat'
+import type { Road, RoadSurface } from '@world-drive/shared'
 
 const LANE_WIDTH = 3.6 // metres per lane
 const SIDEWALK_HEIGHT = 0.14 // 12cm curb elevation above road (y = 0.028 -> 0.14)
@@ -67,17 +68,17 @@ function createAsphaltTexture(): THREE.CanvasTexture {
 
 const ASPHALT_TEX = createAsphaltTexture()
 
-// High-performance asphalt with slight specular glint under the sun
-// Negative polygonOffset pulls road forward so it always cleanly occludes park lawns & terrain
+// High-performance dark asphalt with slight specular sheen
+// Negative polygonOffset pulls road forward so it cleanly occludes park lawns & terrain
 const ASPHALT_MATS: Record<string, THREE.MeshStandardMaterial> = {
-  motorway:    new THREE.MeshStandardMaterial({ color: 0xe0e2e8, map: ASPHALT_TEX, roughness: 0.74, metalness: 0.10, polygonOffset: true, polygonOffsetFactor: -2.0, polygonOffsetUnits: -2.0 }),
-  trunk:       new THREE.MeshStandardMaterial({ color: 0xd8dae0, map: ASPHALT_TEX, roughness: 0.74, metalness: 0.10, polygonOffset: true, polygonOffsetFactor: -2.0, polygonOffsetUnits: -2.0 }),
-  primary:     new THREE.MeshStandardMaterial({ color: 0xdcdfe4, map: ASPHALT_TEX, roughness: 0.76, metalness: 0.08, polygonOffset: true, polygonOffsetFactor: -2.0, polygonOffsetUnits: -2.0 }),
-  secondary:   new THREE.MeshStandardMaterial({ color: 0xd4d7dc, map: ASPHALT_TEX, roughness: 0.78, metalness: 0.06, polygonOffset: true, polygonOffsetFactor: -2.0, polygonOffsetUnits: -2.0 }),
-  tertiary:    new THREE.MeshStandardMaterial({ color: 0xd0d3d8, map: ASPHALT_TEX, roughness: 0.80, metalness: 0.05, polygonOffset: true, polygonOffsetFactor: -2.0, polygonOffsetUnits: -2.0 }),
-  residential: new THREE.MeshStandardMaterial({ color: 0xc8cbd0, map: ASPHALT_TEX, roughness: 0.82, metalness: 0.04, polygonOffset: true, polygonOffsetFactor: -2.0, polygonOffsetUnits: -2.0 }),
-  service:     new THREE.MeshStandardMaterial({ color: 0xb8bbc0, map: ASPHALT_TEX, roughness: 0.84, metalness: 0.03, polygonOffset: true, polygonOffsetFactor: -2.0, polygonOffsetUnits: -2.0 }),
-  default:     new THREE.MeshStandardMaterial({ color: 0xc8cbd0, map: ASPHALT_TEX, roughness: 0.80, metalness: 0.05, polygonOffset: true, polygonOffsetFactor: -2.0, polygonOffsetUnits: -2.0 }),
+  motorway:    new THREE.MeshStandardMaterial({ color: 0x32353c, map: ASPHALT_TEX, roughness: 0.74, metalness: 0.10, polygonOffset: true, polygonOffsetFactor: -2.0, polygonOffsetUnits: -2.0 }),
+  trunk:       new THREE.MeshStandardMaterial({ color: 0x2e3138, map: ASPHALT_TEX, roughness: 0.74, metalness: 0.10, polygonOffset: true, polygonOffsetFactor: -2.0, polygonOffsetUnits: -2.0 }),
+  primary:     new THREE.MeshStandardMaterial({ color: 0x2b2e34, map: ASPHALT_TEX, roughness: 0.76, metalness: 0.08, polygonOffset: true, polygonOffsetFactor: -2.0, polygonOffsetUnits: -2.0 }),
+  secondary:   new THREE.MeshStandardMaterial({ color: 0x282b30, map: ASPHALT_TEX, roughness: 0.78, metalness: 0.06, polygonOffset: true, polygonOffsetFactor: -2.0, polygonOffsetUnits: -2.0 }),
+  tertiary:    new THREE.MeshStandardMaterial({ color: 0x26282e, map: ASPHALT_TEX, roughness: 0.80, metalness: 0.05, polygonOffset: true, polygonOffsetFactor: -2.0, polygonOffsetUnits: -2.0 }),
+  residential: new THREE.MeshStandardMaterial({ color: 0x24272c, map: ASPHALT_TEX, roughness: 0.82, metalness: 0.04, polygonOffset: true, polygonOffsetFactor: -2.0, polygonOffsetUnits: -2.0 }),
+  service:     new THREE.MeshStandardMaterial({ color: 0x222428, map: ASPHALT_TEX, roughness: 0.84, metalness: 0.03, polygonOffset: true, polygonOffsetFactor: -2.0, polygonOffsetUnits: -2.0 }),
+  default:     new THREE.MeshStandardMaterial({ color: 0x26282e, map: ASPHALT_TEX, roughness: 0.80, metalness: 0.05, polygonOffset: true, polygonOffsetFactor: -2.0, polygonOffsetUnits: -2.0 }),
 }
 
 // Granite gutter border along the road edge
@@ -122,6 +123,201 @@ const YELLOW_MARK = new THREE.MeshStandardMaterial({
   polygonOffsetFactor: -3.0,
   polygonOffsetUnits: -3.0,
 })
+
+// ── Bridge structural materials ─────────────────────────────────────────────
+const BRIDGE_DECK_MAT = new THREE.MeshStandardMaterial({
+  color: 0x6e7074,
+  roughness: 0.88,
+  metalness: 0.08,
+  side: THREE.DoubleSide,
+})
+
+const BRIDGE_PARAPET_STONE_MAT = new THREE.MeshStandardMaterial({
+  color: 0x9e9a90,
+  roughness: 0.84,
+  metalness: 0.04,
+  side: THREE.DoubleSide,
+})
+
+const BRIDGE_RAILING_METAL_MAT = new THREE.MeshStandardMaterial({
+  color: 0x242830,
+  roughness: 0.45,
+  metalness: 0.65,
+  side: THREE.DoubleSide,
+})
+
+const BRIDGE_PIER_MAT = new THREE.MeshStandardMaterial({
+  color: 0x787a7e,
+  roughness: 0.90,
+  metalness: 0.05,
+})
+
+// ── Tunnel structural materials ─────────────────────────────────────────────
+const TUNNEL_WALL_MAT = new THREE.MeshStandardMaterial({
+  color: 0x3e4248,
+  roughness: 0.92,
+  metalness: 0.04,
+  side: THREE.DoubleSide,
+})
+
+const TUNNEL_PORTAL_MAT = new THREE.MeshStandardMaterial({
+  color: 0x585a60,
+  roughness: 0.85,
+  metalness: 0.06,
+  side: THREE.DoubleSide,
+})
+
+const TUNNEL_LIGHT_MAT = new THREE.MeshStandardMaterial({
+  color: 0xfff6c0,
+  emissive: 0xffe890,
+  emissiveIntensity: 1.4,
+  roughness: 0.2,
+})
+
+const TRENCH_MASK_MAT = new THREE.MeshBasicMaterial({
+  colorWrite: false,
+  depthWrite: false,
+  stencilWrite: true,
+  stencilRef: 1,
+  stencilFunc: THREE.AlwaysStencilFunc,
+  stencilZPass: THREE.ReplaceStencilOp,
+  side: THREE.DoubleSide,
+})
+
+function resamplePolyline(pts: { x: number; y: number; z: number }[], maxStep = 1.6): { x: number; y: number; z: number }[] {
+  if (pts.length < 2) return pts
+  const res: { x: number; y: number; z: number }[] = []
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = pts[i]!
+    const b = pts[i + 1]!
+    const dx = b.x - a.x
+    const dy = b.y - a.y
+    const dz = b.z - a.z
+    const len = Math.hypot(dx, dz)
+    const steps = Math.max(1, Math.ceil(len / maxStep))
+    for (let s = 0; s < steps; s++) {
+      const t = s / steps
+      res.push({
+        x: a.x + dx * t,
+        y: a.y + dy * t,
+        z: a.z + dz * t,
+      })
+    }
+  }
+  res.push(pts[pts.length - 1]!)
+  return res
+}
+
+// ── Bridge & Tunnel 3D Elevation Solvers (pont.txt) ──────────────────────────
+
+/**
+ * Compute smooth 3D elevation profile for an elevated bridge (pont.txt section 11 & 24):
+ * - Starts flush with ground at start (Y = 0.028m)
+ * - Smooth cubic/cosine transition ramp rising to bridgeHeight (e.g. 4.5m)
+ * - Elevated central span with subtle graceful crown arch (+0.2m)
+ * - Smooth descending exit ramp back to ground
+ */
+export function computeElevatedBridgePoints(
+  rawPts: { x: number; y: number; z: number }[],
+  bridgeHeight = 4.5,
+): { points: { x: number; y: number; z: number }[]; totalLength: number; rampLength: number } {
+  const pts = resamplePolyline(rawPts, 2.0)
+  const N = pts.length
+  if (N < 2) return { points: rawPts, totalLength: 0, rampLength: 0 }
+
+  const dists = [0]
+  let totalL = 0
+  for (let i = 0; i < N - 1; i++) {
+    const d = Math.hypot(pts[i + 1]!.x - pts[i]!.x, pts[i + 1]!.z - pts[i]!.z)
+    totalL += d
+    dists.push(totalL)
+  }
+
+  const rampL = Math.max(6.0, Math.min(22.0, totalL * 0.28))
+  const GROUND_Y = 0.028
+
+  const elevated = pts.map((p, i) => {
+    const s = dists[i]!
+    let y = GROUND_Y
+
+    if (totalL <= rampL * 2) {
+      const t = s / totalL
+      const arch = Math.sin(Math.PI * t)
+      y = GROUND_Y + (bridgeHeight - GROUND_Y) * arch
+    } else if (s < rampL) {
+      const t = s / rampL
+      const factor = 0.5 * (1 - Math.cos(Math.PI * t))
+      y = GROUND_Y + (bridgeHeight - GROUND_Y) * factor
+    } else if (s > totalL - rampL) {
+      const t = (totalL - s) / rampL
+      const factor = 0.5 * (1 - Math.cos(Math.PI * t))
+      y = GROUND_Y + (bridgeHeight - GROUND_Y) * factor
+    } else {
+      const spanT = (s - rampL) / (totalL - rampL * 2)
+      const crown = Math.sin(Math.PI * spanT) * 0.20
+      y = bridgeHeight + crown
+    }
+
+    return { x: p.x, y, z: p.z }
+  })
+
+  return { points: elevated, totalLength: totalL, rampLength: rampL }
+}
+
+/**
+ * Compute smooth 3D elevation profile for an underground tunnel (pont.txt section 14):
+ * - Slopes down from ground level (Y = 0.028m) at entrance down to tunnelDepth
+ * - Constant depth along underground tube
+ * - Slopes back up to ground level at exit portal
+ */
+export function computeTunnelPoints(
+  rawPts: { x: number; y: number; z: number }[],
+  tunnelDepth = -4.8,
+): { points: { x: number; y: number; z: number }[]; totalLength: number; rampLength: number } {
+  const pts = resamplePolyline(rawPts, 2.0)
+  const N = pts.length
+  if (N < 2) return { points: rawPts, totalLength: 0, rampLength: 0 }
+
+  const dists = [0]
+  let totalL = 0
+  for (let i = 0; i < N - 1; i++) {
+    const d = Math.hypot(pts[i + 1]!.x - pts[i]!.x, pts[i + 1]!.z - pts[i]!.z)
+    totalL += d
+    dists.push(totalL)
+  }
+
+  // Smooth urban underpass ramp transition (16m - 34m)
+  const rampL = Math.max(14.0, Math.min(34.0, totalL * 0.28))
+  const GROUND_Y = 0.028
+
+  const tunnelPoints = pts.map((p, i) => {
+    const s = dists[i]!
+    let y = GROUND_Y
+
+    if (totalL <= rampL * 2) {
+      const t = s / totalL
+      const dip = Math.sin(Math.PI * t)
+      y = GROUND_Y + (tunnelDepth - GROUND_Y) * dip
+    } else if (s < rampL) {
+      // Descending entrance ramp (smooth cosine ease down into the ground)
+      const t = s / rampL
+      const factor = 0.5 * (1 - Math.cos(Math.PI * t))
+      y = GROUND_Y + (tunnelDepth - GROUND_Y) * factor
+    } else if (s > totalL - rampL) {
+      // Ascending exit ramp (smooth cosine ease back up to surface)
+      const t = (totalL - s) / rampL
+      const factor = 0.5 * (1 - Math.cos(Math.PI * t))
+      y = GROUND_Y + (tunnelDepth - GROUND_Y) * factor
+    } else {
+      // Horizontal subterranean depth
+      y = tunnelDepth
+    }
+
+    return { x: p.x, y, z: p.z }
+  })
+
+  return { points: tunnelPoints, totalLength: totalL, rampLength: rampL }
+}
 
 // Procedural Parisian granite paving tile texture for sidewalks
 function createSidewalkTileTexture(): THREE.CanvasTexture {
@@ -189,7 +385,127 @@ const SIDEWALK_MAT = new THREE.MeshStandardMaterial({
   side: THREE.DoubleSide,
 })
 
-function getAsphaltMaterial(highway: string): THREE.MeshStandardMaterial {
+// ── Surface textures ──────────────────────────────────────────────────────────
+
+function createCobblestoneTexture(): THREE.CanvasTexture {
+  if (typeof document === 'undefined') return new THREE.CanvasTexture({} as HTMLCanvasElement)
+  const canvas = document.createElement('canvas')
+  canvas.width = 256; canvas.height = 256
+  const ctx = canvas.getContext('2d')!
+  ctx.fillStyle = '#7a7870'
+  ctx.fillRect(0, 0, 256, 256)
+  // Irregular cobblestone shapes
+  const rng = (n: bigint, s = 0) => ((n * 6364136223846793005n + 1442695040888963407n) >> 33n) % BigInt(s || 100)
+  for (let i = 0; i < 120; i++) {
+    const x = Number(rng(BigInt(i * 7 + 1), 240))
+    const y = Number(rng(BigInt(i * 13 + 3), 240))
+    const w = 14 + Number(rng(BigInt(i * 17), 12))
+    const h = 10 + Number(rng(BigInt(i * 19), 8))
+    const gray = 104 + Number(rng(BigInt(i * 23 + 7), 40)) - 20
+    ctx.fillStyle = `rgb(${gray},${gray - 4},${gray - 8})`
+    ctx.beginPath()
+    ctx.ellipse(x + w / 2, y + h / 2, w / 2, h / 2, 0, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.strokeStyle = 'rgba(0,0,0,0.35)'
+    ctx.lineWidth = 1.5
+    ctx.stroke()
+  }
+  const tex = new THREE.CanvasTexture(canvas)
+  tex.wrapS = THREE.RepeatWrapping; tex.wrapT = THREE.RepeatWrapping; tex.repeat.set(3, 8)
+  return tex
+}
+
+function createConcreteTexture(): THREE.CanvasTexture {
+  if (typeof document === 'undefined') return new THREE.CanvasTexture({} as HTMLCanvasElement)
+  const canvas = document.createElement('canvas')
+  canvas.width = 256; canvas.height = 256
+  const ctx = canvas.getContext('2d')!
+  ctx.fillStyle = '#b8bab5'
+  ctx.fillRect(0, 0, 256, 256)
+  // Concrete panel joints
+  ctx.strokeStyle = '#929590'
+  ctx.lineWidth = 4
+  for (let x = 0; x <= 256; x += 64) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, 256); ctx.stroke() }
+  for (let y = 0; y <= 256; y += 64) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(256, y); ctx.stroke() }
+  const idata = ctx.getImageData(0, 0, 256, 256)
+  for (let i = 0; i < idata.data.length; i += 4) {
+    const g = (Math.random() - 0.5) * 12
+    idata.data[i]! = Math.min(255, Math.max(0, idata.data[i]! + g))
+    idata.data[i + 1]! = Math.min(255, Math.max(0, idata.data[i + 1]! + g))
+    idata.data[i + 2]! = Math.min(255, Math.max(0, idata.data[i + 2]! + g))
+  }
+  ctx.putImageData(idata, 0, 0)
+  const tex = new THREE.CanvasTexture(canvas)
+  tex.wrapS = THREE.RepeatWrapping; tex.wrapT = THREE.RepeatWrapping; tex.repeat.set(2, 6)
+  return tex
+}
+
+function createGravelTexture(): THREE.CanvasTexture {
+  if (typeof document === 'undefined') return new THREE.CanvasTexture({} as HTMLCanvasElement)
+  const canvas = document.createElement('canvas')
+  canvas.width = 256; canvas.height = 256
+  const ctx = canvas.getContext('2d')!
+  ctx.fillStyle = '#a89880'
+  ctx.fillRect(0, 0, 256, 256)
+  for (let i = 0; i < 600; i++) {
+    const x = Math.random() * 256, y = Math.random() * 256
+    const r = 1 + Math.random() * 3
+    const v = 130 + (Math.random() - 0.5) * 50
+    ctx.fillStyle = `rgb(${v},${v - 10},${v - 20})`
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill()
+  }
+  const tex = new THREE.CanvasTexture(canvas)
+  tex.wrapS = THREE.RepeatWrapping; tex.wrapT = THREE.RepeatWrapping; tex.repeat.set(3, 8)
+  return tex
+}
+
+const COBBLESTONE_TEX = createCobblestoneTexture()
+const CONCRETE_TEX = createConcreteTexture()
+const GRAVEL_TEX = createGravelTexture()
+
+const COBBLESTONE_MAT = new THREE.MeshStandardMaterial({ map: COBBLESTONE_TEX, roughness: 0.92, metalness: 0.02, polygonOffset: true, polygonOffsetFactor: -2.0, polygonOffsetUnits: -2.0 })
+const CONCRETE_MAT   = new THREE.MeshStandardMaterial({ map: CONCRETE_TEX,    roughness: 0.85, metalness: 0.04, polygonOffset: true, polygonOffsetFactor: -2.0, polygonOffsetUnits: -2.0 })
+const GRAVEL_MAT     = new THREE.MeshStandardMaterial({ map: GRAVEL_TEX,      roughness: 0.96, metalness: 0.01, polygonOffset: true, polygonOffsetFactor: -2.0, polygonOffsetUnits: -2.0 })
+
+// Cycleway / path surface (blue-tinted smooth concrete)
+const CYCLEWAY_MAT = new THREE.MeshStandardMaterial({ color: 0x6080c0, roughness: 0.80, metalness: 0.04, polygonOffset: true, polygonOffsetFactor: -2.0, polygonOffsetUnits: -2.0 })
+
+// Parisian emerald green painted cycle lane material
+const PARIS_CYCLEWAY_MAT = new THREE.MeshStandardMaterial({
+  color: 0x1d6d42,
+  roughness: 0.78,
+  metalness: 0.04,
+  polygonOffset: true,
+  polygonOffsetFactor: -2.5,
+  polygonOffsetUnits: -2.5,
+})
+
+// Dedicated bus lane tinted asphalt material (rich bordeaux tone)
+const PARIS_BUSWAY_MAT = new THREE.MeshStandardMaterial({
+  color: 0x4a2424,
+  roughness: 0.80,
+  metalness: 0.05,
+  polygonOffset: true,
+  polygonOffsetFactor: -2.5,
+  polygonOffsetUnits: -2.5,
+})
+
+// Pedestrian street surface (wide, same Parisian granite paving as sidewalk)
+const PEDESTRIAN_ROAD_MAT = new THREE.MeshStandardMaterial({
+  color: 0xc8c4bc,
+  map: createSidewalkTileTexture(),
+  roughness: 0.86,
+  metalness: 0.04,
+  polygonOffset: true, polygonOffsetFactor: -2.0, polygonOffsetUnits: -2.0,
+})
+
+function getAsphaltMaterial(highway: string, surface?: RoadSurface): THREE.MeshStandardMaterial {
+  // Surface override takes priority over highway type
+  if (surface === 'cobblestone' || surface === 'sett') return COBBLESTONE_MAT
+  if (surface === 'concrete') return CONCRETE_MAT
+  if (surface === 'gravel' || surface === 'fine_gravel' || surface === 'unpaved' || surface === 'dirt' || surface === 'ground') return GRAVEL_MAT
+  if (highway === 'cycleway' || highway === 'footway' || highway === 'path') return CYCLEWAY_MAT
+  if (highway === 'pedestrian') return PEDESTRIAN_ROAD_MAT
   return ASPHALT_MATS[highway] ?? ASPHALT_MATS['default']!
 }
 
@@ -329,30 +645,6 @@ function isPointInRoadAsphalt(px: number, pz: number, obs: RoadObstacleSeg[], ma
     if ((px - projX) ** 2 + (pz - projZ) ** 2 < r * r) return true
   }
   return false
-}
-
-function resamplePolyline(pts: { x: number; y: number; z: number }[], maxStep = 1.6): { x: number; y: number; z: number }[] {
-  if (pts.length < 2) return pts
-  const res: { x: number; y: number; z: number }[] = []
-  for (let i = 0; i < pts.length - 1; i++) {
-    const a = pts[i]!
-    const b = pts[i + 1]!
-    const dx = b.x - a.x
-    const dy = b.y - a.y
-    const dz = b.z - a.z
-    const len = Math.hypot(dx, dz)
-    const steps = Math.max(1, Math.ceil(len / maxStep))
-    for (let s = 0; s < steps; s++) {
-      const t = s / steps
-      res.push({
-        x: a.x + dx * t,
-        y: a.y + dy * t,
-        z: a.z + dz * t,
-      })
-    }
-  }
-  res.push(pts[pts.length - 1]!)
-  return res
 }
 
 interface SidewalkSlice {
@@ -784,53 +1076,1350 @@ function buildStopLine(
   return stopMesh
 }
 
+/**
+ * Builds white bicycle silhouette pictogramme stencil painted flat on cycle lane.
+ */
+function buildBicycleMarking(
+  pos: { x: number; y: number; z: number },
+  dir: { dx: number; dz: number },
+): THREE.Group {
+  const g = new THREE.Group()
+  const q = new THREE.Quaternion().setFromUnitVectors(
+    new THREE.Vector3(0, 0, 1),
+    new THREE.Vector3(dir.dx, 0, dir.dz),
+  )
+  g.position.set(pos.x, pos.y + 0.040, pos.z)
+  g.rotation.setFromQuaternion(q)
+
+  const wheelGeo = new THREE.RingGeometry(0.12, 0.17, 10)
+  wheelGeo.rotateX(-Math.PI / 2)
+  const w1 = new THREE.Mesh(wheelGeo, WHITE_MARK)
+  w1.position.set(0, 0, -0.35)
+  w1.renderOrder = 5
+  g.add(w1)
+
+  const w2 = new THREE.Mesh(wheelGeo, WHITE_MARK)
+  w2.position.set(0, 0, 0.35)
+  w2.renderOrder = 5
+  g.add(w2)
+
+  const frameGeo = new THREE.BoxGeometry(0.04, 0.005, 0.5)
+  const frame = new THREE.Mesh(frameGeo, WHITE_MARK)
+  frame.renderOrder = 5
+  g.add(frame)
+
+  return g
+}
+
+/**
+ * Builds white "BUS" stencil lettering painted on dedicated bus lane.
+ */
+function buildBusLaneMarking(
+  pos: { x: number; y: number; z: number },
+  dir: { dx: number; dz: number },
+): THREE.Group {
+  const g = new THREE.Group()
+  const q = new THREE.Quaternion().setFromUnitVectors(
+    new THREE.Vector3(0, 0, 1),
+    new THREE.Vector3(dir.dx, 0, dir.dz),
+  )
+  g.position.set(pos.x, pos.y + 0.040, pos.z)
+  g.rotation.setFromQuaternion(q)
+
+  // 'B'
+  const bGeo = new THREE.BoxGeometry(0.35, 0.005, 0.9)
+  const bMesh = new THREE.Mesh(bGeo, WHITE_MARK)
+  bMesh.position.set(-0.5, 0, 0)
+  bMesh.renderOrder = 5
+  g.add(bMesh)
+
+  // 'U'
+  const uGeo = new THREE.BoxGeometry(0.35, 0.005, 0.9)
+  const uMesh = new THREE.Mesh(uGeo, WHITE_MARK)
+  uMesh.position.set(0, 0, 0)
+  uMesh.renderOrder = 5
+  g.add(uMesh)
+
+  // 'S'
+  const sGeo = new THREE.BoxGeometry(0.35, 0.005, 0.9)
+  const sMesh = new THREE.Mesh(sGeo, WHITE_MARK)
+  sMesh.position.set(0.5, 0, 0)
+  sMesh.renderOrder = 5
+  g.add(sMesh)
+
+  return g
+}
+
+/**
+ * Builds white dashed roadside parking bays along the curb.
+ */
+function buildParkingBays(
+  points: { x: number; y: number; z: number }[],
+  halfW: number,
+  side: 'left' | 'right',
+  roadLen: number,
+): THREE.Group | null {
+  if (points.length < 2 || roadLen < 15) return null
+  const group = new THREE.Group()
+  const bayW = 2.0
+  const bayL = 5.0
+
+  const numBays = Math.min(8, Math.floor(roadLen / bayL))
+  if (numBays < 1) return null
+
+  // Outer boundary dashed line separating parking bay from driving lane
+  const lineOffset = side === 'right' ? -(halfW - bayW) : (halfW - bayW)
+  const pLine = buildDashedLine(points, lineOffset, 0.05, 0.040, 2.0, 2.0, WHITE_MARK)
+  if (pLine) {
+    pLine.renderOrder = 4
+    group.add(pLine)
+  }
+
+  return group
+}
+
+// ── Reusable Street Lamp Template (Style Haussmann / Paris) ─────────────────
+let _streetLampTemplate: THREE.Group | null = null
+function getStreetLampTemplate(): THREE.Group {
+  if (_streetLampTemplate) return _streetLampTemplate
+  const group = new THREE.Group()
+  const lampMat = new THREE.MeshStandardMaterial({ color: 0x1c2420, roughness: 0.52, metalness: 0.55 })
+  const baseGeo = new THREE.CylinderGeometry(0.18, 0.24, 0.7, 8)
+  baseGeo.translate(0, 0.35, 0)
+  group.add(new THREE.Mesh(baseGeo, lampMat))
+
+  const shaftGeo = new THREE.CylinderGeometry(0.07, 0.11, 3.8, 8)
+  shaftGeo.translate(0, 2.6, 0)
+  group.add(new THREE.Mesh(shaftGeo, lampMat))
+
+  const armGeo = new THREE.BoxGeometry(0.06, 0.06, 0.7)
+  armGeo.translate(0, 4.3, 0.3)
+  group.add(new THREE.Mesh(armGeo, lampMat))
+
+  const headMat = new THREE.MeshStandardMaterial({
+    color: 0xfff2d4,
+    emissive: 0xffe299,
+    emissiveIntensity: 0.9,
+    roughness: 0.2,
+  })
+  const lanternGeo = new THREE.CylinderGeometry(0.14, 0.20, 0.32, 6)
+  lanternGeo.translate(0, 4.2, 0.6)
+  group.add(new THREE.Mesh(lanternGeo, headMat))
+
+  _streetLampTemplate = group
+  return _streetLampTemplate
+}
+
+// ── Reusable 3D Traffic Light Template ──────────────────────────────────────
+let _trafficLightTemplate: THREE.Group | null = null
+function getTrafficLightTemplate(): THREE.Group {
+  if (_trafficLightTemplate) return _trafficLightTemplate
+  const group = new THREE.Group()
+
+  const poleMat = new THREE.MeshStandardMaterial({ color: 0x22262a, roughness: 0.6, metalness: 0.4 })
+  const poleGeo = new THREE.CylinderGeometry(0.08, 0.10, 4.2, 8)
+  poleGeo.translate(0, 2.1, 0)
+  group.add(new THREE.Mesh(poleGeo, poleMat))
+
+  const armGeo = new THREE.BoxGeometry(0.07, 0.07, 1.8)
+  armGeo.translate(0, 4.1, 0.9)
+  group.add(new THREE.Mesh(armGeo, poleMat))
+
+  const boxMat = new THREE.MeshStandardMaterial({ color: 0x16181a, roughness: 0.75 })
+  const boxGeo = new THREE.BoxGeometry(0.22, 0.65, 0.18)
+  boxGeo.translate(0, 3.2, 0.15)
+  group.add(new THREE.Mesh(boxGeo, boxMat))
+
+  // Red light
+  const redMat = new THREE.MeshStandardMaterial({ color: 0xff2200, emissive: 0xff1100, emissiveIntensity: 2.0 })
+  const redLight = new THREE.Mesh(new THREE.SphereGeometry(0.065, 8, 8), redMat)
+  redLight.position.set(0, 3.42, 0.24)
+  group.add(redLight)
+
+  // Amber light
+  const amberMat = new THREE.MeshStandardMaterial({ color: 0xffaa00, roughness: 0.3 })
+  const amberLight = new THREE.Mesh(new THREE.SphereGeometry(0.065, 8, 8), amberMat)
+  amberLight.position.set(0, 3.20, 0.24)
+  group.add(amberLight)
+
+  // Green light
+  const greenMat = new THREE.MeshStandardMaterial({ color: 0x00cc44, emissive: 0x00bb33, emissiveIntensity: 1.2 })
+  const greenLight = new THREE.Mesh(new THREE.SphereGeometry(0.065, 8, 8), greenMat)
+  greenLight.position.set(0, 2.98, 0.24)
+  group.add(greenLight)
+
+  _trafficLightTemplate = group
+  return _trafficLightTemplate
+}
+
+// ── 3. Main RoadMeshGenerator ──────────────────────────────────────────────
+
+// ── Bridge & Tunnel Structural Builders ─────────────────────────────────────
+
+function buildBridgeDeckMesh(
+  pts: { x: number; y: number; z: number }[],
+  halfW: number,
+  deckThickness = 0.85,
+): THREE.Mesh | null {
+  if (pts.length < 2) return null
+  const verts: number[] = []
+  const norm: number[] = []
+  const idx: number[] = []
+  const N = pts.length
+
+  type CrossSec = { tlX: number; tlY: number; tlZ: number; trX: number; trY: number; trZ: number; blX: number; blY: number; blZ: number; brX: number; brY: number; brZ: number }
+  const sections: CrossSec[] = []
+
+  for (let i = 0; i < N; i++) {
+    const curr = pts[i]!
+    const prev = pts[Math.max(0, i - 1)]!
+    const next = pts[Math.min(N - 1, i + 1)]!
+    let dx = next.x - prev.x
+    let dz = next.z - prev.z
+    const len = Math.hypot(dx, dz)
+    const nx = len > 0 ? -dz / len : 0
+    const nz = len > 0 ? dx / len : 1
+
+    const bW = halfW + 0.18
+    const botW = halfW * 0.78
+
+    sections.push({
+      tlX: curr.x + nx * bW, tlY: curr.y, tlZ: curr.z + nz * bW,
+      trX: curr.x - nx * bW, trY: curr.y, trZ: curr.z - nz * bW,
+      blX: curr.x + nx * botW, blY: curr.y - deckThickness, blZ: curr.z + nz * botW,
+      brX: curr.x - nx * botW, brY: curr.y - deckThickness, brZ: curr.z - nz * botW,
+    })
+  }
+
+  for (let i = 0; i < N - 1; i++) {
+    const s0 = sections[i]!
+    const s1 = sections[i + 1]!
+
+    // Bottom deck face (-Y)
+    const b0 = verts.length / 3
+    verts.push(
+      s0.blX, s0.blY, s0.blZ,
+      s0.brX, s0.brY, s0.brZ,
+      s1.brX, s1.brY, s1.brZ,
+      s1.blX, s1.blY, s1.blZ,
+    )
+    norm.push(0, -1, 0,  0, -1, 0,  0, -1, 0,  0, -1, 0)
+    idx.push(b0, b0 + 1, b0 + 2, b0, b0 + 2, b0 + 3)
+
+    // Left side girder face (+N)
+    const b1 = verts.length / 3
+    verts.push(
+      s0.tlX, s0.tlY, s0.tlZ,
+      s0.blX, s0.blY, s0.blZ,
+      s1.blX, s1.blY, s1.blZ,
+      s1.tlX, s1.tlY, s1.tlZ,
+    )
+    norm.push(0, 0.4, 0.9,  0, 0.4, 0.9,  0, 0.4, 0.9,  0, 0.4, 0.9)
+    idx.push(b1, b1 + 1, b1 + 2, b1, b1 + 2, b1 + 3)
+
+    // Right side girder face (-N)
+    const b2 = verts.length / 3
+    verts.push(
+      s0.trX, s0.trY, s0.trZ,
+      s1.trX, s1.trY, s1.trZ,
+      s1.brX, s1.brY, s1.brZ,
+      s0.brX, s0.brY, s0.brZ,
+    )
+    norm.push(0, 0.4, -0.9,  0, 0.4, -0.9,  0, 0.4, -0.9,  0, 0.4, -0.9)
+    idx.push(b2, b2 + 1, b2 + 2, b2, b2 + 2, b2 + 3)
+  }
+
+  const geo = new THREE.BufferGeometry()
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3))
+  geo.setAttribute('normal', new THREE.Float32BufferAttribute(norm, 3))
+  geo.setIndex(idx)
+  geo.computeVertexNormals()
+  const mesh = new THREE.Mesh(geo, BRIDGE_DECK_MAT)
+  mesh.castShadow = true
+  mesh.receiveShadow = true
+  return mesh
+}
+
+function buildBridgeParapet(
+  pts: { x: number; y: number; z: number }[],
+  offset: number,
+  height = 1.1,
+): THREE.Group {
+  const group = new THREE.Group()
+  const N = pts.length
+  if (N < 2) return group
+
+  // 1. Solid stone parapet base
+  const baseRibbon = buildRibbon(pts, 0.16, 0.175, BRIDGE_PARAPET_STONE_MAT)
+  if (baseRibbon) {
+    shiftRibbonLateral(baseRibbon, pts, offset)
+    baseRibbon.renderOrder = 5
+    group.add(baseRibbon)
+  }
+
+  // 2. Metal top safety rail
+  const railRibbon = buildRibbon(pts, 0.06, height - 0.05, BRIDGE_RAILING_METAL_MAT)
+  if (railRibbon) {
+    shiftRibbonLateral(railRibbon, pts, offset)
+    railRibbon.renderOrder = 5
+    group.add(railRibbon)
+  }
+
+  // 3. Regular vertical metal safety posts
+  const postGeo = new THREE.BoxGeometry(0.10, height, 0.10)
+  let dist = 0
+  let nextPost = 2.0
+  for (let i = 0; i < N - 1; i++) {
+    const a = pts[i]!
+    const b = pts[i + 1]!
+    const segL = Math.hypot(b.x - a.x, b.z - a.z)
+
+    let dx = b.x - a.x
+    let dz = b.z - a.z
+    const len = Math.hypot(dx, dz)
+    const nx = len > 0 ? -dz / len : 0
+    const nz = len > 0 ? dx / len : 1
+
+    while (dist + segL >= nextPost) {
+      const t = (nextPost - dist) / segL
+      const px = a.x + (b.x - a.x) * t + nx * offset
+      const py = a.y + (b.y - a.y) * t + height / 2
+      const pz = a.z + (b.z - a.z) * t + nz * offset
+
+      const post = new THREE.Mesh(postGeo, BRIDGE_RAILING_METAL_MAT)
+      post.position.set(px, py, pz)
+      post.rotation.y = Math.atan2(dx, dz)
+      group.add(post)
+
+      nextPost += 3.0
+    }
+    dist += segL
+  }
+
+  return group
+}
+
+function buildBridgePiers(
+  pts: { x: number; y: number; z: number }[],
+  halfW: number,
+  totalL: number,
+  rampL: number,
+): THREE.Group | null {
+  const group = new THREE.Group()
+  const N = pts.length
+  if (N < 2) return null
+
+  const pierSpacing = 24.0
+  let dist = 0
+  let nextPierDist = rampL + 6.0
+
+  for (let i = 0; i < N - 1; i++) {
+    const a = pts[i]!
+    const b = pts[i + 1]!
+    const segL = Math.hypot(b.x - a.x, b.z - a.z)
+
+    while (dist + segL >= nextPierDist && nextPierDist <= totalL - rampL - 6.0) {
+      const t = (nextPierDist - dist) / segL
+      const px = a.x + (b.x - a.x) * t
+      const py = a.y + (b.y - a.y) * t
+      const pz = a.z + (b.z - a.z) * t
+
+      let dx = b.x - a.x
+      let dz = b.z - a.z
+      const len = Math.hypot(dx, dz)
+      const nx = len > 0 ? -dz / len : 0
+      const nz = len > 0 ? dx / len : 1
+
+      const deckBottomY = py - 0.85
+      const pierHeight = Math.max(1.0, deckBottomY)
+
+      // Twin concrete cylindrical columns
+      const colRadius = 0.45
+      const colGeo = new THREE.CylinderGeometry(colRadius, colRadius * 1.15, pierHeight, 10)
+      colGeo.translate(0, pierHeight / 2, 0)
+
+      const leftCol = new THREE.Mesh(colGeo, BRIDGE_PIER_MAT)
+      leftCol.position.set(px + nx * (halfW * 0.6), 0, pz + nz * (halfW * 0.6))
+      leftCol.castShadow = true
+      leftCol.receiveShadow = true
+      group.add(leftCol)
+
+      const rightCol = new THREE.Mesh(colGeo, BRIDGE_PIER_MAT)
+      rightCol.position.set(px - nx * (halfW * 0.6), 0, pz - nz * (halfW * 0.6))
+      rightCol.castShadow = true
+      rightCol.receiveShadow = true
+      group.add(rightCol)
+
+      // Pier cap crossbeam underneath girder
+      const capGeo = new THREE.BoxGeometry(halfW * 1.5, 0.5, 1.2)
+      const capMesh = new THREE.Mesh(capGeo, BRIDGE_PIER_MAT)
+      capMesh.position.set(px, deckBottomY - 0.25, pz)
+      capMesh.rotation.y = Math.atan2(dx, dz)
+      capMesh.castShadow = true
+      group.add(capMesh)
+
+      nextPierDist += pierSpacing
+    }
+    dist += segL
+  }
+
+  return group.children.length > 0 ? group : null
+}
+
+function buildTunnelTrenchWalls(
+  pts: { x: number; y: number; z: number }[],
+  halfW: number,
+  totalL: number,
+  rampL: number,
+): THREE.Group | null {
+  const group = new THREE.Group()
+  const N = pts.length
+  if (N < 2) return null
+
+  const wallOffset = halfW + 0.22
+  const STREET_Y = 0.14
+  let dist = 0
+
+  const wallVerts: number[] = []
+  const wallNorm: number[] = []
+  const wallIdx: number[] = []
+
+  const copingVerts: number[] = []
+  const copingIdx: number[] = []
+
+  // Guardrail at street level along trench edges
+  const railPtsLeft: { x: number; y: number; z: number }[] = []
+  const railPtsRight: { x: number; y: number; z: number }[] = []
+
+  for (let i = 0; i < N - 1; i++) {
+    const p0 = pts[i]!
+    const p1 = pts[i + 1]!
+    const segL = Math.hypot(p1.x - p0.x, p1.z - p0.z)
+    const midDist = dist + segL / 2
+
+    const isEntryRamp = midDist <= rampL + 0.5
+    const isExitRamp = midDist >= totalL - rampL - 0.5
+
+    if (isEntryRamp || isExitRamp) {
+      let dx = p1.x - p0.x
+      let dz = p1.z - p0.z
+      const len = Math.hypot(dx, dz)
+      const nx = len > 0 ? -dz / len : 0
+      const nz = len > 0 ? dx / len : 1
+
+      // Left Retaining Wall
+      const bL = wallVerts.length / 3
+      wallVerts.push(
+        p0.x + nx * wallOffset, p0.y, p0.z + nz * wallOffset,
+        p1.x + nx * wallOffset, p1.y, p1.z + nz * wallOffset,
+        p1.x + nx * wallOffset, STREET_Y, p1.z + nz * wallOffset,
+        p0.x + nx * wallOffset, STREET_Y, p0.z + nz * wallOffset,
+      )
+      wallNorm.push(-nx, 0, -nz,  -nx, 0, -nz,  -nx, 0, -nz,  -nx, 0, -nz)
+      wallIdx.push(bL, bL + 1, bL + 2, bL, bL + 2, bL + 3)
+
+      // Right Retaining Wall
+      const bR = wallVerts.length / 3
+      wallVerts.push(
+        p0.x - nx * wallOffset, STREET_Y, p0.z - nz * wallOffset,
+        p1.x - nx * wallOffset, STREET_Y, p1.z - nz * wallOffset,
+        p1.x - nx * wallOffset, p1.y, p1.z - nz * wallOffset,
+        p0.x - nx * wallOffset, p0.y, p0.z - nz * wallOffset,
+      )
+      wallNorm.push(nx, 0, nz,  nx, 0, nz,  nx, 0, nz,  nx, 0, nz)
+      wallIdx.push(bR, bR + 1, bR + 2, bR, bR + 2, bR + 3)
+
+      // Granite coping along top of left wall (width 0.35m at street level)
+      const bCL = copingVerts.length / 3
+      copingVerts.push(
+        p0.x + nx * wallOffset, STREET_Y + 0.02, p0.z + nz * wallOffset,
+        p1.x + nx * wallOffset, STREET_Y + 0.02, p1.z + nz * wallOffset,
+        p1.x + nx * (wallOffset + 0.35), STREET_Y + 0.02, p1.z + nz * (wallOffset + 0.35),
+        p0.x + nx * (wallOffset + 0.35), STREET_Y + 0.02, p0.z + nz * (wallOffset + 0.35),
+      )
+      copingIdx.push(bCL, bCL + 1, bCL + 2, bCL, bCL + 2, bCL + 3)
+
+      // Granite coping along top of right wall
+      const bCR = copingVerts.length / 3
+      copingVerts.push(
+        p0.x - nx * (wallOffset + 0.35), STREET_Y + 0.02, p0.z - nz * (wallOffset + 0.35),
+        p1.x - nx * (wallOffset + 0.35), STREET_Y + 0.02, p1.z - nz * (wallOffset + 0.35),
+        p1.x - nx * wallOffset, STREET_Y + 0.02, p1.z - nz * wallOffset,
+        p0.x - nx * wallOffset, STREET_Y + 0.02, p0.z - nz * wallOffset,
+      )
+      copingIdx.push(bCR, bCR + 1, bCR + 2, bCR, bCR + 2, bCR + 3)
+
+      // Collect points for safety railing
+      if (Math.abs(p0.y - STREET_Y) > 0.6) {
+        railPtsLeft.push({ x: p0.x + nx * (wallOffset + 0.18), y: STREET_Y, z: p0.z + nz * (wallOffset + 0.18) })
+        railPtsRight.push({ x: p0.x - nx * (wallOffset + 0.18), y: STREET_Y, z: p0.z - nz * (wallOffset + 0.18) })
+      }
+    }
+
+    dist += segL
+  }
+
+  if (wallVerts.length > 0) {
+    const wallGeo = new THREE.BufferGeometry()
+    wallGeo.setAttribute('position', new THREE.Float32BufferAttribute(wallVerts, 3))
+    wallGeo.setAttribute('normal', new THREE.Float32BufferAttribute(wallNorm, 3))
+    wallGeo.setIndex(wallIdx)
+    wallGeo.computeVertexNormals()
+    const wallMesh = new THREE.Mesh(wallGeo, TUNNEL_PORTAL_MAT)
+    wallMesh.castShadow = true
+    wallMesh.receiveShadow = true
+    group.add(wallMesh)
+  }
+
+  if (copingVerts.length > 0) {
+    const copingGeo = new THREE.BufferGeometry()
+    copingGeo.setAttribute('position', new THREE.Float32BufferAttribute(copingVerts, 3))
+    copingGeo.setIndex(copingIdx)
+    copingGeo.computeVertexNormals()
+    const copingMesh = new THREE.Mesh(copingGeo, CURB_MAT)
+    group.add(copingMesh)
+  }
+
+  // Safety railings at street level along trench edges
+  if (railPtsLeft.length >= 2) {
+    const leftRail = buildRibbon(railPtsLeft, 0.05, 0.85, BRIDGE_RAILING_METAL_MAT)
+    if (leftRail) group.add(leftRail)
+  }
+  if (railPtsRight.length >= 2) {
+    const rightRail = buildRibbon(railPtsRight, 0.05, 0.85, BRIDGE_RAILING_METAL_MAT)
+    if (rightRail) group.add(rightRail)
+  }
+
+  return group.children.length > 0 ? group : null
+}
+
+function buildTunnelTrenchMask(
+  pts: { x: number; y: number; z: number }[],
+  halfW: number,
+  totalL: number,
+  rampL: number,
+): THREE.Mesh | null {
+  const N = pts.length
+  if (N < 2) return null
+
+  const wallOffset = halfW + 0.30
+  const MASK_Y = 0.005
+  let dist = 0
+
+  const maskVerts: number[] = []
+  const maskIdx: number[] = []
+
+  for (let i = 0; i < N - 1; i++) {
+    const p0 = pts[i]!
+    const p1 = pts[i + 1]!
+    const segL = Math.hypot(p1.x - p0.x, p1.z - p0.z)
+    const midDist = dist + segL / 2
+
+    const isEntryRamp = midDist <= rampL + 0.3
+    const isExitRamp = midDist >= totalL - rampL - 0.3
+
+    if (isEntryRamp || isExitRamp) {
+      let dx = p1.x - p0.x
+      let dz = p1.z - p0.z
+      const len = Math.hypot(dx, dz)
+      const nx = len > 0 ? -dz / len : 0
+      const nz = len > 0 ? dx / len : 1
+
+      const b = maskVerts.length / 3
+      maskVerts.push(
+        p0.x + nx * wallOffset, MASK_Y, p0.z + nz * wallOffset,
+        p0.x - nx * wallOffset, MASK_Y, p0.z - nz * wallOffset,
+        p1.x + nx * wallOffset, MASK_Y, p1.z + nz * wallOffset,
+        p1.x - nx * wallOffset, MASK_Y, p1.z - nz * wallOffset,
+      )
+      maskIdx.push(b, b + 1, b + 2, b + 1, b + 3, b + 2)
+      maskIdx.push(b, b + 2, b + 1, b + 1, b + 2, b + 3)
+    }
+
+    dist += segL
+  }
+
+  if (maskVerts.length === 0) return null
+
+  const maskGeo = new THREE.BufferGeometry()
+  maskGeo.setAttribute('position', new THREE.Float32BufferAttribute(maskVerts, 3))
+  maskGeo.setIndex(maskIdx)
+  const maskMesh = new THREE.Mesh(maskGeo, TRENCH_MASK_MAT)
+  maskMesh.renderOrder = -1
+  return maskMesh
+}
+
+function buildTunnelPortals(
+  pts: { x: number; y: number; z: number }[],
+  halfW: number,
+  totalL: number,
+  rampL: number,
+): THREE.Group | null {
+  const group = new THREE.Group()
+  const N = pts.length
+  if (N < 2) return null
+
+  const targetDistances = [rampL, totalL - rampL]
+
+  for (const targetD of targetDistances) {
+    let dist = 0
+    for (let i = 0; i < N - 1; i++) {
+      const a = pts[i]!
+      const b = pts[i + 1]!
+      const segL = Math.hypot(b.x - a.x, b.z - a.z)
+
+      if (dist + segL >= targetD) {
+        const t = (targetD - dist) / segL
+        const px = a.x + (b.x - a.x) * t
+        const py = a.y + (b.y - a.y) * t
+        const pz = a.z + (b.z - a.z) * t
+
+        let dx = b.x - a.x
+        let dz = b.z - a.z
+        const len = Math.hypot(dx, dz)
+        const nx = len > 0 ? -dz / len : 0
+        const nz = len > 0 ? dx / len : 1
+
+        const STREET_Y = 0.14
+        const portalH = STREET_Y - py // e.g. 0.14 - (-4.8) = 4.94m
+        const portalW = halfW * 2 + 2.0
+        const portalD = 2.4
+
+        // Arch header (concrete lintel flush with street level on top)
+        const headerH = 1.2
+        const headerGeo = new THREE.BoxGeometry(portalW, headerH, portalD)
+        const headerMesh = new THREE.Mesh(headerGeo, TUNNEL_PORTAL_MAT)
+        headerMesh.position.set(px, STREET_Y - headerH / 2, pz)
+        headerMesh.rotation.y = Math.atan2(dx, dz)
+        headerMesh.castShadow = true
+        headerMesh.receiveShadow = true
+        group.add(headerMesh)
+
+        // Left jamb pillar
+        const jambW = 1.0
+        const jambH = portalH
+        const jambGeo = new THREE.BoxGeometry(jambW, jambH, portalD)
+        const leftJamb = new THREE.Mesh(jambGeo, TUNNEL_PORTAL_MAT)
+        leftJamb.position.set(px + nx * (halfW + jambW / 2), py + jambH / 2, pz + nz * (halfW + jambW / 2))
+        leftJamb.rotation.y = Math.atan2(dx, dz)
+        leftJamb.castShadow = true
+        leftJamb.receiveShadow = true
+        group.add(leftJamb)
+
+        // Right jamb pillar
+        const rightJamb = new THREE.Mesh(jambGeo, TUNNEL_PORTAL_MAT)
+        rightJamb.position.set(px - nx * (halfW + jambW / 2), py + jambH / 2, pz - nz * (halfW + jambW / 2))
+        rightJamb.rotation.y = Math.atan2(dx, dz)
+        rightJamb.castShadow = true
+        rightJamb.receiveShadow = true
+        group.add(rightJamb)
+
+        break
+      }
+      dist += segL
+    }
+  }
+
+  return group.children.length > 0 ? group : null
+}
+
+function buildTunnelTube(
+  pts: { x: number; y: number; z: number }[],
+  halfW: number,
+  totalL: number,
+  rampL: number,
+): THREE.Mesh | null {
+  const N = pts.length
+  if (N < 2) return null
+
+  const tubeHalfW = halfW + 0.35
+  const CEILING_TOP_Y = 0.0 // flush with surface ground!
+  const CEILING_BOT_Y = -0.45 // bottom of ceiling slab inside tunnel
+
+  const verts: number[] = []
+  const norm: number[] = []
+  const idx: number[] = []
+
+  let dist = 0
+  for (let i = 0; i < N - 1; i++) {
+    const p0 = pts[i]!
+    const p1 = pts[i + 1]!
+    const segL = Math.hypot(p1.x - p0.x, p1.z - p0.z)
+    const midDist = dist + segL / 2
+
+    // ONLY generate the covered tube for the underground section between the two portals!
+    if (midDist >= rampL - 0.5 && midDist <= totalL - rampL + 0.5) {
+      let dx = p1.x - p0.x
+      let dz = p1.z - p0.z
+      const len = Math.hypot(dx, dz)
+      const nx = len > 0 ? -dz / len : 0
+      const nz = len > 0 ? dx / len : 1
+
+      // 1. Left Interior Concrete Wall
+      const bL = verts.length / 3
+      verts.push(
+        p0.x + nx * tubeHalfW, p0.y, p0.z + nz * tubeHalfW,
+        p1.x + nx * tubeHalfW, p1.y, p1.z + nz * tubeHalfW,
+        p1.x + nx * tubeHalfW, CEILING_BOT_Y, p1.z + nz * tubeHalfW,
+        p0.x + nx * tubeHalfW, CEILING_BOT_Y, p0.z + nz * tubeHalfW,
+      )
+      norm.push(-nx, 0, -nz,  -nx, 0, -nz,  -nx, 0, -nz,  -nx, 0, -nz)
+      idx.push(bL, bL + 1, bL + 2, bL, bL + 2, bL + 3)
+
+      // 2. Right Interior Concrete Wall
+      const bR = verts.length / 3
+      verts.push(
+        p0.x - nx * tubeHalfW, CEILING_BOT_Y, p0.z - nz * tubeHalfW,
+        p1.x - nx * tubeHalfW, CEILING_BOT_Y, p1.z - nz * tubeHalfW,
+        p1.x - nx * tubeHalfW, p1.y, p1.z - nz * tubeHalfW,
+        p0.x - nx * tubeHalfW, p0.y, p0.z - nz * tubeHalfW,
+      )
+      norm.push(nx, 0, nz,  nx, 0, nz,  nx, 0, nz,  nx, 0, nz)
+      idx.push(bR, bR + 1, bR + 2, bR, bR + 2, bR + 3)
+
+      // 3. Interior Ceiling Slab Face (looking up from inside)
+      const bC = verts.length / 3
+      verts.push(
+        p0.x + nx * tubeHalfW, CEILING_BOT_Y, p0.z + nz * tubeHalfW,
+        p1.x + nx * tubeHalfW, CEILING_BOT_Y, p1.z + nz * tubeHalfW,
+        p1.x - nx * tubeHalfW, CEILING_BOT_Y, p1.z - nz * tubeHalfW,
+        p0.x - nx * tubeHalfW, CEILING_BOT_Y, p0.z - nz * tubeHalfW,
+      )
+      norm.push(0, -1, 0,  0, -1, 0,  0, -1, 0,  0, -1, 0)
+      idx.push(bC, bC + 1, bC + 2, bC, bC + 2, bC + 3)
+
+      // 4. Exterior Ceiling Top Slab Face (ground level y = 0.0, occludes underground)
+      const bTop = verts.length / 3
+      verts.push(
+        p0.x - nx * tubeHalfW, CEILING_TOP_Y, p0.z - nz * tubeHalfW,
+        p1.x - nx * tubeHalfW, CEILING_TOP_Y, p1.z - nz * tubeHalfW,
+        p1.x + nx * tubeHalfW, CEILING_TOP_Y, p1.z + nz * tubeHalfW,
+        p0.x + nx * tubeHalfW, CEILING_TOP_Y, p0.z + nz * tubeHalfW,
+      )
+      norm.push(0, 1, 0,  0, 1, 0,  0, 1, 0,  0, 1, 0)
+      idx.push(bTop, bTop + 1, bTop + 2, bTop, bTop + 2, bTop + 3)
+    }
+
+    dist += segL
+  }
+
+  if (verts.length === 0) return null
+
+  const geo = new THREE.BufferGeometry()
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3))
+  geo.setAttribute('normal', new THREE.Float32BufferAttribute(norm, 3))
+  geo.setIndex(idx)
+  geo.computeVertexNormals()
+  const mesh = new THREE.Mesh(geo, TUNNEL_WALL_MAT)
+  mesh.castShadow = true
+  mesh.receiveShadow = true
+  return mesh
+}
+
+function buildTunnelLighting(
+  pts: { x: number; y: number; z: number }[],
+  totalL: number,
+  rampL: number,
+): THREE.Group | null {
+  const group = new THREE.Group()
+  const N = pts.length
+  if (N < 2) return null
+
+  const lightSpacing = 12.0
+  let dist = 0
+  let nextLightDist = rampL + 4.0
+
+  const stripGeo = new THREE.BoxGeometry(0.28, 0.12, 1.8)
+
+  for (let i = 0; i < N - 1; i++) {
+    const a = pts[i]!
+    const b = pts[i + 1]!
+    const segL = Math.hypot(b.x - a.x, b.z - a.z)
+
+    while (dist + segL >= nextLightDist && nextLightDist <= totalL - rampL - 4.0) {
+      const t = (nextLightDist - dist) / segL
+      const px = a.x + (b.x - a.x) * t
+      const py = -0.55 // Suspended right below the underground ceiling (-0.45m)
+      const pz = a.z + (b.z - a.z) * t
+
+      const mesh = new THREE.Mesh(stripGeo, TUNNEL_LIGHT_MAT)
+      mesh.position.set(px, py, pz)
+      mesh.rotation.y = Math.atan2(b.x - a.x, b.z - a.z)
+      group.add(mesh)
+
+      nextLightDist += lightSpacing
+    }
+    dist += segL
+  }
+
+  return group.children.length > 0 ? group : null
+}
+
 // ── 3. Main RoadMeshGenerator ──────────────────────────────────────────────
 
 export class RoadMeshGenerator {
   /**
-   * Generate an arcade-style, high-speed Burnout Paradise road group.
-   * Completely clean of vertical poles and obstructions!
+   * Main entry point: dispatches road generation according to the 3 elevation
+   * modes defined in pont.txt (ground, bridge, tunnel).
    */
   static generate(road: Road, allRoads?: Road[]): THREE.Group | null {
     const pts = road.points
     if (pts.length < 2) return null
 
-    // Highway classification
-    const hw = road.highway
-    const isHighway = hw === 'motorway' || hw === 'trunk'
-    const isMajor = hw === 'primary' || isHighway
-    const isMedium = hw === 'secondary' || hw === 'tertiary'
-    const isUrbanStreet = !isHighway && hw !== 'path' && hw !== 'footway' && hw !== 'cycleway'
+    if (road.elevationMode === 'bridge' || road.bridge) {
+      return RoadMeshGenerator.generateBridgeRoad(road)
+    }
 
-    // Compute lanes: all drivable roads have at least 2 lanes (double sens)
-    let lanes = road.lanes
-    if (isMajor) lanes = Math.max(4, lanes)
-    else lanes = Math.max(2, lanes)
+    if (road.elevationMode === 'tunnel' || road.tunnel) {
+      return RoadMeshGenerator.generateTunnelRoad(road)
+    }
 
-    const roadW = lanes * LANE_WIDTH
-    const halfW = roadW / 2
+    return RoadMeshGenerator.generateGroundRoad(road, allRoads)
+  }
+
+  /**
+   * Generates static Rapier collider descriptions for elevated bridges and tunnels.
+   * - Bridges: Elevated road deck trimesh + left and right safety parapets.
+   * - Tunnels: Left and right tunnel wall trimeshes.
+   */
+  static createColliderDescs(road: Road): RAPIER.ColliderDesc[] {
+    const descs: RAPIER.ColliderDesc[] = []
+    const pts = road.points
+    if (pts.length < 2) return descs
+
+    if (road.elevationMode === 'bridge' || road.bridge) {
+      const isMajor = road.highway === 'motorway' || road.highway === 'trunk' || road.highway === 'primary' || (road.lanes && road.lanes >= 4)
+      const lanes = Math.max(2, road.lanes || (isMajor ? 4 : 2))
+      const roadW = lanes * LANE_WIDTH
+      const halfW = roadW / 2
+      const bridgeHeight = road.bridgeHeight ?? (road.layer > 1 ? road.layer * 4.5 : 4.5)
+
+      const { points: raisedPts } = computeElevatedBridgePoints(pts, bridgeHeight)
+      const N = raisedPts.length
+      if (N < 2) return descs
+
+      // 1. Elevated Road Surface Deck Trimesh (double-sided collision)
+      const deckVerts: number[] = []
+      const deckIdx: number[] = []
+
+      for (let i = 0; i < N; i++) {
+        const curr = raisedPts[i]!
+        const prev = raisedPts[Math.max(0, i - 1)]!
+        const next = raisedPts[Math.min(N - 1, i + 1)]!
+
+        let dx = next.x - prev.x
+        let dz = next.z - prev.z
+        const len = Math.hypot(dx, dz)
+        const nx = len > 0 ? -dz / len : 0
+        const nz = len > 0 ? dx / len : 1
+
+        deckVerts.push(
+          curr.x + nx * halfW, curr.y, curr.z + nz * halfW,
+          curr.x - nx * halfW, curr.y, curr.z - nz * halfW,
+        )
+
+        if (i < N - 1) {
+          const b = i * 2
+          deckIdx.push(b, b + 1, b + 2, b + 1, b + 3, b + 2)
+          deckIdx.push(b, b + 2, b + 1, b + 1, b + 2, b + 3)
+        }
+      }
+
+      if (deckVerts.length >= 9 && deckIdx.length >= 3) {
+        const deckCol = RAPIER.ColliderDesc.trimesh(
+          new Float32Array(deckVerts),
+          new Uint32Array(deckIdx),
+        ).setFriction(0.3).setRestitution(0.0)
+        descs.push(deckCol)
+      }
+
+      // 2. Parapet Guardrails (left and right walls, height 1.2m)
+      const parapetVerts: number[] = []
+      const parapetIdx: number[] = []
+      const parapetH = 1.2
+
+      for (let i = 0; i < N; i++) {
+        const curr = raisedPts[i]!
+        const prev = raisedPts[Math.max(0, i - 1)]!
+        const next = raisedPts[Math.min(N - 1, i + 1)]!
+
+        let dx = next.x - prev.x
+        let dz = next.z - prev.z
+        const len = Math.hypot(dx, dz)
+        const nx = len > 0 ? -dz / len : 0
+        const nz = len > 0 ? dx / len : 1
+
+        const pW = halfW + 0.15
+        // Left parapet
+        parapetVerts.push(
+          curr.x + nx * pW, curr.y, curr.z + nz * pW,
+          curr.x + nx * pW, curr.y + parapetH, curr.z + nz * pW,
+        )
+        // Right parapet
+        parapetVerts.push(
+          curr.x - nx * pW, curr.y, curr.z - nz * pW,
+          curr.x - nx * pW, curr.y + parapetH, curr.z - nz * pW,
+        )
+
+        if (i < N - 1) {
+          const lb = i * 4
+          parapetIdx.push(lb, lb + 1, lb + 4, lb + 1, lb + 5, lb + 4)
+          parapetIdx.push(lb, lb + 4, lb + 1, lb + 1, lb + 4, lb + 5)
+          const rb = i * 4 + 2
+          parapetIdx.push(rb, rb + 1, rb + 4, rb + 1, rb + 5, rb + 4)
+          parapetIdx.push(rb, rb + 4, rb + 1, rb + 1, rb + 4, rb + 5)
+        }
+      }
+
+      if (parapetVerts.length >= 9 && parapetIdx.length >= 3) {
+        const parapetCol = RAPIER.ColliderDesc.trimesh(
+          new Float32Array(parapetVerts),
+          new Uint32Array(parapetIdx),
+        ).setFriction(0.1).setRestitution(0.1)
+        descs.push(parapetCol)
+      }
+    } else if (road.elevationMode === 'tunnel' || road.tunnel) {
+      const isMajor = road.highway === 'motorway' || road.highway === 'trunk' || road.highway === 'primary' || (road.lanes && road.lanes >= 4)
+      const lanes = Math.max(2, road.lanes || (isMajor ? 4 : 2))
+      const roadW = lanes * LANE_WIDTH
+      const halfW = roadW / 2
+      const depth = road.layer && road.layer < 0 ? Math.min(-4.5, road.layer * 4.5) : -4.8
+
+      const { points: tunnelPts } = computeTunnelPoints(pts, depth)
+      const N = tunnelPts.length
+      if (N < 2) return descs
+
+      // 1. Underground Road Surface Floor Collider (double-sided)
+      // Slopes down the ramp, runs underground at depth, and slopes back up to surface
+      const floorVerts: number[] = []
+      const floorIdx: number[] = []
+
+      for (let i = 0; i < N; i++) {
+        const curr = tunnelPts[i]!
+        const prev = tunnelPts[Math.max(0, i - 1)]!
+        const next = tunnelPts[Math.min(N - 1, i + 1)]!
+
+        let dx = next.x - prev.x
+        let dz = next.z - prev.z
+        const len = Math.hypot(dx, dz)
+        const nx = len > 0 ? -dz / len : 0
+        const nz = len > 0 ? dx / len : 1
+
+        floorVerts.push(
+          curr.x + nx * halfW, curr.y, curr.z + nz * halfW,
+          curr.x - nx * halfW, curr.y, curr.z - nz * halfW,
+        )
+
+        if (i < N - 1) {
+          const b = i * 2
+          floorIdx.push(b, b + 1, b + 2, b + 1, b + 3, b + 2)
+          floorIdx.push(b, b + 2, b + 1, b + 1, b + 2, b + 3)
+        }
+      }
+
+      if (floorVerts.length >= 9 && floorIdx.length >= 3) {
+        const floorCol = RAPIER.ColliderDesc.trimesh(
+          new Float32Array(floorVerts),
+          new Uint32Array(floorIdx),
+        ).setFriction(0.3).setRestitution(0.0)
+        descs.push(floorCol)
+      }
+
+      // 2. Retaining Walls & Tunnel Walls Collider (from curr.y up to 0.14m)
+      const wallVerts: number[] = []
+      const wallIdx: number[] = []
+
+      for (let i = 0; i < N; i++) {
+        const curr = tunnelPts[i]!
+        const prev = tunnelPts[Math.max(0, i - 1)]!
+        const next = tunnelPts[Math.min(N - 1, i + 1)]!
+
+        let dx = next.x - prev.x
+        let dz = next.z - prev.z
+        const len = Math.hypot(dx, dz)
+        const nx = len > 0 ? -dz / len : 0
+        const nz = len > 0 ? dx / len : 1
+
+        const tW = halfW + 0.22
+        const topY = 0.14
+
+        wallVerts.push(
+          curr.x + nx * tW, curr.y, curr.z + nz * tW,
+          curr.x + nx * tW, topY, curr.z + nz * tW,
+        )
+        wallVerts.push(
+          curr.x - nx * tW, curr.y, curr.z - nz * tW,
+          curr.x - nx * tW, topY, curr.z - nz * tW,
+        )
+
+        if (i < N - 1) {
+          const lb = i * 4
+          wallIdx.push(lb, lb + 1, lb + 4, lb + 1, lb + 5, lb + 4)
+          wallIdx.push(lb, lb + 4, lb + 1, lb + 1, lb + 4, lb + 5)
+          const rb = i * 4 + 2
+          wallIdx.push(rb, rb + 1, rb + 4, rb + 1, rb + 5, rb + 4)
+          wallIdx.push(rb, rb + 4, rb + 1, rb + 1, rb + 4, rb + 5)
+        }
+      }
+
+      if (wallVerts.length >= 9 && wallIdx.length >= 3) {
+        const wallCol = RAPIER.ColliderDesc.trimesh(
+          new Float32Array(wallVerts),
+          new Uint32Array(wallIdx),
+        ).setFriction(0.1).setRestitution(0.05)
+        descs.push(wallCol)
+      }
+    } else {
+      // Ground-level road surface collider at y = 0.028m (seamless connection to bridge & tunnel ramps)
+      const isMajor = road.highway === 'motorway' || road.highway === 'trunk' || road.highway === 'primary' || (road.lanes && road.lanes >= 4)
+      const lanes = Math.max(2, road.lanes || (isMajor ? 4 : 2))
+      const roadW = road.explicitWidth ? Math.max(LANE_WIDTH * 2, road.explicitWidth) : lanes * LANE_WIDTH
+      const halfW = roadW / 2
+      const N = pts.length
+      if (N >= 2) {
+        const roadVerts: number[] = []
+        const roadIdx: number[] = []
+        const ROAD_Y = 0.028
+        for (let i = 0; i < N; i++) {
+          const curr = pts[i]!
+          const prev = pts[Math.max(0, i - 1)]!
+          const next = pts[Math.min(N - 1, i + 1)]!
+          let dx = next.x - prev.x
+          let dz = next.z - prev.z
+          const len = Math.hypot(dx, dz)
+          const nx = len > 0 ? -dz / len : 0
+          const nz = len > 0 ? dx / len : 1
+          roadVerts.push(
+            curr.x + nx * halfW, ROAD_Y, curr.z + nz * halfW,
+            curr.x - nx * halfW, ROAD_Y, curr.z - nz * halfW,
+          )
+          if (i < N - 1) {
+            const b = i * 2
+            roadIdx.push(b, b + 1, b + 2, b + 1, b + 3, b + 2)
+            roadIdx.push(b, b + 2, b + 1, b + 1, b + 2, b + 3)
+          }
+        }
+        if (roadVerts.length >= 9 && roadIdx.length >= 3) {
+          const roadCol = RAPIER.ColliderDesc.trimesh(
+            new Float32Array(roadVerts),
+            new Uint32Array(roadIdx),
+          ).setFriction(0.35).setRestitution(0.0)
+          descs.push(roadCol)
+        }
+      }
+    }
+
+    return descs
+  }
+
+  /**
+   * Generates an elevated 3D bridge infrastructure (pont.txt sections 5, 8, 11, 12):
+   * - Smooth transition entry/exit ramps rising from ground to deck
+   * - Elevated asphalt surface with racing lane markings
+   * - Solid concrete box girder deck underside
+   * - Heavy stone parapet base with metal safety railings
+   * - Structural concrete bridge piers/pillars reaching down to ground/riverbed
+   */
+  static generateBridgeRoad(road: Road): THREE.Group | null {
+    const pts = road.points
+    if (pts.length < 2) return null
+
     const group = new THREE.Group()
     group.userData['roadId'] = road.id
 
-    // ── 1. Asphalt Surface (Medium charcoal slate with PBR mineral aggregate) ──
-    const surface = buildRibbon(pts, halfW, 0.028, getAsphaltMaterial(hw))
+    const hw = road.highway
+    const surf = road.surface
+    const isMajor = hw === 'motorway' || hw === 'trunk' || hw === 'primary' || (road.lanes && road.lanes >= 4)
+    const lanes = Math.max(2, road.lanes || (isMajor ? 4 : 2))
+    const roadW = lanes * LANE_WIDTH
+    const halfW = roadW / 2
+    const bridgeHeight = road.bridgeHeight ?? (road.layer > 1 ? road.layer * 4.5 : 4.5)
+
+    // Compute smooth 3D elevation profile (entry ramp -> elevated span -> exit ramp)
+    const { points: raisedPts, totalLength: L, rampLength: R } = computeElevatedBridgePoints(pts, bridgeHeight)
+
+    // 1. Elevated asphalt road surface
+    const surface = buildRibbon(raisedPts, halfW, 0.0, getAsphaltMaterial(hw, surf))
+    if (surface) {
+      surface.userData['roadId'] = road.id
+      surface.renderOrder = 4
+      group.add(surface)
+    }
+
+    // 2. White edge lines framing the bridge deck
+    const leftEdge = buildRibbon(raisedPts, 0.09, 0.005, WHITE_MARK)
+    if (leftEdge) {
+      shiftRibbonLateral(leftEdge, raisedPts, halfW - 0.15)
+      leftEdge.renderOrder = 5
+      group.add(leftEdge)
+    }
+    const rightEdge = buildRibbon(raisedPts, 0.09, 0.005, WHITE_MARK)
+    if (rightEdge) {
+      shiftRibbonLateral(rightEdge, raisedPts, -(halfW - 0.15))
+      rightEdge.renderOrder = 5
+      group.add(rightEdge)
+    }
+
+    // 3. Central lane dividers / yellow line
+    if (lanes >= 4) {
+      const yellowDiv = buildRibbon(raisedPts, 0.10, 0.005, YELLOW_MARK)
+      if (yellowDiv) {
+        yellowDiv.renderOrder = 5
+        group.add(yellowDiv)
+      }
+    } else {
+      const dashedCenter = buildDashedLine(raisedPts, 0.0, 0.08, 0.005, 5.0, 4.0, WHITE_MARK)
+      if (dashedCenter) {
+        dashedCenter.renderOrder = 5
+        group.add(dashedCenter)
+      }
+    }
+
+    // 4. Solid Bridge Deck underside (concrete box girder)
+    const deckMesh = buildBridgeDeckMesh(raisedPts, halfW, 0.85)
+    if (deckMesh) group.add(deckMesh)
+
+    // 5. Heavy stone parapet base + steel safety railings along both sides
+    const parapetH = 1.1
+    const leftParapet = buildBridgeParapet(raisedPts, halfW + 0.18, parapetH)
+    group.add(leftParapet)
+    const rightParapet = buildBridgeParapet(raisedPts, -(halfW + 0.18), parapetH)
+    group.add(rightParapet)
+
+    // 6. Structural bridge piers/pillars reaching down to ground/riverbed
+    const piers = buildBridgePiers(raisedPts, halfW, L, R)
+    if (piers) group.add(piers)
+
+    return group
+  }
+
+  /**
+   * Generates an underground 3D tunnel (pont.txt section 14 & 25):
+   * - Entrance and exit descending/ascending ramps
+   * - Underground asphalt road surface
+   * - Arched concrete tunnel tube (walls and ceiling)
+   * - Monumental concrete portal arches at entrance and exit
+   * - Fluorescent ceiling strip lighting along the tunnel tube
+   */
+  static generateTunnelRoad(road: Road): THREE.Group | null {
+    const pts = road.points
+    if (pts.length < 2) return null
+
+    const group = new THREE.Group()
+    group.userData['roadId'] = road.id
+
+    const hw = road.highway
+    const surf = road.surface
+    const isMajor = hw === 'motorway' || hw === 'trunk' || hw === 'primary' || (road.lanes && road.lanes >= 4)
+    const lanes = Math.max(2, road.lanes || (isMajor ? 4 : 2))
+    const roadW = lanes * LANE_WIDTH
+    const halfW = roadW / 2
+    const depth = road.layer && road.layer < 0 ? Math.min(-4.5, road.layer * 4.5) : -4.8
+
+    // Compute underground 3D elevation profile (ramps down + underground tube)
+    const { points: tunnelPts, totalLength: L, rampLength: R } = computeTunnelPoints(pts, depth)
+
+    // 0. Stencil mask over open ramp trenches (clips out chunk urban slab cleanly)
+    const trenchMask = buildTunnelTrenchMask(tunnelPts, halfW, L, R)
+    if (trenchMask) group.add(trenchMask)
+
+    // 1. Underground asphalt road surface
+    const surface = buildRibbon(tunnelPts, halfW, 0.0, getAsphaltMaterial(hw, surf))
     if (surface) {
       surface.userData['roadId'] = road.id
       surface.renderOrder = 3
       group.add(surface)
     }
 
-    if (hw === 'path' || hw === 'footway' || hw === 'cycleway') {
+    // 2. White edge lines & lane dividers
+    const leftEdge = buildRibbon(tunnelPts, 0.09, 0.005, WHITE_MARK)
+    if (leftEdge) {
+      shiftRibbonLateral(leftEdge, tunnelPts, halfW - 0.15)
+      leftEdge.renderOrder = 4
+      group.add(leftEdge)
+    }
+    const rightEdge = buildRibbon(tunnelPts, 0.09, 0.005, WHITE_MARK)
+    if (rightEdge) {
+      shiftRibbonLateral(rightEdge, tunnelPts, -(halfW - 0.15))
+      rightEdge.renderOrder = 4
+      group.add(rightEdge)
+    }
+
+    if (lanes >= 4) {
+      const yellowDiv = buildRibbon(tunnelPts, 0.10, 0.005, YELLOW_MARK)
+      if (yellowDiv) {
+        yellowDiv.renderOrder = 4
+        group.add(yellowDiv)
+      }
+    } else {
+      const dashedCenter = buildDashedLine(tunnelPts, 0.0, 0.08, 0.005, 5.0, 4.0, WHITE_MARK)
+      if (dashedCenter) {
+        dashedCenter.renderOrder = 4
+        group.add(dashedCenter)
+      }
+    }
+
+    // 3. Open Trench Retaining Walls along entrance & exit ramps
+    const trenchWalls = buildTunnelTrenchWalls(tunnelPts, halfW, L, R)
+    if (trenchWalls) group.add(trenchWalls)
+
+    // 4. Subterranean Covered Tunnel Tube (flush with ground surface at y = 0)
+    const tube = buildTunnelTube(tunnelPts, halfW, L, R)
+    if (tube) group.add(tube)
+
+    // 5. Massive Tunnel Portals (têtes de tunnel) at entry and exit
+    const portals = buildTunnelPortals(tunnelPts, halfW, L, R)
+    if (portals) group.add(portals)
+
+    // 6. Fluorescent Tunnel Lighting along ceiling
+    const lights = buildTunnelLighting(tunnelPts, L, R)
+    if (lights) group.add(lights)
+
+    return group
+  }
+
+  /**
+   * Generates a ground-level road with sidewalks, pedestrian crossings and markings.
+   */
+  static generateGroundRoad(road: Road, allRoads?: Road[]): THREE.Group | null {
+    const pts = road.points
+    if (pts.length < 2) return null
+    const raisedPts = pts
+
+    // Highway classification
+    const hw = road.highway
+    const surf = road.surface
+    const isHighway = hw === 'motorway' || hw === 'trunk'
+    const isMajor = hw === 'primary' || isHighway
+    const isUrbanStreet = !isHighway && hw !== 'path' && hw !== 'footway' && hw !== 'cycleway' && hw !== 'steps' && hw !== 'pedestrian'
+
+    // ── Steps — render as stacked horizontal slabs ───────────────────────────
+    if (hw === 'steps') {
+      const group = new THREE.Group()
+      group.userData['roadId'] = road.id
+      const stepW = 2.5
+      const stepH = 0.16
+      const stepD = 0.35
+      const stepMat = new THREE.MeshStandardMaterial({ color: 0x8a867e, roughness: 0.88, metalness: 0.04 })
+      let dist = 0
+      for (let i = 0; i < pts.length - 1; i++) {
+        const a = pts[i]!; const b = pts[i + 1]!
+        const dx = b.x - a.x; const dz = b.z - a.z
+        const segLen = Math.hypot(dx, dz)
+        const steps = Math.max(1, Math.floor(segLen / stepD))
+        for (let s = 0; s < steps; s++) {
+          const t = s / steps
+          const geo = new THREE.BoxGeometry(stepW, stepH, stepD)
+          const mesh = new THREE.Mesh(geo, stepMat)
+          mesh.position.set(a.x + dx * t, dist * stepH * 0.5, a.z + dz * t)
+          mesh.rotation.y = Math.atan2(dx, dz)
+          dist++
+          group.add(mesh)
+        }
+      }
+      return group
+    }
+
+    // Compute lanes: all drivable roads have at least 2 lanes (double sens)
+    let lanes = road.lanes
+    if (isMajor) lanes = Math.max(4, lanes)
+    else if (hw === 'pedestrian') lanes = Math.max(3, lanes)
+    else lanes = Math.max(2, lanes)
+
+    const roadW = road.explicitWidth ? Math.max(LANE_WIDTH * 2, road.explicitWidth) : lanes * LANE_WIDTH
+    const halfW = roadW / 2
+    const group = new THREE.Group()
+    group.userData['roadId'] = road.id
+
+    // ── 1. Road Surface (material depends on surface tag and highway type) ────
+    const surface = buildRibbon(pts, halfW, 0.028, getAsphaltMaterial(hw, surf))
+    if (surface) {
+      surface.userData['roadId'] = road.id
+      surface.renderOrder = 3
+      group.add(surface)
+    }
+
+    // ── Highway: Dedicated Cycleway ──────────────────────────────────────────
+    if (hw === 'cycleway') {
+      const cyclewayMat = new THREE.MeshStandardMaterial({
+        color: 0x1f5c38, // Parisian / European cycling green
+        roughness: 0.85,
+        metalness: 0.02,
+        polygonOffset: true,
+        polygonOffsetFactor: -2.0,
+        polygonOffsetUnits: -2.0,
+      })
+      const cycleSurface = buildRibbon(raisedPts, halfW, 0.028, cyclewayMat)
+      if (cycleSurface) group.add(cycleSurface)
+      const cycleEdge = buildRibbon(raisedPts, 0.06, 0.038, WHITE_MARK)
+      if (cycleEdge) {
+        shiftRibbonLateral(cycleEdge, raisedPts, halfW - 0.1)
+        group.add(cycleEdge)
+      }
+      return group
+    }
+
+    if (hw === 'path' || hw === 'footway') {
+      return group
+    }
+
+    // ── Roundabout Central Island ────────────────────────────────────────────
+    if (road.isRoundabout && pts.length >= 4) {
+      let sumX = 0, sumZ = 0
+      for (const p of pts) { sumX += p.x; sumZ += p.z }
+      const cX = sumX / pts.length
+      const cZ = sumZ / pts.length
+
+      let avgR = 0
+      for (const p of pts) {
+        avgR += Math.hypot(p.x - cX, p.z - cZ)
+      }
+      avgR /= pts.length
+
+      const innerR = Math.max(2.0, avgR - halfW)
+      const islandGeo = new THREE.CylinderGeometry(innerR, innerR + 0.2, 0.28, 32)
+      const grassMat = new THREE.MeshStandardMaterial({
+        color: 0x2e6b2c,
+        roughness: 0.95,
+        metalness: 0.0,
+      })
+      const islandMesh = new THREE.Mesh(islandGeo, grassMat)
+      islandMesh.position.set(cX, 0.14, cZ)
+      islandMesh.receiveShadow = true
+      group.add(islandMesh)
+
+      const innerDecorGeo = new THREE.CylinderGeometry(innerR * 0.35, innerR * 0.4, 0.6, 24)
+      const stoneMat = new THREE.MeshStandardMaterial({
+        color: 0xd0cbc0,
+        roughness: 0.85,
+        metalness: 0.05,
+      })
+      const decorMesh = new THREE.Mesh(innerDecorGeo, stoneMat)
+      decorMesh.position.set(cX, 0.35, cZ)
+      decorMesh.castShadow = true
+      group.add(decorMesh)
+    }
+
+    // Pedestrian streets: paved but no car markings, with bollards at ends
+    if (hw === 'pedestrian') {
+      if (isUrbanStreet || hw === 'pedestrian') {
+        const obstacles = buildRoadObstacles(allRoads, road.id)
+        const swWidth = 1.5 // thin margin
+        const leftSidewalk = buildCleanSidewalk(raisedPts, halfW, swWidth, 'left', obstacles)
+        const rightSidewalk = buildCleanSidewalk(raisedPts, halfW, swWidth, 'right', obstacles)
+        group.add(leftSidewalk)
+        group.add(rightSidewalk)
+      }
       return group
     }
 
     // ── 2. Paved Granite Gutter (Caniveau de bordure de 24cm) ─────────
     const gutterW = 0.24
     const gutterOffset = halfW - gutterW / 2
-    const leftGutter = buildRibbon(pts, gutterW / 2, 0.029, GUTTER_MAT)
-    const rightGutter = buildRibbon(pts, gutterW / 2, 0.029, GUTTER_MAT)
-    if (leftGutter)  { leftGutter.renderOrder = 3; shiftRibbonLateral(leftGutter, pts, gutterOffset); group.add(leftGutter) }
-    if (rightGutter) { rightGutter.renderOrder = 3; shiftRibbonLateral(rightGutter, pts, -gutterOffset); group.add(rightGutter) }
+    const leftGutter = buildRibbon(raisedPts, gutterW / 2, 0.029, GUTTER_MAT)
+    const rightGutter = buildRibbon(raisedPts, gutterW / 2, 0.029, GUTTER_MAT)
+    if (leftGutter)  { leftGutter.renderOrder = 3; shiftRibbonLateral(leftGutter, raisedPts, gutterOffset); group.add(leftGutter) }
+    if (rightGutter) { rightGutter.renderOrder = 3; shiftRibbonLateral(rightGutter, raisedPts, -gutterOffset); group.add(rightGutter) }
 
     // ── 3. Rubber Tire Tracks (Traces de pneus / gommage au sol) ──────
     const tireTrackHalfW = 0.22
@@ -839,59 +2428,202 @@ export class RoadMeshGenerator {
       const leftWheelOffset = laneCenter - 0.75
       const rightWheelOffset = laneCenter + 0.75
 
-      const trackL = buildRibbon(pts, tireTrackHalfW, 0.032, TIRE_RUBBER_MAT)
-      const trackR = buildRibbon(pts, tireTrackHalfW, 0.032, TIRE_RUBBER_MAT)
-      if (trackL) { trackL.renderOrder = 3; shiftRibbonLateral(trackL, pts, leftWheelOffset); group.add(trackL) }
-      if (trackR) { trackR.renderOrder = 3; shiftRibbonLateral(trackR, pts, rightWheelOffset); group.add(trackR) }
+      const trackL = buildRibbon(raisedPts, tireTrackHalfW, 0.032, TIRE_RUBBER_MAT)
+      const trackR = buildRibbon(raisedPts, tireTrackHalfW, 0.032, TIRE_RUBBER_MAT)
+      if (trackL) { trackL.renderOrder = 3; shiftRibbonLateral(trackL, raisedPts, leftWheelOffset); group.add(trackL) }
+      if (trackR) { trackR.renderOrder = 3; shiftRibbonLateral(trackR, raisedPts, rightWheelOffset); group.add(trackR) }
     }
 
     // ── 4. Solid White Edge Lines (Bandes de rive nettes & visibles) ───
     const edgeHalfW = 0.07 // 14cm wide solid line
     const edgeOffset = halfW - 0.40 // Inset 40cm from curb, clearly on the asphalt
-    const leftEdge = buildRibbon(pts, edgeHalfW, 0.040, WHITE_MARK)
-    const rightEdge = buildRibbon(pts, edgeHalfW, 0.040, WHITE_MARK)
-    if (leftEdge)  { leftEdge.renderOrder = 4; shiftRibbonLateral(leftEdge,  pts,  edgeOffset); group.add(leftEdge)  }
-    if (rightEdge) { rightEdge.renderOrder = 4; shiftRibbonLateral(rightEdge, pts, -edgeOffset); group.add(rightEdge) }
+    const leftEdge = buildRibbon(raisedPts, edgeHalfW, 0.040, WHITE_MARK)
+    const rightEdge = buildRibbon(raisedPts, edgeHalfW, 0.040, WHITE_MARK)
+    if (leftEdge)  { leftEdge.renderOrder = 4; shiftRibbonLateral(leftEdge,  raisedPts,  edgeOffset); group.add(leftEdge)  }
+    if (rightEdge) { rightEdge.renderOrder = 4; shiftRibbonLateral(rightEdge, raisedPts, -edgeOffset); group.add(rightEdge) }
 
     // ── 5. Ground Lane Markings (Ligne centrale & séparateurs de voies) ─
     if (lanes >= 4) {
       // GROSSE AVENUE :
       // A. Double ligne jaune continue centrale
       const doubleSep = 0.14
-      const leftCenterLine = buildRibbon(pts, 0.06, 0.040, YELLOW_MARK)
-      const rightCenterLine = buildRibbon(pts, 0.06, 0.040, YELLOW_MARK)
-      if (leftCenterLine)  { leftCenterLine.renderOrder = 4; shiftRibbonLateral(leftCenterLine,  pts,  doubleSep); group.add(leftCenterLine) }
-      if (rightCenterLine) { rightCenterLine.renderOrder = 4; shiftRibbonLateral(rightCenterLine, pts, -doubleSep); group.add(rightCenterLine) }
+      const leftCenterLine = buildRibbon(raisedPts, 0.06, 0.040, YELLOW_MARK)
+      const rightCenterLine = buildRibbon(raisedPts, 0.06, 0.040, YELLOW_MARK)
+      if (leftCenterLine)  { leftCenterLine.renderOrder = 4; shiftRibbonLateral(leftCenterLine,  raisedPts,  doubleSep); group.add(leftCenterLine) }
+      if (rightCenterLine) { rightCenterLine.renderOrder = 4; shiftRibbonLateral(rightCenterLine, raisedPts, -doubleSep); group.add(rightCenterLine) }
 
       // B. Lignes blanches discontinues séparant les voies de chaque sens
       const dividerOffset = halfW / 2
-      const divLeft = buildDashedLine(pts, dividerOffset, 0.07, 0.040, 4.0, 5.0, WHITE_MARK)
-      const divRight = buildDashedLine(pts, -dividerOffset, 0.07, 0.040, 4.0, 5.0, WHITE_MARK)
+      const divLeft = buildDashedLine(raisedPts, dividerOffset, 0.07, 0.040, 4.0, 5.0, WHITE_MARK)
+      const divRight = buildDashedLine(raisedPts, -dividerOffset, 0.07, 0.040, 4.0, 5.0, WHITE_MARK)
       if (divLeft)  { divLeft.renderOrder = 4; group.add(divLeft) }
       if (divRight) { divRight.renderOrder = 4; group.add(divRight) }
     } else {
       // RUE DE VILLE (2 voies à double sens) :
       // Ligne blanche discontinue centrale (pointillés réguliers 3m / 3m)
-      const centerDivider = buildDashedLine(pts, 0, 0.07, 0.040, 3.0, 3.0, WHITE_MARK)
+      const centerDivider = buildDashedLine(raisedPts, 0, 0.07, 0.040, 3.0, 3.0, WHITE_MARK)
       if (centerDivider) { centerDivider.renderOrder = 4; group.add(centerDivider) }
     }
 
-    // ── 6. Clean Elevated Sidewalks & Beveled Curbs ───────────────────
-    if (isUrbanStreet) {
-      const obstacles = buildRoadObstacles(allRoads, road.id)
-      const swWidth = isMajor ? 3.8 : DEFAULT_SIDEWALK_WIDTH
-      const leftSidewalk = buildCleanSidewalk(pts, halfW, swWidth, 'left', obstacles)
-      const rightSidewalk = buildCleanSidewalk(pts, halfW, swWidth, 'right', obstacles)
-      group.add(leftSidewalk)
-      group.add(rightSidewalk)
+    // ── 6. Clean Elevated Sidewalks & Beveled Curbs (Respecting sidewalkMode) ─
+    const swMode = road.sidewalkMode ?? (isUrbanStreet ? 'both' : 'none')
+    let swObstacles: RoadObstacleSeg[] | null = null
+    const getObstacles = () => {
+      if (!swObstacles) swObstacles = buildRoadObstacles(allRoads, road.id)
+      return swObstacles
     }
 
-    // ── 6. Directional Road Arrows & Crosswalks (Marquages au sol) ────
+    if (swMode !== 'none') {
+      const swWidth = isMajor ? 3.8 : DEFAULT_SIDEWALK_WIDTH
+      if (swMode === 'both' || swMode === 'left') {
+        const leftSidewalk = buildCleanSidewalk(raisedPts, halfW, swWidth, 'left', getObstacles())
+        group.add(leftSidewalk)
+      }
+      if (swMode === 'both' || swMode === 'right') {
+        const rightSidewalk = buildCleanSidewalk(raisedPts, halfW, swWidth, 'right', getObstacles())
+        group.add(rightSidewalk)
+      }
+    }
+
+    // ── 7. Cycleway Infrastructure (Infrastructure cyclable OSM) ──────────────
+    if (road.cycleway && road.cycleway !== 'none') {
+      const cwWidth = 1.6
+      const cwHalf = cwWidth / 2
+      const cwRightOffset = halfW - 0.25 - cwHalf
+      const cwLeftOffset = -(halfW - 0.25 - cwHalf)
+
+      const addCycleLane = (side: 'right' | 'left', offset: number) => {
+        const cycleRibbon = buildRibbon(raisedPts, cwHalf, 0.038, PARIS_CYCLEWAY_MAT)
+        if (cycleRibbon) {
+          cycleRibbon.renderOrder = 4
+          shiftRibbonLateral(cycleRibbon, raisedPts, side === 'right' ? -offset : offset)
+          group.add(cycleRibbon)
+        }
+
+        // White border line separating cycleway from car lanes
+        const divOffset = side === 'right' ? -(halfW - 0.25 - cwWidth) : (halfW - 0.25 - cwWidth)
+        const whiteBorder = buildDashedLine(raisedPts, divOffset, 0.05, 0.039, 1.5, 1.5, WHITE_MARK)
+        if (whiteBorder) {
+          whiteBorder.renderOrder = 4
+          group.add(whiteBorder)
+        }
+
+        // Bicycle stencil markings along the lane every ~25m
+        let roadLen = 0
+        for (let i = 0; i < pts.length - 1; i++) {
+          roadLen += Math.hypot(pts[i + 1]!.x - pts[i]!.x, pts[i + 1]!.z - pts[i]!.z)
+        }
+        if (roadLen >= 20) {
+          const numIcons = Math.max(1, Math.floor(roadLen / 25))
+          for (let k = 1; k <= numIcons; k++) {
+            const iconDist = k * (roadLen / (numIcons + 1))
+            let acc = 0
+            for (let i = 0; i < pts.length - 1; i++) {
+              const a = pts[i]!; const b = pts[i + 1]!
+              const segL = Math.hypot(b.x - a.x, b.z - a.z)
+              if (acc + segL >= iconDist) {
+                const t = (iconDist - acc) / segL
+                let dx = b.x - a.x; let dz = b.z - a.z
+                if (segL > 0) { dx /= segL; dz /= segL }
+                const nx = -dz; const nz = dx
+                const latOff = side === 'right' ? -offset : offset
+                const p = {
+                  x: a.x + dx * (iconDist - acc) + nx * latOff,
+                  y: a.y + (b.y - a.y) * t,
+                  z: a.z + dz * (iconDist - acc) + nz * latOff,
+                }
+                const bIcon = buildBicycleMarking(p, { dx, dz })
+                group.add(bIcon)
+                break
+              }
+              acc += segL
+            }
+          }
+        }
+      }
+
+      if (road.cycleway === 'both') {
+        addCycleLane('right', cwRightOffset)
+        addCycleLane('left', cwLeftOffset)
+      } else if (road.cycleway === 'left') {
+        addCycleLane('left', cwLeftOffset)
+      } else {
+        addCycleLane('right', cwRightOffset)
+      }
+    }
+
+    // ── 8. Dedicated Bus Lane (Couloir de bus réservé OSM) ───────────────────
+    if (road.hasBusLane) {
+      const busW = 3.0
+      const busHalf = busW / 2
+      const busOffset = halfW - 0.25 - busHalf
+      const busRibbon = buildRibbon(raisedPts, busHalf, 0.035, PARIS_BUSWAY_MAT)
+      if (busRibbon) {
+        busRibbon.renderOrder = 3
+        shiftRibbonLateral(busRibbon, raisedPts, -busOffset)
+        group.add(busRibbon)
+      }
+
+      // Continuous wide white separator line
+      const busSepOffset = -(halfW - 0.25 - busW)
+      const busSep = buildRibbon(raisedPts, 0.12, 0.039, WHITE_MARK)
+      if (busSep) {
+        busSep.renderOrder = 4
+        shiftRibbonLateral(busSep, raisedPts, busSepOffset)
+        group.add(busSep)
+      }
+
+      // "BUS" lettering stencils on the asphalt
+      let roadLen = 0
+      for (let i = 0; i < pts.length - 1; i++) {
+        roadLen += Math.hypot(pts[i + 1]!.x - pts[i]!.x, pts[i + 1]!.z - pts[i]!.z)
+      }
+      if (roadLen >= 25) {
+        const numBusMarks = Math.max(1, Math.floor(roadLen / 35))
+        for (let k = 1; k <= numBusMarks; k++) {
+          const mDist = k * (roadLen / (numBusMarks + 1))
+          let acc = 0
+          for (let i = 0; i < pts.length - 1; i++) {
+            const a = pts[i]!; const b = pts[i + 1]!
+            const segL = Math.hypot(b.x - a.x, b.z - a.z)
+            if (acc + segL >= mDist) {
+              const t = (mDist - acc) / segL
+              let dx = b.x - a.x; let dz = b.z - a.z
+              if (segL > 0) { dx /= segL; dz /= segL }
+              const nx = -dz; const nz = dx
+              const p = {
+                x: a.x + dx * (mDist - acc) - nx * busOffset,
+                y: a.y + (b.y - a.y) * t,
+                z: a.z + dz * (mDist - acc) - nz * busOffset,
+              }
+              const busMark = buildBusLaneMarking(p, { dx, dz })
+              group.add(busMark)
+              break
+            }
+            acc += segL
+          }
+        }
+      }
+    }
+
+    // ── 9. Directional Road Arrows & Crosswalks (Marquages au sol) ───────────
     let roadLength = 0
     for (let i = 0; i < pts.length - 1; i++) {
       const a = pts[i]!
       const b = pts[i + 1]!
       roadLength += Math.sqrt((b.x - a.x) ** 2 + (b.z - a.z) ** 2)
+    }
+
+    // Roadside parking bays
+    if (road.parkingLane && road.parkingLane !== 'none' && roadLength >= 15) {
+      if (road.parkingLane === 'both' || road.parkingLane === 'right') {
+        const baysR = buildParkingBays(raisedPts, halfW, 'right', roadLength)
+        if (baysR) group.add(baysR)
+      }
+      if (road.parkingLane === 'both' || road.parkingLane === 'left') {
+        const baysL = buildParkingBays(raisedPts, halfW, 'left', roadLength)
+        if (baysL) group.add(baysL)
+      }
     }
 
     if (roadLength >= 25) {
@@ -906,6 +2638,7 @@ export class RoadMeshGenerator {
           const t = (crossDist - accum) / segLen
           let dx = b.x - a.x; let dz = b.z - a.z
           if (segLen > 0) { dx /= segLen; dz /= segLen; }
+          const norm = { nx: -dz, nz: dx }
           const crosswalkPt = {
             x: a.x + dx * (crossDist - accum),
             y: a.y + (b.y - a.y) * t,
@@ -924,13 +2657,24 @@ export class RoadMeshGenerator {
           }
           const stopLine = buildStopLine(stopPt, { dx, dz }, halfW)
           if (stopLine) { stopLine.renderOrder = 4; group.add(stopLine) }
+
+          // 3D Traffic Light signal pole at the crosswalk
+          const signalTmpl = getTrafficLightTemplate()
+          const signalPole = signalTmpl.clone()
+          signalPole.position.set(
+            crosswalkPt.x + norm.nx * (halfW + 0.8),
+            crosswalkPt.y,
+            crosswalkPt.z + norm.nz * (halfW + 0.8),
+          )
+          signalPole.rotation.y = Math.atan2(dx, dz) + Math.PI / 2
+          group.add(signalPole)
           break
         }
         accum += segLen
       }
 
-      // Directional arrows painted flat on multi-lane avenues
-      if (lanes >= 4 && roadLength >= 50) {
+      // Directional arrows painted flat on asphalt
+      if (roadLength >= 35) {
         const arrowDist = roadLength * 0.65
         accum = 0
         for (let i = 0; i < pts.length - 1; i++) {
@@ -942,28 +2686,71 @@ export class RoadMeshGenerator {
             if (segLen > 0) { dx /= segLen; dz /= segLen; }
             const norm = { nx: -dz, nz: dx }
 
-            // Arrow on right lanes (heading forward)
-            const arrowCenterRight = {
-              x: a.x + dx * (arrowDist - accum) + norm.nx * (halfW * 0.5),
-              y: a.y + (b.y - a.y) * t,
-              z: a.z + dz * (arrowDist - accum) + norm.nz * (halfW * 0.5),
-            }
-            const rightArrow = buildRoadArrow(arrowCenterRight, { dx, dz })
-            rightArrow.renderOrder = 4
-            group.add(rightArrow)
+            if (road.oneway) {
+              // One-way street: all lanes point forward
+              for (let l = 0; l < lanes; l++) {
+                const laneOffset = -halfW + (l + 0.5) * (roadW / lanes)
+                const pt = {
+                  x: a.x + dx * (arrowDist - accum) + norm.nx * laneOffset,
+                  y: a.y + (b.y - a.y) * t,
+                  z: a.z + dz * (arrowDist - accum) + norm.nz * laneOffset,
+                }
+                const arrow = buildRoadArrow(pt, { dx, dz })
+                group.add(arrow)
+              }
+            } else if (lanes >= 4) {
+              // Two-way avenue: right forward, left reverse
+              const arrowCenterRight = {
+                x: a.x + dx * (arrowDist - accum) + norm.nx * (halfW * 0.5),
+                y: a.y + (b.y - a.y) * t,
+                z: a.z + dz * (arrowDist - accum) + norm.nz * (halfW * 0.5),
+              }
+              const rightArrow = buildRoadArrow(arrowCenterRight, { dx, dz })
+              group.add(rightArrow)
 
-            // Arrow on left lanes (heading opposite)
-            const arrowCenterLeft = {
-              x: a.x + dx * (arrowDist - accum) - norm.nx * (halfW * 0.5),
-              y: a.y + (b.y - a.y) * t,
-              z: a.z + dz * (arrowDist - accum) - norm.nz * (halfW * 0.5),
+              const arrowCenterLeft = {
+                x: a.x + dx * (arrowDist - accum) - norm.nx * (halfW * 0.5),
+                y: a.y + (b.y - a.y) * t,
+                z: a.z + dz * (arrowDist - accum) - norm.nz * (halfW * 0.5),
+              }
+              const leftArrow = buildRoadArrow(arrowCenterLeft, { dx: -dx, dz: -dz })
+              group.add(leftArrow)
             }
-            const leftArrow = buildRoadArrow(arrowCenterLeft, { dx: -dx, dz: -dz })
-            leftArrow.renderOrder = 4
-            group.add(leftArrow)
             break
           }
           accum += segLen
+        }
+      }
+    }
+
+    // ── 10. Parisian Street Lamps along the Sidewalk (highway=street_lamp / lit=yes) ──
+    if (swMode !== 'none' && (road.lit || isUrbanStreet) && roadLength >= 35) {
+      const lampTmpl = getStreetLampTemplate()
+      const lampSpacing = 32
+      const numLamps = Math.min(8, Math.max(1, Math.floor(roadLength / lampSpacing)))
+      for (let k = 1; k <= numLamps; k++) {
+        const lDist = k * (roadLength / (numLamps + 1))
+        let acc = 0
+        for (let i = 0; i < pts.length - 1; i++) {
+          const a = pts[i]!; const b = pts[i + 1]!
+          const segL = Math.hypot(b.x - a.x, b.z - a.z)
+          if (acc + segL >= lDist) {
+            const t = (lDist - acc) / segL
+            let dx = b.x - a.x; let dz = b.z - a.z
+            if (segL > 0) { dx /= segL; dz /= segL }
+            const nx = -dz; const nz = dx
+            const lampSide = k % 2 === 0 ? 1 : -1
+            const lamp = lampTmpl.clone()
+            lamp.position.set(
+              a.x + dx * (lDist - acc) + nx * (halfW + 0.8) * lampSide,
+              a.y + (b.y - a.y) * t,
+              a.z + dz * (lDist - acc) + nz * (halfW + 0.8) * lampSide,
+            )
+            lamp.rotation.y = Math.atan2(dx, dz) + (lampSide > 0 ? Math.PI / 2 : -Math.PI / 2)
+            group.add(lamp)
+            break
+          }
+          acc += segL
         }
       }
     }

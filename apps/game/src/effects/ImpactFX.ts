@@ -278,7 +278,7 @@ export class ImpactFX {
       const mesh = new THREE.Mesh(dropletGeo, DROPLET_MAT)
       mesh.position.set(
         point.x + (Math.random() - 0.5) * 1.5,
-        -1.8,
+        (point.y ?? 0) + 0.2 + Math.random() * 0.3,
         point.z + (Math.random() - 0.5) * 1.5,
       )
 

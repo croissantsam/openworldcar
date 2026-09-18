@@ -67,6 +67,21 @@ export class PhysicsSimulation {
     p.body.applyTorqueImpulse({ x: 0, y: input.steering * 60 * (speed / 60 + 0.15), z: 0 }, true)
   }
 
+  updatePlayerState(
+    id: string,
+    pos: WorldPosition,
+    rot: { x: number; y: number; z: number; w?: number },
+    vel: { x: number; y: number; z: number },
+  ): void {
+    const p = this.players.get(id)
+    if (!p) return
+    p.body.setTranslation({ x: pos.x, y: pos.y, z: pos.z }, true)
+    if (rot.w !== undefined) {
+      p.body.setRotation({ x: rot.x, y: rot.y, z: rot.z, w: rot.w }, true)
+    }
+    p.body.setLinvel({ x: vel.x, y: vel.y, z: vel.z }, true)
+  }
+
   step(): void {
     if (!this.initialised) return
     this.world.step()

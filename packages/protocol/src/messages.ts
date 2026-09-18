@@ -1,5 +1,5 @@
 import type { PlayerSnapshot, NPCSnapshot, SerializedChunk } from '@world-drive/shared'
-import type { ChunkId } from '@world-drive/math'
+import type { ChunkId, WorldPosition } from '@world-drive/math'
 
 // ─── Client → Server ─────────────────────────────────────────────────────────
 
@@ -14,9 +14,19 @@ export type PlayerInput = {
   timestamp: number
 }
 
+export type PlayerStateUpdate = {
+  position: WorldPosition
+  rotation: { x: number; y: number; z: number; w?: number }
+  velocity: { x: number; y: number; z: number }
+  steering?: number
+  speed?: number
+  timestamp?: number
+}
+
 export type ClientMessage =
   | { type: 'join'; playerId: string }
   | { type: 'player_input'; input: PlayerInput; seq: number }
+  | { type: 'player_state'; state: PlayerStateUpdate; seq: number }
   | { type: 'ping'; timestamp: number }
   | { type: 'request_chunk'; chunkId: ChunkId }
   | { type: 'leave' }

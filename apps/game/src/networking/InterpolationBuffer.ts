@@ -15,6 +15,15 @@ type BufferedSnapshot = {
 
 const BUFFER_DELAY_MS = 100 // ms behind current time for smooth interpolation
 
+function toQuaternion(rot: { x: number; y: number; z: number; w?: number }): THREE.Quaternion {
+  if (typeof rot.w === 'number') {
+    return new THREE.Quaternion(rot.x, rot.y, rot.z, rot.w)
+  }
+  return new THREE.Quaternion().setFromEuler(
+    new THREE.Euler(rot.x, rot.y, rot.z, 'YXZ'),
+  )
+}
+
 export class InterpolationBuffer {
   private snapshots: BufferedSnapshot[] = []
 
@@ -41,9 +50,7 @@ export class InterpolationBuffer {
       const s = this.snapshots[0]!.snap
       return {
         position: new THREE.Vector3(s.position.x, s.position.y, s.position.z),
-        quaternion: new THREE.Quaternion().setFromEuler(
-          new THREE.Euler(s.rotation.x, s.rotation.y, s.rotation.z, 'YXZ'),
-        ),
+        quaternion: toQuaternion(s.rotation),
       }
     }
 
@@ -72,9 +79,7 @@ export class InterpolationBuffer {
           latest.position.y,
           latest.position.z,
         ),
-        quaternion: new THREE.Quaternion().setFromEuler(
-          new THREE.Euler(latest.rotation.x, latest.rotation.y, latest.rotation.z, 'YXZ'),
-        ),
+        quaternion: toQuaternion(latest.rotation),
       }
     }
 
@@ -93,8 +98,8 @@ export class InterpolationBuffer {
     const rotA = before.snap.rotation
     const rotB = after.snap.rotation
 
-    const qA = new THREE.Quaternion().setFromEuler(new THREE.Euler(rotA.x, rotA.y, rotA.z, 'YXZ'))
-    const qB = new THREE.Quaternion().setFromEuler(new THREE.Euler(rotB.x, rotB.y, rotB.z, 'YXZ'))
+    const qA = toQuaternion(rotA)
+    const qB = toQuaternion(rotB)
     const q = qA.slerp(qB, t)
 
     return { position: pos, quaternion: q }

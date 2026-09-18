@@ -5,8 +5,8 @@ import type { WorldPosition } from '@world-drive/math'
 export type PlayerSnapshot = {
   id: string
   position: WorldPosition
-  /** Euler angles (radians): { x, y, z } */
-  rotation: { x: number; y: number; z: number }
+  /** Euler angles (radians): { x, y, z } or Quaternion { x, y, z, w } */
+  rotation: { x: number; y: number; z: number; w?: number }
   velocity: { x: number; y: number; z: number }
   /** Server tick number this snapshot belongs to. */
   tick: number

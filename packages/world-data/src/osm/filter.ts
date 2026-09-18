@@ -7,7 +7,7 @@
 
 export type OsmTags = Record<string, string>
 
-/** Highway types we care about (drives + walkable). */
+/** Highway types we care about (drivable roads + pedestrian streets). */
 const WANTED_HIGHWAYS = new Set([
   'motorway',
   'motorway_link',
@@ -29,11 +29,18 @@ const WANTED_HIGHWAYS = new Set([
 
 export function isWantedHighway(tags: OsmTags): boolean {
   const highway = tags['highway']
-  return highway !== undefined && WANTED_HIGHWAYS.has(highway)
+  if (!highway || !WANTED_HIGHWAYS.has(highway)) return false
+  // Subway/railway tunnels are handled separately; keep vehicular road tunnels
+  return true
 }
 
 export function isWantedBuilding(tags: OsmTags): boolean {
-  return 'building' in tags
+  // Exclude surface parking lots without a building structure
+  if (tags['amenity'] === 'parking' && !tags['building']) return false
+  if (tags['building'] && tags['building'] !== 'no') return true
+  if (tags['building:part'] && tags['building:part'] !== 'no') return true
+  if (tags['historic'] && ['building', 'monument', 'memorial', 'castle', 'manor', 'church'].includes(tags['historic'])) return true
+  return false
 }
 
 const WANTED_POI_AMENITIES = new Set([
@@ -53,9 +60,27 @@ export function isWantedPoi(tags: OsmTags): boolean {
   return false
 }
 
-const WANTED_WATERWAYS = new Set(['river', 'stream', 'canal', 'drain', 'ditch', 'riverbank', 'dock'])
+const WANTED_WATERWAYS = new Set([
+  'river',
+  'stream',
+  'canal',
+  'tidal_channel',
+  'dock',
+  'lock',
+  'riverbank',
+  'boatyard',
+  'dam',
+  'weir',
+])
 
 export function isWantedWater(tags: OsmTags): boolean {
+  // Underground aqueducts, culverts, buried waterways, and covered canals must be excluded
+  if (tags['tunnel'] && tags['tunnel'] !== 'no') return false
+  if (tags['covered'] === 'yes') return false
+  if (tags['location'] === 'underground') return false
+  const layer = parseInt(tags['layer'] ?? '0', 10)
+  if (layer < 0) return false
+
   if (tags['waterway'] && WANTED_WATERWAYS.has(tags['waterway'])) return true
   if (tags['natural'] === 'water') return true
   if (tags['water'] !== undefined) return true
@@ -63,12 +88,66 @@ export function isWantedWater(tags: OsmTags): boolean {
   return false
 }
 
-const WANTED_LEISURE = new Set(['park', 'garden', 'recreation_ground', 'pitch', 'playground'])
-const WANTED_LANDUSE = new Set(['grass', 'forest', 'village_green', 'meadow'])
+const WANTED_LEISURE = new Set([
+  'park',
+  'garden',
+  'recreation_ground',
+  'pitch',
+  'playground',
+  'dog_park',
+  'common',
+  'swimming_pool',
+])
+
+const WANTED_LANDUSE = new Set([
+  'grass',
+  'forest',
+  'village_green',
+  'meadow',
+  'cemetery',
+  'farmland',
+  'farmyard',
+  'orchard',
+  'vineyard',
+  'allotments',
+  'parking',
+])
+
+const WANTED_NATURAL = new Set([
+  'wood',
+  'scrub',
+  'heath',
+  'grassland',
+  'beach',
+  'sand',
+  'cliff',
+  'wetland',
+  'marsh',
+])
 
 export function isWantedPark(tags: OsmTags): boolean {
   if (tags['leisure'] && WANTED_LEISURE.has(tags['leisure'])) return true
   if (tags['landuse'] && WANTED_LANDUSE.has(tags['landuse'])) return true
-  if (tags['natural'] === 'wood' || tags['natural'] === 'scrub') return true
+  if (tags['natural'] && WANTED_NATURAL.has(tags['natural'])) return true
+  if (tags['amenity'] === 'grave_yard') return true
+  return false
+}
+
+/** Railway types we want to render (only above-ground surface railways like tramways). */
+const WANTED_RAILWAYS = new Set([
+  'rail',
+  'tram',
+  'light_rail',
+  'monorail',
+  'narrow_gauge',
+])
+
+export function isWantedRailway(_tags: OsmTags): boolean {
+  // Railways/train tracks disabled per user request
+  return false
+}
+
+export function isWantedBarrier(_tags: OsmTags): boolean {
+  // Barriers/fences/walls disabled per user request
   return false
 }

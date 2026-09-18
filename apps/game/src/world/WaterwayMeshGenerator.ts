@@ -2,11 +2,10 @@
  * WaterwayMeshGenerator — renders OSM rivers, canals, streams and water bodies (lakes, basins, riverbanks).
  *
  * Realism features:
- *   - Recessed / carved riverbeds (creusé dans le sol) at y = -2.2m (water) and y = -3.4m (bed)
- *   - Stencil mask punching a clean hole through urban ground slabs
- *   - Vertical stone embankment walls (murs de quai de Seine) connecting street level to riverbed
- *   - Classic stone parapets / balustrades along quays at street level (y = 0.02 to 0.92m)
- *   - Animated water surface with flowing waves, foam highlights and specular sun glints
+ *   - Water surface at y = 0.012m (sits cleanly above urban slab at 0.001m and below roads at 0.028m)
+ *   - Animated water shader with flowing ripples, wave foam highlights, and specular sun glints
+ *   - Authentic Parisian limestone parapets / balustrades lining the quays (y = 0.02 to 0.92m)
+ *   - Works 100% reliably without fragile stencil buffers or chunk ordering dependencies
  */
 
 import * as THREE from 'three'
@@ -14,37 +13,18 @@ import type { Waterway } from '@world-drive/shared'
 
 // ── Materials ──────────────────────────────────────────────────────────────
 
-// Stencil mask material: writes ref 1 into stencil buffer, invisible in color/depth
-const STENCIL_MASK_MAT = new THREE.MeshBasicMaterial({
-  colorWrite: false,
-  depthWrite: false,
-  stencilWrite: true,
-  stencilRef: 1,
-  stencilFunc: THREE.AlwaysStencilFunc,
-  stencilZPass: THREE.ReplaceStencilOp,
-  side: THREE.DoubleSide,
-})
-
-// Riverbed silt / pebbles under the water
-const RIVERBED_MAT = new THREE.MeshStandardMaterial({
-  color: 0x121915, // Murky riverbed silt
-  roughness: 0.96,
-  metalness: 0.0,
-  side: THREE.DoubleSide,
-})
-
-// Aged Parisian stone embankment / quay walls
-const QUAY_WALL_MAT = new THREE.MeshStandardMaterial({
-  color: 0x6e6962, // Parisian limestone river quay wall
-  roughness: 0.88,
+// Street-level stone parapet / balustrade
+const PARAPET_MAT = new THREE.MeshStandardMaterial({
+  color: 0xb5afa0, // Warm Parisian limestone parapet coping
+  roughness: 0.84,
   metalness: 0.04,
   side: THREE.DoubleSide,
 })
 
-// Street-level stone parapet / balustrade
-const PARAPET_MAT = new THREE.MeshStandardMaterial({
-  color: 0xb5afa0, // Warm limestone parapet coping
-  roughness: 0.84,
+// Embankment curb edging along the water's edge
+const EMBANKMENT_EDGE_MAT = new THREE.MeshStandardMaterial({
+  color: 0x6e6962, // Aged Parisian river quay stone
+  roughness: 0.88,
   metalness: 0.04,
   side: THREE.DoubleSide,
 })
@@ -71,35 +51,34 @@ const WATER_FRAG = `
     vec2 f = fract(p);
     f = f * f * (3.0 - 2.0 * f);
     return mix(
-      mix(hash(i), hash(i + vec2(1,0)), f.x),
-      mix(hash(i + vec2(0,1)), hash(i + vec2(1,1)), f.x),
+      mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x),
+      mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x),
       f.y
     );
   }
 
   void main() {
-    // Flowing ripples based on world coords + time for coherent water surface
-    vec2 p = vWorldPos.xz * 0.12;
-    float n1 = noise(p * 3.5 + vec2(uTime * 0.35, uTime * 0.15));
-    float n2 = noise(p * 7.0 - vec2(uTime * 0.25, uTime * 0.30));
+    // Coherent world-space flowing ripples
+    vec2 p = vWorldPos.xz * 0.14;
+    float n1 = noise(p * 3.2 + vec2(uTime * 0.35, uTime * 0.12));
+    float n2 = noise(p * 6.8 - vec2(uTime * 0.22, uTime * 0.28));
 
-    vec3 deepWater     = vec3(0.04, 0.16, 0.28); // Deep river teal
+    vec3 deepWater     = vec3(0.03, 0.15, 0.28); // Deep Seine river teal
     vec3 midWater      = vec3(0.08, 0.34, 0.50); // Sunny river surface
-    vec3 foamHighlight = vec3(0.85, 0.95, 1.00); // Crisp foam
+    vec3 foamHighlight = vec3(0.85, 0.95, 1.00); // Crisp wave foam
 
     float ripple = n1 * 0.6 + n2 * 0.4;
     vec3 color = mix(deepWater, midWater, ripple * 0.7);
 
-    // Subtle foam on wave peaks
-    float peak = pow(max(0.0, n1 * n2), 2.5);
+    // Subtle foam on wave crests
+    float peak = pow(max(0.0, n1 * n2), 2.2);
     color = mix(color, foamHighlight, peak * 0.45);
 
-    // Sun specular glint
-    float glint = pow(n2, 7.0) * 0.45;
+    // Dynamic sun specular glint
+    float glint = pow(max(0.0, n2), 6.5) * 0.45;
     color += vec3(glint);
 
-    // Slight transparency to reveal sunken riverbed underneath
-    gl_FragColor = vec4(color, 0.88);
+    gl_FragColor = vec4(color, 0.96);
   }
 `
 
@@ -113,8 +92,9 @@ function getWaterMaterial(): THREE.ShaderMaterial {
       vertexShader: WATER_VERT,
       fragmentShader: WATER_FRAG,
       uniforms: { uTime: { value: 0 } },
-      transparent: true,
-      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -1.5,
+      polygonOffsetUnits: -1.5,
       side: THREE.DoubleSide,
     })
   }
@@ -200,8 +180,8 @@ function addOrientedBox(
 
 export class WaterwayMeshGenerator {
   /**
-   * Generate realistic carved water features with stencil cutout, sunken riverbed,
-   * stone embankment quay walls, and street-level parapet balustrades.
+   * Generate realistic water features with animated ripple shader, stone quay
+   * border walls, and classic street-level parapet balustrades.
    */
   static generate(waterway: Waterway): THREE.Group | null {
     const pts = waterway.points
@@ -210,128 +190,86 @@ export class WaterwayMeshGenerator {
     const group = new THREE.Group()
     group.userData['waterwayId'] = waterway.id
 
-    const WATER_Y = -2.2   // Water surface elevation (sunken into ground)
-    const BED_Y = -3.4     // Riverbed floor elevation
-    const STREET_Y = 0.05  // Top of embankment wall at ground level
+    const WATER_Y = 0.012  // Sits cleanly above urban slab (0.001) and below road asphalt (0.028)
 
-    // ── 1. Closed Polygon Water Surface (lakes, basins, riverbanks) ─────────
+    // ── 1. Closed Polygon Water Surface (lakes, basins, closed riverbanks) ──
     if (waterway.isPolygon && pts.length >= 3) {
-      const shape = new THREE.Shape()
-      shape.moveTo(pts[0]!.x, pts[0]!.z)
-      for (let i = 1; i < pts.length; i++) {
-        shape.lineTo(pts[i]!.x, pts[i]!.z)
+      try {
+        const shape = new THREE.Shape()
+        shape.moveTo(pts[0]!.x, pts[0]!.z)
+        for (let i = 1; i < pts.length; i++) {
+          shape.lineTo(pts[i]!.x, pts[i]!.z)
+        }
+        shape.closePath()
+
+        // Water surface
+        const waterGeo = new THREE.ShapeGeometry(shape)
+        waterGeo.rotateX(-Math.PI / 2)
+        waterGeo.translate(0, WATER_Y, 0)
+        const pos = waterGeo.attributes['position'] as THREE.BufferAttribute
+        const uvs = new Float32Array(pos.count * 2)
+        for (let i = 0; i < pos.count; i++) {
+          uvs[i * 2] = pos.getX(i) * 0.05
+          uvs[i * 2 + 1] = pos.getZ(i) * 0.05
+        }
+        waterGeo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2))
+        waterGeo.computeVertexNormals()
+        const waterMesh = new THREE.Mesh(waterGeo, getWaterMaterial())
+        waterMesh.receiveShadow = true
+        waterMesh.renderOrder = 2
+        group.add(waterMesh)
+
+        // Perimeter stone parapet wall
+        const parapetPos: number[] = []
+        const parapetNorm: number[] = []
+        const parapetIdx: number[] = []
+
+        const N = pts.length
+        for (let i = 0; i < N; i++) {
+          const p1 = pts[i]!
+          const p2 = pts[(i + 1) % N]!
+          const dx = p2.x - p1.x
+          const dz = p2.z - p1.z
+          const len = Math.hypot(dx, dz)
+          if (len < 1.0) continue
+
+          const ux = dx / len
+          const uz = dz / len
+          const nx = -uz
+          const nz = ux
+
+          const pMidX = (p1.x + p2.x) / 2
+          const pMidZ = (p1.z + p2.z) / 2
+          addOrientedBox(
+            parapetPos, parapetNorm, parapetIdx,
+            pMidX, pMidZ,
+            0.02, 0.90,
+            len / 2, 0.20,
+            ux, uz, nx, nz,
+          )
+        }
+
+        if (parapetPos.length > 0) {
+          const parapetGeo = new THREE.BufferGeometry()
+          parapetGeo.setAttribute('position', new THREE.Float32BufferAttribute(parapetPos, 3))
+          parapetGeo.setAttribute('normal', new THREE.Float32BufferAttribute(parapetNorm, 3))
+          parapetGeo.setIndex(parapetIdx)
+          const parapetMesh = new THREE.Mesh(parapetGeo, PARAPET_MAT)
+          parapetMesh.castShadow = true
+          parapetMesh.receiveShadow = true
+          parapetMesh.renderOrder = 4
+          group.add(parapetMesh)
+        }
+
+        return group
+      } catch (err) {
+        console.warn(`[WaterwayMeshGenerator] Failed to triangulate polygon waterway ${waterway.id}:`, err)
+        // Fallback to linear waterway below
       }
-      shape.closePath()
-
-      // A. Stencil Cutout Mask (punches hole through urban ground slab)
-      const maskGeo = new THREE.ShapeGeometry(shape)
-      maskGeo.rotateX(-Math.PI / 2)
-      maskGeo.translate(0, 0.08, 0)
-      const maskMesh = new THREE.Mesh(maskGeo, STENCIL_MASK_MAT)
-      maskMesh.renderOrder = -1
-      group.add(maskMesh)
-
-      // B. Sunken Riverbed Floor (y = BED_Y)
-      const bedGeo = new THREE.ShapeGeometry(shape)
-      bedGeo.rotateX(-Math.PI / 2)
-      bedGeo.translate(0, BED_Y, 0)
-      bedGeo.computeVertexNormals()
-      const bedMesh = new THREE.Mesh(bedGeo, RIVERBED_MAT)
-      bedMesh.receiveShadow = true
-      bedMesh.renderOrder = 1
-      group.add(bedMesh)
-
-      // C. Sunken Water Surface (y = WATER_Y)
-      const waterGeo = new THREE.ShapeGeometry(shape)
-      waterGeo.rotateX(-Math.PI / 2)
-      waterGeo.translate(0, WATER_Y, 0)
-      const pos = waterGeo.attributes['position'] as THREE.BufferAttribute
-      const uvs = new Float32Array(pos.count * 2)
-      for (let i = 0; i < pos.count; i++) {
-        uvs[i * 2] = pos.getX(i) * 0.05
-        uvs[i * 2 + 1] = pos.getZ(i) * 0.05
-      }
-      waterGeo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2))
-      waterGeo.computeVertexNormals()
-      const waterMesh = new THREE.Mesh(waterGeo, getWaterMaterial())
-      waterMesh.renderOrder = 2
-      group.add(waterMesh)
-
-      // D. Vertical Stone Embankment Walls & Street-level Parapets
-      const quayPos: number[] = []
-      const quayNorm: number[] = []
-      const quayIdx: number[] = []
-
-      const parapetPos: number[] = []
-      const parapetNorm: number[] = []
-      const parapetIdx: number[] = []
-
-      const N = pts.length
-      for (let i = 0; i < N; i++) {
-        const p1 = pts[i]!
-        const p2 = pts[(i + 1) % N]!
-        const dx = p2.x - p1.x
-        const dz = p2.z - p1.z
-        const len = Math.hypot(dx, dz)
-        if (len < 0.5) continue
-
-        const ux = dx / len
-        const uz = dz / len
-        const nx = -uz
-        const nz = ux
-
-        // Vertical stone quay wall from STREET_Y down to BED_Y
-        const bIdx = quayPos.length / 3
-        quayPos.push(
-          p1.x, STREET_Y, p1.z,
-          p2.x, STREET_Y, p2.z,
-          p2.x, BED_Y, p2.z,
-          p1.x, BED_Y, p1.z,
-        )
-        quayNorm.push(nx, 0, nz,  nx, 0, nz,  nx, 0, nz,  nx, 0, nz)
-        quayIdx.push(bIdx, bIdx + 1, bIdx + 2, bIdx, bIdx + 2, bIdx + 3)
-
-        // Parapet wall along street level
-        const pMidX = (p1.x + p2.x) / 2
-        const pMidZ = (p1.z + p2.z) / 2
-        addOrientedBox(
-          parapetPos, parapetNorm, parapetIdx,
-          pMidX, pMidZ,
-          0.02, 0.92,
-          len / 2, 0.18,
-          ux, uz, nx, nz,
-        )
-      }
-
-      if (quayPos.length > 0) {
-        const quayGeo = new THREE.BufferGeometry()
-        quayGeo.setAttribute('position', new THREE.Float32BufferAttribute(quayPos, 3))
-        quayGeo.setAttribute('normal', new THREE.Float32BufferAttribute(quayNorm, 3))
-        quayGeo.setIndex(quayIdx)
-        const quayMesh = new THREE.Mesh(quayGeo, QUAY_WALL_MAT)
-        quayMesh.castShadow = true
-        quayMesh.receiveShadow = true
-        quayMesh.renderOrder = 1
-        group.add(quayMesh)
-      }
-
-      if (parapetPos.length > 0) {
-        const parapetGeo = new THREE.BufferGeometry()
-        parapetGeo.setAttribute('position', new THREE.Float32BufferAttribute(parapetPos, 3))
-        parapetGeo.setAttribute('normal', new THREE.Float32BufferAttribute(parapetNorm, 3))
-        parapetGeo.setIndex(parapetIdx)
-        const parapetMesh = new THREE.Mesh(parapetGeo, PARAPET_MAT)
-        parapetMesh.castShadow = true
-        parapetMesh.receiveShadow = true
-        parapetMesh.renderOrder = 1
-        group.add(parapetMesh)
-      }
-
-      return group
     }
 
     // ── 2. Linear Waterways (rivers, streams, canals with width) ─────────────
-    const halfW = waterway.width / 2
+    const halfW = (waterway.width || 30) / 2
     const N = pts.length
 
     // Compute left and right bank points along polyline
@@ -365,10 +303,8 @@ export class WaterwayMeshGenerator {
       })
     }
 
-    // A. Build water ribbon vertices and riverbed floor vertices
-    const maskVerts: number[] = []
+    // Build water surface ribbon vertices
     const waterVerts: number[] = []
-    const bedVerts: number[] = []
     const uvs: number[] = []
     const ribbonIndices: number[] = []
     let totalLen = 0
@@ -377,116 +313,93 @@ export class WaterwayMeshGenerator {
       const l = leftBank[i]!
       const r = rightBank[i]!
 
-      // Mask quad strip at y = 0.08
-      maskVerts.push(l.x, 0.08, l.z,  r.x, 0.08, r.z)
-
       // Water surface at y = WATER_Y
       waterVerts.push(l.x, WATER_Y, l.z,  r.x, WATER_Y, r.z)
-
-      // Riverbed floor at y = BED_Y
-      bedVerts.push(l.x, BED_Y, l.z,  r.x, BED_Y, r.z)
 
       if (i > 0) {
         totalLen += Math.hypot(pts[i]!.x - pts[i - 1]!.x, pts[i]!.z - pts[i - 1]!.z)
       }
-      const u = totalLen / (waterway.width * 4)
+      const u = totalLen / (waterway.width * 2)
       uvs.push(0, u, 1, u)
 
       if (i < N - 1) {
         const b = i * 2
-        ribbonIndices.push(b, b + 1, b + 2, b + 1, b + 3, b + 2)
+        ribbonIndices.push(b, b + 1, b + 2,  b + 1, b + 3, b + 2)
       }
     }
 
-    // Stencil mask mesh
-    const maskGeo = new THREE.BufferGeometry()
-    maskGeo.setAttribute('position', new THREE.Float32BufferAttribute(maskVerts, 3))
-    maskGeo.setIndex(ribbonIndices)
-    const maskMesh = new THREE.Mesh(maskGeo, STENCIL_MASK_MAT)
-    maskMesh.renderOrder = -1
-    group.add(maskMesh)
-
-    // Riverbed floor mesh
-    const bedGeo = new THREE.BufferGeometry()
-    bedGeo.setAttribute('position', new THREE.Float32BufferAttribute(bedVerts, 3))
-    bedGeo.setIndex(ribbonIndices)
-    bedGeo.computeVertexNormals()
-    const bedMesh = new THREE.Mesh(bedGeo, RIVERBED_MAT)
-    bedMesh.receiveShadow = true
-    bedMesh.renderOrder = 1
-    group.add(bedMesh)
-
-    // Sunken water surface mesh
+    // Water surface mesh
     const waterGeo = new THREE.BufferGeometry()
     waterGeo.setAttribute('position', new THREE.Float32BufferAttribute(waterVerts, 3))
     waterGeo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2))
     waterGeo.setIndex(ribbonIndices)
     waterGeo.computeVertexNormals()
     const waterMesh = new THREE.Mesh(waterGeo, getWaterMaterial())
+    waterMesh.receiveShadow = true
     waterMesh.renderOrder = 2
     group.add(waterMesh)
 
-    // B. Left and Right Embankment Walls & Parapets
-    const quayPos: number[] = []
-    const quayNorm: number[] = []
-    const quayIdx: number[] = []
-
+    // Embankment curb stones and street parapets along both banks
     const parapetPos: number[] = []
     const parapetNorm: number[] = []
     const parapetIdx: number[] = []
 
-    // Helper for a bank line (left or right)
-    function addBankWallAndParapet(bank: BankPoint[]) {
+    const curbPos: number[] = []
+    const curbNorm: number[] = []
+    const curbIdx: number[] = []
+
+    function addBankCurbAndParapet(bank: BankPoint[]) {
       for (let i = 0; i < bank.length - 1; i++) {
         const b1 = bank[i]!
         const b2 = bank[i + 1]!
         const dx = b2.x - b1.x
         const dz = b2.z - b1.z
         const segLen = Math.hypot(dx, dz)
-        if (segLen < 0.5) continue
+        if (segLen < 1.0) continue
 
         const ux = dx / segLen
         const uz = dz / segLen
         const nx = b1.nx
         const nz = b1.nz
 
-        // Vertical stone quay wall from STREET_Y down to BED_Y
-        const bIdx = quayPos.length / 3
-        quayPos.push(
-          b1.x, STREET_Y, b1.z,
-          b2.x, STREET_Y, b2.z,
-          b2.x, BED_Y, b2.z,
-          b1.x, BED_Y, b1.z,
-        )
-        quayNorm.push(nx, 0, nz,  nx, 0, nz,  nx, 0, nz,  nx, 0, nz)
-        quayIdx.push(bIdx, bIdx + 1, bIdx + 2, bIdx, bIdx + 2, bIdx + 3)
-
-        // Parapet along bank
         const midX = (b1.x + b2.x) / 2
         const midZ = (b1.z + b2.z) / 2
+
+        // Stone curb edging along the water's edge
         addOrientedBox(
-          parapetPos, parapetNorm, parapetIdx,
+          curbPos, curbNorm, curbIdx,
           midX, midZ,
-          0.02, 0.92,
-          segLen / 2, 0.18,
+          0.005, 0.08,
+          segLen / 2, 0.35,
           ux, uz, nx, nz,
         )
+
+        // Classic stone parapet balustrade along quays (skip small ditches/drains)
+        if (halfW >= 8.0) {
+          addOrientedBox(
+            parapetPos, parapetNorm, parapetIdx,
+            midX, midZ,
+            0.02, 0.90,
+            segLen / 2, 0.20,
+            ux, uz, nx, nz,
+          )
+        }
       }
     }
 
-    addBankWallAndParapet(leftBank)
-    addBankWallAndParapet(rightBank)
+    addBankCurbAndParapet(leftBank)
+    addBankCurbAndParapet(rightBank)
 
-    if (quayPos.length > 0) {
-      const quayGeo = new THREE.BufferGeometry()
-      quayGeo.setAttribute('position', new THREE.Float32BufferAttribute(quayPos, 3))
-      quayGeo.setAttribute('normal', new THREE.Float32BufferAttribute(quayNorm, 3))
-      quayGeo.setIndex(quayIdx)
-      const quayMesh = new THREE.Mesh(quayGeo, QUAY_WALL_MAT)
-      quayMesh.castShadow = true
-      quayMesh.receiveShadow = true
-      quayMesh.renderOrder = 1
-      group.add(quayMesh)
+    if (curbPos.length > 0) {
+      const curbGeo = new THREE.BufferGeometry()
+      curbGeo.setAttribute('position', new THREE.Float32BufferAttribute(curbPos, 3))
+      curbGeo.setAttribute('normal', new THREE.Float32BufferAttribute(curbNorm, 3))
+      curbGeo.setIndex(curbIdx)
+      const curbMesh = new THREE.Mesh(curbGeo, EMBANKMENT_EDGE_MAT)
+      curbMesh.castShadow = true
+      curbMesh.receiveShadow = true
+      curbMesh.renderOrder = 3
+      group.add(curbMesh)
     }
 
     if (parapetPos.length > 0) {
@@ -497,7 +410,7 @@ export class WaterwayMeshGenerator {
       const parapetMesh = new THREE.Mesh(parapetGeo, PARAPET_MAT)
       parapetMesh.castShadow = true
       parapetMesh.receiveShadow = true
-      parapetMesh.renderOrder = 1
+      parapetMesh.renderOrder = 4
       group.add(parapetMesh)
     }
 

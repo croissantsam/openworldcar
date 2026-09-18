@@ -1,0 +1,835 @@
+# Gestion 3D des routes, ponts et tunnels avec OpenStreetMap
+
+## Objectif
+
+Mettre en place une gestion correcte de l'altitude des routes dans une map 3D basée sur OpenStreetMap (OSM).
+
+Le problème principal est qu'OSM décrit très bien la géométrie et le type des routes, mais ne fournit pas systématiquement une altitude 3D complète pour chaque point d'une route.
+
+Pour obtenir une route réaliste en 3D, il faut donc combiner :
+
+```text
+OpenStreetMap
+    +
+Données d'élévation / DEM
+    ↓
+Terrain 3D
+    ↓
+Routes 3D
+    ↓
+Ponts / tunnels / infrastructures
+```
+
+---
+
+# 1. Différence entre altitude et hauteur
+
+Il faut absolument distinguer deux concepts.
+
+### Altitude
+
+L'altitude correspond à la hauteur d'un point par rapport au niveau de référence.
+
+Exemple :
+
+```text
+Route = 120 m d'altitude
+Terrain = 110 m
+```
+
+### Hauteur au-dessus du terrain
+
+La hauteur correspond à la distance entre la route et le terrain situé dessous.
+
+```text
+Route = 120 m
+Terrain = 110 m
+
+Hauteur = 10 m
+```
+
+Pour une route normale :
+
+```text
+terrain
+────────────────────
+route
+════════════════════
+```
+
+Pour un pont :
+
+```text
+        route
+════════════════════
+        ↑
+        │ 10 m
+        ↓
+────────────────────
+       terrain
+```
+
+OSM ne fournit généralement pas directement cette hauteur.
+
+# 2. Données OSM à utiliser
+
+Pour chaque route, récupérer notamment :
+
+```text
+highway=*
+bridge=*
+tunnel=*
+layer=*
+embankment=*
+oneway=*
+lanes=*
+maxspeed=*
+surface=*
+```
+
+La géométrie de la route vient des nodes du way.
+
+Exemple :
+
+```text
+Way
+ ├── Node 1
+ ├── Node 2
+ ├── Node 3
+ └── Node 4
+```
+
+Ces nodes donnent la forme horizontale de la route.
+
+# 3. Route normale
+
+Pour une route normale :
+
+```text
+bridge != yes
+tunnel != yes
+```
+
+La route doit être placée sur le terrain.
+
+Pipeline :
+
+```text
+OSM Road
+    ↓
+Road coordinates
+    ↓
+DEM sampling
+    ↓
+Terrain elevation
+    ↓
+Road elevation
+    ↓
+3D Road
+```
+
+Pour chaque point de la route :
+
+```text
+roadPoint
+    ↓
+chercher altitude du terrain
+    ↓
+terrainHeight
+    ↓
+placer la route à terrainHeight + offset
+```
+
+L'offset doit être faible et configurable pour éviter le z-fighting.
+
+# 4. Utiliser un DEM
+
+OSM ne doit pas être considéré comme la source principale de l'altitude continue du terrain.
+
+Utiliser une source DEM pour obtenir :
+
+```text
+latitude
+longitude
+    ↓
+terrain elevation
+```
+
+Exemple :
+
+```text
+Point A → 120 m
+Point B → 123 m
+Point C → 127 m
+Point D → 130 m
+```
+
+La route suit alors le relief.
+
+```text
+             route
+        ═══════════════
+       /
+      /
+─────/──────────────── terrain
+```
+
+La géométrie de la route doit être adaptée à l'élévation.
+
+# 5. Route sur un pont
+
+Lorsqu'OSM indique :
+
+```text
+bridge=yes
+```
+
+il ne faut PAS simplement placer la route sur le terrain.
+
+Une route avec :
+
+```text
+bridge=yes
+```
+
+est une infrastructure surélevée.
+
+Exemple :
+
+```text
+OSM
+
+highway=primary
+bridge=yes
+```
+
+doit produire :
+
+```text
+             ROAD
+════════════════════════
+          BRIDGE
+          │    │
+          │    │
+──────────┴────┴──────── terrain
+```
+
+Le terrain continue sous le pont.
+
+# 6. Problème principal des ponts
+
+OSM peut indiquer :
+
+```text
+bridge=yes
+```
+
+mais cela ne signifie pas nécessairement qu'on connaît directement :
+
+```text
+bridgeHeight=10
+```
+
+Il faut donc déterminer l'élévation du pont.
+
+La hauteur peut être :
+
+* connue par une autre donnée
+* estimée
+* calculée à partir de la géométrie
+* déterminée avec des données d'élévation supplémentaires
+* définie par une règle de génération
+
+# 7. Utilisation de layer
+
+OSM peut fournir :
+
+```text
+layer=*
+```
+
+Le `layer` représente principalement la relation verticale entre des éléments.
+
+Exemple :
+
+```text
+layer=0
+```
+
+→ niveau de référence.
+
+```text
+layer=1
+```
+
+→ élément au-dessus.
+
+```text
+layer=-1
+```
+
+→ élément en dessous.
+
+Important :
+
+`layer` ne doit PAS être interprété comme :
+
+```text
+layer=1 → 1 mètre de hauteur
+```
+
+Ce n'est pas une mesure physique.
+
+C'est une information de position relative.
+
+# 8. Exemple avec un pont
+
+Supposons :
+
+```text
+Route A
+layer=0
+
+Rivière
+layer=0
+
+Pont
+bridge=yes
+layer=1
+```
+
+Le moteur doit comprendre :
+
+```text
+terrain
+~~~~~~~~~~~~~~ rivière ~~~~~~~~~~~~~~
+
+             BRIDGE
+═════════════════════════════════════
+```
+
+et non :
+
+```text
+terrain
+─────────────────────────────────────
+route
+═════════════════════════════════════
+```
+
+La route doit être séparée du terrain.
+
+# 9. Détection d'un pont
+
+Créer une règle :
+
+```text
+bridge=yes
+```
+
+ou éventuellement les valeurs de `bridge=*` correspondant à une infrastructure surélevée.
+
+Pseudo-code :
+
+```ts
+if (road.bridge) {
+    generateBridgeRoad(road)
+} else {
+    generateGroundRoad(road)
+}
+```
+
+Ne pas mélanger la logique du pont avec celle d'une route normale.
+
+# 10. Calcul de la hauteur du pont
+
+La hauteur réelle doit idéalement être déterminée par des données supplémentaires.
+
+Une stratégie possible :
+
+```text
+1. Chercher une altitude connue
+2. Chercher une information de hauteur disponible
+3. Comparer la route au terrain environnant
+4. Utiliser une estimation
+5. Utiliser une valeur par défaut
+```
+
+Exemple :
+
+```text
+terrain sous le pont = 20 m
+route normale autour = 30 m
+
+bridge elevation ≈ 30 m
+
+hauteur ≈ 10 m
+```
+
+Cette méthode doit être utilisée comme estimation et non comme mesure exacte.
+
+# 11. Continuité du pont
+
+Un pont ne doit pas commencer et finir brutalement.
+
+Il faut créer une transition :
+
+```text
+route normale
+     ↓
+rampe
+     ↓
+pont
+     ↓
+rampe
+     ↓
+route normale
+```
+
+Exemple :
+
+```text
+terrain       _________
+             /
+            /══════════\
+───────────/            \──────────
+          route normale
+```
+
+La géométrie doit être lisse.
+
+# 12. Pont au-dessus d'une rivière
+
+Cas classique :
+
+```text
+OSM :
+
+Road
+highway=primary
+bridge=yes
+
+River
+waterway=river
+```
+
+Le moteur doit produire :
+
+```text
+                 ROAD
+══════════════════════════════
+             │
+~~~~~~~~~~~~~│~~~~~~~~~~~~~~~  RIVER
+~~~~~~~~~~~~~│~~~~~~~~~~~~~~~
+─────────────┴───────────────  TERRAIN
+```
+
+L'eau doit rester sous la route.
+
+# 13. Pont au-dessus d'une autre route
+
+Cas plus complexe :
+
+```text
+Route A
+bridge=yes
+layer=1
+
+Route B
+layer=0
+```
+
+Résultat :
+
+```text
+══════════════════════  Route A
+        bridge
+
+──────────────────────  Route B
+```
+
+Les informations `bridge` et `layer` permettent de comprendre la relation verticale.
+
+# 14. Tunnel
+
+Lorsqu'une route possède :
+
+```text
+tunnel=yes
+```
+
+elle doit être considérée comme située sous le terrain ou sous une infrastructure.
+
+Exemple :
+
+```text
+surface
+────────────────────────────
+
+        \              /
+         \            /
+          \══════════/
+           TUNNEL
+```
+
+Pipeline :
+
+```text
+OSM tunnel
+    ↓
+Road geometry
+    ↓
+Terrain
+    ↓
+Tunnel geometry
+```
+
+Le terrain peut être masqué ou découpé pour permettre le passage du tunnel.
+
+# 15. Route normale vs pont vs tunnel
+
+Le générateur doit avoir au minimum trois modes :
+
+```text
+GROUND
+BRIDGE
+TUNNEL
+```
+
+Exemple :
+
+```ts
+type RoadElevationMode =
+    | "ground"
+    | "bridge"
+    | "tunnel"
+```
+
+Puis :
+
+```ts
+switch (road.mode) {
+
+    case "ground":
+        generateGroundRoad()
+
+    case "bridge":
+        generateBridgeRoad()
+
+    case "tunnel":
+        generateTunnelRoad()
+}
+```
+
+# 16. Ne pas utiliser uniquement la couleur / le mesh
+
+La route doit avoir une représentation logique indépendante :
+
+```ts
+Road {
+    id
+    geometry
+    elevation
+    bridge
+    tunnel
+    layer
+}
+```
+
+Puis la géométrie 3D est générée à partir de cette donnée.
+
+# 17. Terrain et route
+
+Le terrain doit être généré séparément.
+
+```text
+DEM
+ ↓
+Terrain
+ ↓
+Road placement
+```
+
+Pas :
+
+```text
+OSM
+ ↓
+Terrain
+```
+
+OSM peut décrire certaines informations de terrain, mais le DEM est la source à privilégier pour une surface d'élévation continue.
+
+# 18. Précision
+
+Les données d'élévation peuvent avoir une résolution différente selon la source.
+
+Il faut donc éviter de considérer :
+
+```text
+DEM = vérité absolue
+```
+
+Le résultat dépend de :
+
+* résolution
+* source
+* interpolation
+* qualité locale
+* précision GPS
+* données OSM
+
+# 19. Interpolation
+
+Si les points DEM sont :
+
+```text
+A = 100 m
+B = 110 m
+```
+
+et que la route passe entre A et B, interpoler l'altitude.
+
+Exemple :
+
+```text
+A 100m
+ \
+  \ 105m
+   \
+    B 110m
+```
+
+Cela évite une route constituée de marches.
+
+# 20. Smoothing
+
+Après avoir obtenu les altitudes :
+
+```text
+Z1
+Z2
+Z3
+Z4
+Z5
+```
+
+appliquer éventuellement un smoothing contrôlé.
+
+Objectif :
+
+```text
+mauvais :
+
+────╱───╲───╱────
+
+meilleur :
+
+────╱────────╲────
+```
+
+Attention à ne pas modifier excessivement la géométrie réelle.
+
+# 21. Ponts : règle importante
+
+Ne jamais faire :
+
+```ts
+bridge === true
+→ terrainHeight + 10
+```
+
+pour tous les ponts.
+
+Les ponts n'ont pas tous la même hauteur.
+
+Prévoir :
+
+```text
+bridgeHeight
+```
+
+comme une donnée calculée ou estimée.
+
+# 22. Valeurs de fallback
+
+Si aucune information fiable n'est disponible :
+
+```text
+Route normale
+→ terrain elevation
+
+Pont
+→ estimation basée sur le contexte
+
+Tunnel
+→ estimation / géométrie souterraine
+```
+
+Toutes les valeurs estimées doivent rester configurables.
+
+# 23. Cas particulier : pont + tunnel
+
+Certaines infrastructures complexes peuvent combiner plusieurs éléments.
+
+Ne pas supposer qu'une route entière possède une seule propriété.
+
+Une route peut être découpée :
+
+```text
+Segment A → ground
+Segment B → bridge
+Segment C → ground
+```
+
+Le traitement doit donc être fait au niveau des segments lorsque nécessaire.
+
+# 24. Cas particulier : pont très long
+
+Pour un long pont :
+
+```text
+Node A
+Node B
+Node C
+Node D
+Node E
+```
+
+la hauteur doit pouvoir évoluer progressivement.
+
+Exemple :
+
+```text
+A = 20m
+B = 21m
+C = 22m
+D = 21m
+E = 20m
+```
+
+Le mesh doit suivre cette courbe.
+
+# 25. Résultat attendu
+
+Le système final doit produire :
+
+Route normale :
+
+```text
+terrain
+────────────────────
+══════ ROAD ════════
+```
+
+Pont :
+
+```text
+════════════════════  ROAD
+       BRIDGE
+────────────────────  terrain
+```
+
+Tunnel :
+
+```text
+────────────────────  terrain
+      ╲══════╱
+       TUNNEL
+```
+
+Pont au-dessus d'une route :
+
+```text
+════════════════════  Road A
+────────────────────  Road B
+```
+
+Route sur montagne :
+
+```text
+           ═══════
+        ═══
+     ═══
+────╱──────────────── terrain
+```
+
+# 26. Pipeline finale
+
+```text
+OSM
+ │
+ ├── highway
+ ├── bridge
+ ├── tunnel
+ ├── layer
+ ├── embankment
+ └── geometry
+       │
+       ▼
+   Road parser
+       │
+       ▼
+  Terrain / DEM
+       │
+       ├── altitude
+       │
+       ▼
+ Road elevation solver
+       │
+       ├── ground
+       ├── bridge
+       └── tunnel
+       │
+       ▼
+   Road 3D mesh
+       │
+       ▼
+     Three.js
+```
+
+# 27. Résumé
+
+OSM indique principalement :
+
+```text
+highway=*
+→ type de route
+
+bridge=yes
+→ route sur pont
+
+tunnel=yes
+→ route en tunnel
+
+layer=*
+→ relation verticale entre objets
+
+embankment=yes
+→ route sur remblai
+
+ele=*
+→ altitude lorsqu'elle est renseignée
+```
+
+Mais OSM ne fournit pas systématiquement une hauteur 3D complète de chaque route.
+
+Pour une map 3D réaliste :
+
+```text
+OSM
+=
+géométrie + classification + relations
+
+DEM
+=
+élévation du terrain
+
+Générateur 3D
+=
+route + terrain + pont + tunnel
+```
+
+La règle fondamentale est donc :
+
+**OSM indique ce qu'est la route et où elle se trouve ; les données d'élévation permettent de déterminer où elle doit se trouver verticalement.**

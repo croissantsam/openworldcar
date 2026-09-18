@@ -63,10 +63,10 @@ export function isWorldOriginSet(): boolean {
   return _originSet
 }
 
-/** Default origin: Paris 2e arrondissement. */
+/** Default origin: 164 Rue de Saussure, 75017 Paris, France. */
 export const DEFAULT_ORIGIN: GeoPosition = {
-  latitude: 48.8648,
-  longitude: 2.349,
+  latitude: 48.890169,
+  longitude: 2.305174,
 }
 
 /**

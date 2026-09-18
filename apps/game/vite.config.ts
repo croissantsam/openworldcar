@@ -1,6 +1,6 @@
 import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
-import path from 'path'
+import { fileURLToPath } from 'url'
 
 function geocodeProxyPlugin(): Plugin {
   return {
@@ -80,10 +80,10 @@ export default defineConfig({
   plugins: [react(), geocodeProxyPlugin()],
   resolve: {
     alias: {
-      '@world-drive/math': path.resolve('../../packages/math/src/index.ts'),
-      '@world-drive/shared': path.resolve('../../packages/shared/src/index.ts'),
-      '@world-drive/protocol': path.resolve('../../packages/protocol/src/index.ts'),
-      '@world-drive/world-data': path.resolve('../../packages/world-data/src/index.ts'),
+      '@world-drive/math': fileURLToPath(new URL('../../packages/math/src/index.ts', import.meta.url)),
+      '@world-drive/shared': fileURLToPath(new URL('../../packages/shared/src/index.ts', import.meta.url)),
+      '@world-drive/protocol': fileURLToPath(new URL('../../packages/protocol/src/index.ts', import.meta.url)),
+      '@world-drive/world-data': fileURLToPath(new URL('../../packages/world-data/src/index.ts', import.meta.url)),
     },
   },
   optimizeDeps: {

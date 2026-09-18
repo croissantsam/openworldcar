@@ -167,7 +167,13 @@ export class GameEngine {
     this.chunkManager.update(this.playerCar.getPosition())
 
     // Also stream real OpenStreetMap area for the starting location
-    fetchRealOsmArea(this.currentDestination.origin, 300)
+    fetchRealOsmArea(
+      this.currentDestination.origin,
+      300,
+      undefined,
+      this.currentDestination.spawnPosition,
+      this.currentDestination.spawnHeading,
+    )
       .then((realOsm) => {
         if (realOsm && realOsm.chunks.size > 0 && !this.disposed) {
           this.chunkManager.setRealOsmChunks(realOsm.chunks)
@@ -391,7 +397,13 @@ export class GameEngine {
     this.onDestinationChanged?.(destination)
 
     // 7. Stream real OpenStreetMap roads & buildings live for this new area!
-    fetchRealOsmArea(destination.origin, 300)
+    fetchRealOsmArea(
+      destination.origin,
+      300,
+      undefined,
+      destination.spawnPosition,
+      destination.spawnHeading,
+    )
       .then((realOsm) => {
         if (
           realOsm &&

@@ -93,9 +93,9 @@ export class PlayerCar {
     this.scene = scene
 
     // ── Rapier body ─────────────────────────────────────────────────────────
-    const spawnX = 3.7
-    const spawnZ = 158.3
-    const initYaw = Math.atan2(12.1, 4.4)
+    const spawnX = -23.4
+    const spawnZ = 13.1
+    const initYaw = 1.106
     const initQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), initYaw)
 
     // Spawn resting directly on road (wheel bottom = 0.0 when body center = 0.47)

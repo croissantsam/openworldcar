@@ -157,6 +157,8 @@ export async function fetchRealOsmArea(
   origin: GeoPosition,
   radius = 500,
   signal?: AbortSignal,
+  preferredSpawn?: WorldPosition,
+  preferredHeading?: number,
 ): Promise<RealOsmAreaResult | null> {
   // 1. Calculate bounding box in lat/lon
   const dLat = (radius / 6378137) * (180 / Math.PI)
@@ -188,11 +190,14 @@ export async function fetchRealOsmArea(
   // 4. Partition into chunk grid
   const chunks = generateChunks(roads, buildings, [], waterways, parks, railways, barriers)
 
-  // 5. Find the best on-road spawn point closest to world (0, 0)
+  // 5. Find the best on-road spawn point closest to preferredSpawn or world (0, 0)
   let bestDistSq = Infinity
-  let spawnPoint: WorldPosition = { x: 0, y: 0.5, z: 0 }
-  let spawnHeading = 0
+  let spawnPoint: WorldPosition = preferredSpawn ?? { x: 0, y: 0.5, z: 0 }
+  let spawnHeading = preferredHeading ?? 0
   let primaryStreetName: string | undefined
+
+  const targetX = preferredSpawn ? preferredSpawn.x : 0
+  const targetZ = preferredSpawn ? preferredSpawn.z : 0
 
   for (const road of roads) {
     for (let i = 0; i < road.points.length - 1; i++) {
@@ -202,7 +207,13 @@ export async function fetchRealOsmArea(
       // Midpoint of segment
       const mx = (p1.x + p2.x) / 2
       const mz = (p1.z + p2.z) / 2
-      const distSq = mx * mx + mz * mz
+      const dx = mx - targetX
+      const dz = mz - targetZ
+      let distSq = dx * dx + dz * dz
+
+      // Prefer main vehicular roads over service alleys or pedestrian paths
+      if (road.highway === 'service') distSq += 25 * 25
+      if (road.highway === 'pedestrian') distSq += 50 * 50
 
       if (distSq < bestDistSq) {
         bestDistSq = distSq

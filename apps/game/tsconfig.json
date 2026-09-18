@@ -9,7 +9,8 @@
     "paths": {
       "@world-drive/math": ["../../packages/math/src/index.ts"],
       "@world-drive/shared": ["../../packages/shared/src/index.ts"],
-      "@world-drive/protocol": ["../../packages/protocol/src/index.ts"]
+      "@world-drive/protocol": ["../../packages/protocol/src/index.ts"],
+      "@world-drive/world-data": ["../../packages/world-data/src/index.ts"]
     }
   },
   "include": ["src"]

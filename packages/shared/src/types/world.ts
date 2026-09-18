@@ -139,6 +139,11 @@ export type BuildingType =
   | 'ruins'
   | 'restaurant'
   | 'bank'
+  | 'library'
+  | 'museum'
+  | 'theatre'
+  | 'fuel'
+  | 'charging_station'
   | 'yes'
 
 /** OSM roof:shape values. */

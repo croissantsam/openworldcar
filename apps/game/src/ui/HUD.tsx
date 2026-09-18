@@ -36,14 +36,19 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
   const lastSeenRef = useRef<number>(Date.now())
 
   // Touch / Mobile mode (Joystick on left + Frein on right)
-  const [touchMode, setTouchMode] = useState<boolean>(true)
+  const [touchMode, setTouchMode] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false
+    return (
+      ('ontouchstart' in window || navigator.maxTouchPoints > 0) &&
+      window.matchMedia('(pointer: coarse)').matches
+    )
+  })
   const [, setHasTouch] = useState(false)
 
   useEffect(() => {
     const handleResize = () => {
       const touch =
-        'ontouchstart' in window ||
-        navigator.maxTouchPoints > 0 ||
+        ('ontouchstart' in window || navigator.maxTouchPoints > 0) &&
         window.matchMedia('(pointer: coarse)').matches
       setHasTouch(touch)
     }
@@ -224,8 +229,8 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
         <div
           style={{
             position: 'absolute',
-            bottom: 28,
-            left: 236,
+            bottom: 24,
+            left: 240,
             color: 'rgba(255,255,255,0.45)',
             fontSize: 11,
             fontFamily: "'Inter', sans-serif",

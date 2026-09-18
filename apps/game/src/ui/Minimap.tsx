@@ -29,6 +29,13 @@ export function Minimap({
   const [internalExpanded, setInternalExpanded] = useState(false)
   const expanded = externalExpanded !== undefined ? externalExpanded : internalExpanded
 
+  const [radarZoom, setRadarZoom] = useState(1.0)
+  const [expandedZoom, setExpandedZoom] = useState(1.0)
+  const radarZoomRef = useRef(radarZoom)
+  radarZoomRef.current = radarZoom
+  const expandedZoomRef = useRef(expandedZoom)
+  expandedZoomRef.current = expandedZoom
+
   const setExpanded = useCallback(
     (val: boolean | ((prev: boolean) => boolean)) => {
       if (onToggleExpanded) {
@@ -104,9 +111,13 @@ export function Minimap({
       const arrowRotation = headingAngle + Math.PI / 2
 
       // Zoom scale: world units to canvas pixels
-      const scale = expanded
-        ? (isMobileLandscape ? 0.35 : 0.42)
-        : (isMobileLandscape ? 1.1 : 1.35)
+      // Radar mode: scale ~0.34 gives ~280m visible radius (560m diameter)
+      // Expanded mode: scale ~0.20 gives ~1.3km visible radius
+      const baseScale = expanded
+        ? (isMobileLandscape ? 0.24 : 0.20)
+        : (isMobileLandscape ? 0.30 : 0.34)
+      const currentZoom = expanded ? expandedZoomRef.current : radarZoomRef.current
+      const scale = baseScale * currentZoom
 
       ctx.clearRect(0, 0, width, height)
 
@@ -189,8 +200,8 @@ export function Minimap({
       }
 
       // ── 1. Buildings (footprint polygons) ──────────────────────────────────
-      ctx.fillStyle = 'rgba(40, 52, 75, 0.65)'
-      ctx.strokeStyle = 'rgba(70, 90, 125, 0.4)'
+      ctx.fillStyle = 'rgba(30, 41, 59, 0.60)'
+      ctx.strokeStyle = 'rgba(51, 65, 85, 0.45)'
       ctx.lineWidth = 1
       for (const b of buildings) {
         const fp = b.footprint
@@ -206,7 +217,17 @@ export function Minimap({
       }
 
       // ── 2. Real OpenStreetMap Roads ───────────────────────────────────────
-      // Only draw real drivable road ways — skip pedestrian footways/paths and underground tunnels!
+      // High-contrast, multi-pass cartographic road rendering (minor -> tunnels/cycleways -> medium -> major)
+      type RoadDrawItem = {
+        road: Road
+        pts: WorldPosition[]
+        category: 'major' | 'medium' | 'minor' | 'service' | 'tunnel' | 'cycleway'
+        width: number
+        color: string
+      }
+
+      const drawList: RoadDrawItem[] = []
+
       for (const road of roads) {
         const pts = road.points
         if (pts.length < 2) continue
@@ -215,35 +236,26 @@ export function Minimap({
         // Skip footways, steps, and paths
         if (hw === 'footway' || hw === 'path' || hw === 'steps') continue
 
-        // Underground tunnels / underpasses: rendered as distinct dark dashed underpass
+        // Underground tunnels / underpasses
         if (road.elevationMode === 'tunnel' || road.tunnel) {
-          ctx.save()
-          ctx.strokeStyle = '#475569'
-          ctx.lineWidth = Math.max(2.5, (road.lanes || 2) * 3.0 * scale)
-          ctx.setLineDash([6, 4])
-          ctx.beginPath()
-          ctx.moveTo(pts[0]!.x * scale, pts[0]!.z * scale)
-          for (let i = 1; i < pts.length; i++) {
-            ctx.lineTo(pts[i]!.x * scale, pts[i]!.z * scale)
-          }
-          ctx.stroke()
-          ctx.restore()
+          drawList.push({
+            road,
+            pts,
+            category: 'tunnel',
+            width: Math.max(2.2, (road.lanes || 2) * 2.6 * scale),
+            color: '#64748b',
+          })
           continue
         }
 
         if (hw === 'cycleway') {
-          // Cycleways drawn as a thin emerald green dashed line, never a thick road
-          ctx.save()
-          ctx.strokeStyle = 'rgba(16, 185, 129, 0.75)'
-          ctx.lineWidth = Math.max(1, 1.8 * scale)
-          ctx.setLineDash([4, 4])
-          ctx.beginPath()
-          ctx.moveTo(pts[0]!.x * scale, pts[0]!.z * scale)
-          for (let i = 1; i < pts.length; i++) {
-            ctx.lineTo(pts[i]!.x * scale, pts[i]!.z * scale)
-          }
-          ctx.stroke()
-          ctx.restore()
+          drawList.push({
+            road,
+            pts,
+            category: 'cycleway',
+            width: Math.max(1.2, 1.8 * scale),
+            color: 'rgba(16, 185, 129, 0.85)',
+          })
           continue
         }
 
@@ -251,63 +263,165 @@ export function Minimap({
         const isMajor = hw === 'primary' || isHighway || (road.lanes && road.lanes >= 4)
         const isMedium = hw === 'secondary' || hw === 'tertiary' || (road.lanes && road.lanes === 2)
 
-        let roadW: number
-        let color: string
-
         if (isMajor) {
-          // Grosses avenues : 2 voies dans chaque sens (large et clair)
-          color = '#94a3b8'
-          roadW = Math.max(5, (road.lanes || 4) * 3.4 * scale)
+          // Grosses avenues & boulevards : blanc éclatant avec casing foncé
+          drawList.push({
+            road,
+            pts,
+            category: 'major',
+            width: Math.max(4.6, (road.lanes || 4) * 2.5 * scale),
+            color: '#f8fafc',
+          })
         } else if (isMedium) {
-          // Rues moyennes : 2 voies en double sens (1 aller + 1 retour)
-          color = '#64748b'
-          roadW = Math.max(3.5, (road.lanes || 2) * 3.2 * scale)
+          // Rues moyennes (secondaires & tertiaires) : argent clair très lisible
+          drawList.push({
+            road,
+            pts,
+            category: 'medium',
+            width: Math.max(3.2, (road.lanes || 2) * 2.2 * scale),
+            color: '#cbd5e1',
+          })
+        } else if (hw === 'service') {
+          // Voies de service / parkings
+          drawList.push({
+            road,
+            pts,
+            category: 'service',
+            width: Math.max(1.8, 1.6 * scale),
+            color: '#64748b',
+          })
         } else {
-          // Petites rues : 1 voie en double sens
-          color = '#475569'
-          roadW = Math.max(2.5, (road.lanes || 1) * 3.0 * scale)
+          // Rues résidentielles, living_street, unclassified : gris ardoise clair bien contrasté
+          drawList.push({
+            road,
+            pts,
+            category: 'minor',
+            width: Math.max(2.2, (road.lanes || 1) * 2.0 * scale),
+            color: '#94a3b8',
+          })
         }
+      }
 
-        // Bridges: draw outer parapet casing border first so bridges pop out over water/roads
-        if (road.elevationMode === 'bridge' || road.bridge) {
+      // ── Bridges casing pass ──
+      for (const item of drawList) {
+        if (item.road.elevationMode === 'bridge' || item.road.bridge) {
           ctx.save()
-          ctx.strokeStyle = '#0f172a'
-          ctx.lineWidth = roadW + 2.5
+          ctx.strokeStyle = '#020617'
+          ctx.lineWidth = item.width + 3
           ctx.lineCap = 'butt'
           ctx.beginPath()
-          ctx.moveTo(pts[0]!.x * scale, pts[0]!.z * scale)
-          for (let i = 1; i < pts.length; i++) {
-            ctx.lineTo(pts[i]!.x * scale, pts[i]!.z * scale)
+          ctx.moveTo(item.pts[0]!.x * scale, item.pts[0]!.z * scale)
+          for (let i = 1; i < item.pts.length; i++) {
+            ctx.lineTo(item.pts[i]!.x * scale, item.pts[i]!.z * scale)
           }
           ctx.stroke()
           ctx.restore()
         }
+      }
 
-        // Chaussée
-        ctx.strokeStyle = color
-        ctx.lineWidth = roadW
-        ctx.lineCap = 'round'
-        ctx.lineJoin = 'round'
-
-        ctx.beginPath()
-        ctx.moveTo(pts[0]!.x * scale, pts[0]!.z * scale)
-        for (let i = 1; i < pts.length; i++) {
-          ctx.lineTo(pts[i]!.x * scale, pts[i]!.z * scale)
-        }
-        ctx.stroke()
-
-        // Pour les grosses avenues : séparateur central plus sombre pour marquer le 2x2 voies
-        if (isMajor && roadW >= 7) {
-          ctx.save()
-          ctx.strokeStyle = '#1e293b'
-          ctx.lineWidth = Math.max(1, 1.4 * scale)
+      // ── Pass 1: Minor streets & Service roads ──
+      for (const item of drawList) {
+        if (item.category === 'minor' || item.category === 'service') {
+          ctx.strokeStyle = item.color
+          ctx.lineWidth = item.width
+          ctx.lineCap = 'round'
+          ctx.lineJoin = 'round'
           ctx.beginPath()
-          ctx.moveTo(pts[0]!.x * scale, pts[0]!.z * scale)
-          for (let i = 1; i < pts.length; i++) {
-            ctx.lineTo(pts[i]!.x * scale, pts[i]!.z * scale)
+          ctx.moveTo(item.pts[0]!.x * scale, item.pts[0]!.z * scale)
+          for (let i = 1; i < item.pts.length; i++) {
+            ctx.lineTo(item.pts[i]!.x * scale, item.pts[i]!.z * scale)
+          }
+          ctx.stroke()
+        }
+      }
+
+      // ── Pass 2: Tunnels & Cycleways ──
+      for (const item of drawList) {
+        if (item.category === 'tunnel') {
+          ctx.save()
+          ctx.strokeStyle = item.color
+          ctx.lineWidth = item.width
+          ctx.setLineDash([6, 4])
+          ctx.beginPath()
+          ctx.moveTo(item.pts[0]!.x * scale, item.pts[0]!.z * scale)
+          for (let i = 1; i < item.pts.length; i++) {
+            ctx.lineTo(item.pts[i]!.x * scale, item.pts[i]!.z * scale)
           }
           ctx.stroke()
           ctx.restore()
+        } else if (item.category === 'cycleway') {
+          ctx.save()
+          ctx.strokeStyle = item.color
+          ctx.lineWidth = item.width
+          ctx.setLineDash([4, 4])
+          ctx.beginPath()
+          ctx.moveTo(item.pts[0]!.x * scale, item.pts[0]!.z * scale)
+          for (let i = 1; i < item.pts.length; i++) {
+            ctx.lineTo(item.pts[i]!.x * scale, item.pts[i]!.z * scale)
+          }
+          ctx.stroke()
+          ctx.restore()
+        }
+      }
+
+      // ── Pass 3: Medium streets ──
+      for (const item of drawList) {
+        if (item.category === 'medium') {
+          ctx.strokeStyle = item.color
+          ctx.lineWidth = item.width
+          ctx.lineCap = 'round'
+          ctx.lineJoin = 'round'
+          ctx.beginPath()
+          ctx.moveTo(item.pts[0]!.x * scale, item.pts[0]!.z * scale)
+          for (let i = 1; i < item.pts.length; i++) {
+            ctx.lineTo(item.pts[i]!.x * scale, item.pts[i]!.z * scale)
+          }
+          ctx.stroke()
+        }
+      }
+
+      // ── Pass 4: Major boulevards & Motorways (on top for clean intersections) ──
+      for (const item of drawList) {
+        if (item.category === 'major') {
+          // Subtle dark casing so major avenue stands out
+          ctx.save()
+          ctx.strokeStyle = 'rgba(15, 23, 42, 0.7)'
+          ctx.lineWidth = item.width + 1.6
+          ctx.lineCap = 'round'
+          ctx.lineJoin = 'round'
+          ctx.beginPath()
+          ctx.moveTo(item.pts[0]!.x * scale, item.pts[0]!.z * scale)
+          for (let i = 1; i < item.pts.length; i++) {
+            ctx.lineTo(item.pts[i]!.x * scale, item.pts[i]!.z * scale)
+          }
+          ctx.stroke()
+          ctx.restore()
+
+          // Road surface
+          ctx.strokeStyle = item.color
+          ctx.lineWidth = item.width
+          ctx.lineCap = 'round'
+          ctx.lineJoin = 'round'
+          ctx.beginPath()
+          ctx.moveTo(item.pts[0]!.x * scale, item.pts[0]!.z * scale)
+          for (let i = 1; i < item.pts.length; i++) {
+            ctx.lineTo(item.pts[i]!.x * scale, item.pts[i]!.z * scale)
+          }
+          ctx.stroke()
+
+          // Center divider for wide avenues
+          if (item.width >= 6) {
+            ctx.save()
+            ctx.strokeStyle = '#334155'
+            ctx.lineWidth = Math.max(1, 1.0 * scale)
+            ctx.beginPath()
+            ctx.moveTo(item.pts[0]!.x * scale, item.pts[0]!.z * scale)
+            for (let i = 1; i < item.pts.length; i++) {
+              ctx.lineTo(item.pts[i]!.x * scale, item.pts[i]!.z * scale)
+            }
+            ctx.stroke()
+            ctx.restore()
+          }
         }
       }
 
@@ -503,7 +617,11 @@ export function Minimap({
 
       const centerX = canvas.width / 2
       const centerY = canvas.height / 2
-      const scale = isMobileLandscape ? 0.35 : 0.42
+      const baseScale = expanded
+        ? (isMobileLandscape ? 0.24 : 0.20)
+        : (isMobileLandscape ? 0.30 : 0.34)
+      const currentZoom = expanded ? expandedZoomRef.current : radarZoomRef.current
+      const scale = baseScale * currentZoom
 
       const playerPos = engine.playerCar.getPosition()
       const worldX = playerPos.x + (clickX - centerX) / scale
@@ -681,14 +799,23 @@ export function Minimap({
   }
 
   // ── Standard / Mobile Landscape Radar Widget ──────────────────────────────
+  const currentScale = expanded
+    ? (isMobileLandscape ? 0.24 : 0.20) * expandedZoom
+    : (isMobileLandscape ? 0.30 : 0.34) * radarZoom
+  const currentRadiusMeters =
+    Math.round(((expanded ? 260 : isMobileLandscape ? 70 : 100) / currentScale / 10)) * 10
+
   return (
     <>
       <div
         style={{
           position: 'absolute',
-          top: isMobileLandscape ? 'max(10px, env(safe-area-inset-top, 10px))' : 'auto',
-          bottom: isMobileLandscape ? 'auto' : 28,
-          left: isMobileLandscape ? 'max(12px, env(safe-area-inset-left, 12px))' : 32,
+          bottom: isMobileLandscape
+            ? 'max(14px, env(safe-area-inset-bottom, 14px))'
+            : 24,
+          left: isMobileLandscape
+            ? 'max(14px, env(safe-area-inset-left, 14px))'
+            : 24,
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'flex-start',
@@ -696,64 +823,14 @@ export function Minimap({
           zIndex: 40,
         }}
       >
-        {/* Radar Canvas Container */}
-        <div
-          onClick={handleMapClick}
-          style={{
-            position: 'relative',
-            width: expanded ? 520 : isMobileLandscape ? 140 : 190,
-            height: expanded ? 480 : isMobileLandscape ? 140 : 190,
-            borderRadius: expanded ? 12 : '50%',
-            overflow: 'hidden',
-            cursor: expanded ? 'crosshair' : 'pointer',
-            transition: 'width 0.25s ease, height 0.25s ease, border-radius 0.25s ease',
-            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.6), 0 0 20px rgba(0, 212, 255, 0.18)',
-            border: expanded ? '1px solid rgba(0, 212, 255, 0.4)' : isMobileLandscape ? '1.5px solid rgba(0, 212, 255, 0.35)' : 'none',
-          }}
-          title={expanded ? 'Cliquez pour définir une destination GPS' : 'Agrandir la carte'}
-        >
-          <canvas
-            ref={canvasRef}
-            width={expanded ? 520 : isMobileLandscape ? 140 : 190}
-            height={expanded ? 480 : isMobileLandscape ? 140 : 190}
-            style={{ width: '100%', height: '100%', display: 'block' }}
-          />
-
-          {/* Quick toggle button - hidden on mobile landscape to keep radar ultra-clean */}
-          {(expanded || !isMobileLandscape) && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation()
-                setExpanded((v) => !v)
-              }}
-              style={{
-                position: 'absolute',
-                top: 8,
-                right: 8,
-                background: 'rgba(10, 16, 28, 0.85)',
-                border: '1px solid rgba(0, 212, 255, 0.3)',
-                color: '#00d4ff',
-                borderRadius: 4,
-                padding: '3px 7px',
-                fontFamily: "'Orbitron', sans-serif",
-                fontSize: 9,
-                cursor: 'pointer',
-                letterSpacing: 1,
-              }}
-            >
-              {expanded ? '✕' : 'CARTE [M]'}
-            </button>
-          )}
-        </div>
-
-        {/* GPS Turn-by-Turn Bar */}
+        {/* GPS Turn-by-Turn Bar (docked above the radar so radar stays anchored at bottom-left) */}
         {gpsRouteActive && remainingDist !== null && (
           <div
             style={{
               display: 'flex',
               alignItems: 'center',
               gap: 6,
-              padding: isMobileLandscape ? '3px 8px' : '6px 12px',
+              padding: isMobileLandscape ? '3px 8px' : '5px 12px',
               borderRadius: 6,
               background: 'rgba(10, 16, 28, 0.92)',
               border: '1px solid rgba(0, 240, 255, 0.5)',
@@ -787,6 +864,164 @@ export function Minimap({
             </button>
           </div>
         )}
+
+        {/* Radar Canvas Container */}
+        <div
+          onClick={handleMapClick}
+          onWheel={(e) => {
+            e.stopPropagation()
+            const factor = e.deltaY < 0 ? 1.15 : 0.87
+            if (expanded) {
+              setExpandedZoom((z) => Math.max(0.4, Math.min(3.0, +(z * factor).toFixed(2))))
+            } else {
+              setRadarZoom((z) => Math.max(0.4, Math.min(2.5, +(z * factor).toFixed(2))))
+            }
+          }}
+          style={{
+            position: 'relative',
+            width: expanded ? 520 : isMobileLandscape ? 140 : 200,
+            height: expanded ? 480 : isMobileLandscape ? 140 : 200,
+            borderRadius: expanded ? 12 : '50%',
+            overflow: 'hidden',
+            cursor: expanded ? 'crosshair' : 'pointer',
+            transition: 'width 0.25s ease, height 0.25s ease, border-radius 0.25s ease',
+            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.6), 0 0 20px rgba(0, 212, 255, 0.18)',
+            border: expanded
+              ? '1px solid rgba(0, 212, 255, 0.4)'
+              : isMobileLandscape
+              ? '1.5px solid rgba(0, 212, 255, 0.35)'
+              : '1.5px solid rgba(0, 212, 255, 0.3)',
+          }}
+          title={
+            expanded
+              ? 'Cliquez pour définir une destination GPS (molette pour zoomer)'
+              : 'Agrandir la carte [M] (molette pour zoomer)'
+          }
+        >
+          <canvas
+            ref={canvasRef}
+            width={expanded ? 520 : isMobileLandscape ? 140 : 200}
+            height={expanded ? 480 : isMobileLandscape ? 140 : 200}
+            style={{ width: '100%', height: '100%', display: 'block' }}
+          />
+
+          {/* Quick toggle button */}
+          {(expanded || !isMobileLandscape) && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                setExpanded((v) => !v)
+              }}
+              style={{
+                position: 'absolute',
+                top: 8,
+                right: 8,
+                background: 'rgba(10, 16, 28, 0.85)',
+                border: '1px solid rgba(0, 212, 255, 0.3)',
+                color: '#00d4ff',
+                borderRadius: 4,
+                padding: '3px 7px',
+                fontFamily: "'Orbitron', sans-serif",
+                fontSize: 9,
+                cursor: 'pointer',
+                letterSpacing: 1,
+                zIndex: 15,
+              }}
+            >
+              {expanded ? '✕' : 'CARTE [M]'}
+            </button>
+          )}
+
+          {/* Zoom Buttons (+ / −) */}
+          <div
+            style={{
+              position: 'absolute',
+              bottom: expanded ? 10 : 8,
+              right: expanded ? 10 : isMobileLandscape ? 6 : 10,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 3,
+              zIndex: 15,
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={() => {
+                if (expanded) setExpandedZoom((z) => Math.min(3.0, +(z * 1.25).toFixed(2)))
+                else setRadarZoom((z) => Math.min(2.5, +(z * 1.25).toFixed(2)))
+              }}
+              style={{
+                width: 20,
+                height: 20,
+                borderRadius: 4,
+                background: 'rgba(10, 16, 28, 0.85)',
+                border: '1px solid rgba(0, 212, 255, 0.35)',
+                color: '#00d4ff',
+                fontFamily: "'Orbitron', sans-serif",
+                fontSize: 12,
+                fontWeight: 900,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                lineHeight: 1,
+                padding: 0,
+              }}
+              title="Zoom avant (+)"
+            >
+              +
+            </button>
+            <button
+              onClick={() => {
+                if (expanded) setExpandedZoom((z) => Math.max(0.4, +(z * 0.8).toFixed(2)))
+                else setRadarZoom((z) => Math.max(0.4, +(z * 0.8).toFixed(2)))
+              }}
+              style={{
+                width: 20,
+                height: 20,
+                borderRadius: 4,
+                background: 'rgba(10, 16, 28, 0.85)',
+                border: '1px solid rgba(0, 212, 255, 0.35)',
+                color: '#00d4ff',
+                fontFamily: "'Orbitron', sans-serif",
+                fontSize: 12,
+                fontWeight: 900,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                lineHeight: 1,
+                padding: 0,
+              }}
+              title="Zoom arrière (−)"
+            >
+              −
+            </button>
+          </div>
+
+          {/* Visible range pill */}
+          <div
+            style={{
+              position: 'absolute',
+              bottom: expanded ? 10 : 8,
+              left: expanded ? 10 : '50%',
+              transform: expanded ? 'none' : 'translateX(-50%)',
+              background: 'rgba(10, 16, 28, 0.78)',
+              border: '1px solid rgba(0, 212, 255, 0.25)',
+              borderRadius: 8,
+              padding: '1px 6px',
+              fontFamily: "'Orbitron', sans-serif",
+              fontSize: 8,
+              color: '#38bdf8',
+              letterSpacing: 0.5,
+              pointerEvents: 'none',
+              userSelect: 'none',
+              zIndex: 12,
+            }}
+          >
+            {currentRadiusMeters}m
+          </div>
+        </div>
 
         {/* Desktop Expanded Navigation Sidebar & POI Fast Travel */}
         {!isMobileLandscape && expanded && (

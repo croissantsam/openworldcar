@@ -246,7 +246,7 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
         style={{
           position: 'absolute',
           bottom: 'max(16px, env(safe-area-inset-bottom, 16px))',
-          left: 'max(20px, env(safe-area-inset-left, 20px))',
+          left: 'max(165px, env(safe-area-inset-left, 165px))',
           width: 96,
           height: 96,
           pointerEvents: 'auto',

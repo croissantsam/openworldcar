@@ -89,22 +89,28 @@ export type BuildingType =
   | 'apartments'
   | 'bungalow'
   | 'hut'
+  | 'cabin'
+  | 'shed'
+  | 'kiosk'
   | 'garage'
   | 'garages'
   | 'carport'
   | 'warehouse'
   | 'industrial'
+  | 'factory'
   | 'commercial'
   | 'retail'
   | 'office'
   | 'supermarket'
   | 'hotel'
   | 'hospital'
+  | 'clinic'
   | 'school'
   | 'university'
   | 'kindergarten'
   | 'church'
   | 'cathedral'
+  | 'chapel'
   | 'mosque'
   | 'temple'
   | 'synagogue'
@@ -112,6 +118,9 @@ export type BuildingType =
   | 'stadium'
   | 'sports_hall'
   | 'fire_station'
+  | 'police'
+  | 'townhall'
+  | 'courthouse'
   | 'government'
   | 'civic'
   | 'public'
@@ -120,11 +129,16 @@ export type BuildingType =
   | 'hangar'
   | 'farm'
   | 'farm_auxiliary'
+  | 'barn'
   | 'stable'
+  | 'greenhouse'
   | 'roof'
   | 'monument'
   | 'castle'
   | 'manor'
+  | 'ruins'
+  | 'restaurant'
+  | 'bank'
   | 'yes'
 
 /** OSM roof:shape values. */
@@ -148,7 +162,10 @@ export type Building = {
   /** OSM roof:colour tag. */
   roofColour?: string
   roofHeight?: number
+  roofOrientation?: 'along' | 'across'
+  roofLevels?: number
   name?: string
+  brand?: string
 }
 
 // ─── Point of Interest ───────────────────────────────────────────────────────

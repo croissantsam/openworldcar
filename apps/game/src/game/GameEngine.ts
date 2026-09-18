@@ -56,7 +56,7 @@ export type DebugStats = {
 export class GameEngine {
   private mount: HTMLElement
   renderer!: Renderer
-  private input!: InputManager
+  input!: InputManager
   playerCar!: PlayerCar
   private camera!: ThirdPersonCamera
   private impactFX!: ImpactFX
@@ -380,6 +380,13 @@ export class GameEngine {
 
   isPlayerInvincible(): boolean {
     return this.playerCar?.isInvincible() ?? false
+  }
+
+  respawnPlayer(): void {
+    if (!this.playerCar) return
+    this.playerCar.teleport(this.lastSafePos, this.lastSafeYaw)
+    this.playerCar.grantSpawnInvincibility()
+    this.gameClient?.sendRespawn()
   }
 
   recalculateGpsRoute(): void {

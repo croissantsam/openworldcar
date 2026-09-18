@@ -232,6 +232,7 @@ export function normalizeRoad(way: RawOsmWay): Road | null {
 }
 
 /** Type-specific default height fallbacks (metres) */
+/** Type-specific default height fallbacks (metres) */
 const BUILDING_TYPE_HEIGHTS: Partial<Record<BuildingType, number>> = {
   house: 6,
   detached: 6,
@@ -240,22 +241,28 @@ const BUILDING_TYPE_HEIGHTS: Partial<Record<BuildingType, number>> = {
   apartments: 18, // 5-6 storey residential apartment building (typical Paris/European)
   bungalow: 4,
   hut: 3,
+  cabin: 3.5,
+  shed: 3.2,
+  kiosk: 3,
   garage: 3,
   garages: 3,
   carport: 2.8,
   warehouse: 9,
   industrial: 8,
+  factory: 10,
   commercial: 14,
   retail: 8,
   office: 24,
   supermarket: 6,
   hotel: 20,
   hospital: 22,
+  clinic: 12,
   school: 10,
   university: 16,
   kindergarten: 5,
   church: 18,
   cathedral: 32,
+  chapel: 10,
   mosque: 16,
   temple: 14,
   synagogue: 14,
@@ -263,6 +270,9 @@ const BUILDING_TYPE_HEIGHTS: Partial<Record<BuildingType, number>> = {
   stadium: 22,
   sports_hall: 9,
   fire_station: 9,
+  police: 14,
+  townhall: 16,
+  courthouse: 18,
   government: 18,
   civic: 15,
   public: 14,
@@ -271,19 +281,71 @@ const BUILDING_TYPE_HEIGHTS: Partial<Record<BuildingType, number>> = {
   hangar: 11,
   farm: 6,
   farm_auxiliary: 5,
+  barn: 7,
   stable: 4.5,
+  greenhouse: 4.5,
   roof: 3.5,
   monument: 15,
   castle: 25,
   manor: 12,
+  ruins: 3.5,
+  restaurant: 8,
+  bank: 12,
   yes: 8,
+}
+
+const NAMED_COLOURS: Record<string, string> = {
+  white: '#f5f5f5',
+  snow: '#fffafa',
+  ivory: '#fffff0',
+  cream: '#fffdd0',
+  lightgrey: '#d3d3d3',
+  lightgray: '#d3d3d3',
+  silver: '#c0c0c0',
+  grey: '#808080',
+  gray: '#808080',
+  darkgrey: '#505050',
+  darkgray: '#505050',
+  black: '#1e1e1e',
+  charcoal: '#36454f',
+  slate: '#5c6b73',
+  red: '#a93226',
+  darkred: '#78281f',
+  crimson: '#b03a2e',
+  maroon: '#641e16',
+  brown: '#795548',
+  saddlebrown: '#6d4c41',
+  sienna: '#8d6e63',
+  chocolate: '#5d4037',
+  terracotta: '#b85d38',
+  beige: '#e8dcba',
+  tan: '#d2b48c',
+  khaki: '#c3b091',
+  yellow: '#e5b638',
+  gold: '#d4af37',
+  orange: '#d35400',
+  darkorange: '#ba4a00',
+  green: '#27ae60',
+  darkgreen: '#1e8449',
+  forestgreen: '#196f3d',
+  olive: '#7d6608',
+  copper: '#528f78',
+  zinc: '#586472',
+  blue: '#2980b9',
+  navy: '#1b4f72',
+  darkblue: '#154360',
+  lightblue: '#85c1e9',
+  teal: '#117864',
+  cyan: '#138d75',
 }
 
 function parseCssColour(raw: string | undefined): string | undefined {
   if (!raw) return undefined
+  const cleaned = raw.trim().toLowerCase()
+  if (NAMED_COLOURS[cleaned]) return NAMED_COLOURS[cleaned]
   // Accept both "#rrggbb" and plain 6-hex "rrggbb"
-  if (/^#[0-9a-fA-F]{3,6}$/.test(raw)) return raw
-  if (/^[0-9a-fA-F]{6}$/.test(raw)) return `#${raw}`
+  if (/^#[0-9a-fA-F]{3,6}$/.test(cleaned)) return cleaned
+  if (/^[0-9a-fA-F]{6}$/.test(cleaned)) return `#${cleaned}`
   return undefined
 }
 
@@ -294,22 +356,84 @@ function normalizeRoofShape(raw: string | undefined): RoofShape | undefined {
 }
 
 function normalizeBuildingType(raw: string | undefined, tags?: OsmTags): BuildingType | undefined {
-  if (tags?.['historic']) {
-    const h = tags['historic']
-    if (h === 'monument' || h === 'memorial') return 'monument'
-    if (h === 'castle') return 'castle'
-    if (h === 'manor') return 'manor'
-    if (h === 'church') return 'church'
+  if (tags) {
+    if (tags['historic']) {
+      const h = tags['historic']
+      if (h === 'monument' || h === 'memorial') return 'monument'
+      if (h === 'castle' || h === 'fort') return 'castle'
+      if (h === 'manor') return 'manor'
+      if (h === 'church') return 'church'
+      if (h === 'ruins' || h === 'archaeological_site') return 'ruins'
+    }
+
+    if (tags['amenity']) {
+      const a = tags['amenity']
+      if (a === 'school') return 'school'
+      if (a === 'university' || a === 'college') return 'university'
+      if (a === 'kindergarten') return 'kindergarten'
+      if (a === 'hospital') return 'hospital'
+      if (a === 'clinic' || a === 'doctors' || a === 'dentist') return 'clinic'
+      if (a === 'fire_station') return 'fire_station'
+      if (a === 'police') return 'police'
+      if (a === 'townhall') return 'townhall'
+      if (a === 'courthouse') return 'courthouse'
+      if (a === 'place_of_worship') {
+        const rel = tags['religion']
+        if (rel === 'muslim') return 'mosque'
+        if (rel === 'jewish') return 'synagogue'
+        if (rel === 'buddhist' || rel === 'hindu' || rel === 'shinto' || rel === 'taoist') return 'temple'
+        if (tags['denomination'] === 'cathedral' || tags['building'] === 'cathedral') return 'cathedral'
+        if (tags['building'] === 'chapel') return 'chapel'
+        return 'church'
+      }
+      if (a === 'restaurant' || a === 'fast_food' || a === 'cafe' || a === 'bar' || a === 'pub') return 'restaurant'
+      if (a === 'bank') return 'bank'
+      if (a === 'parking') return 'parking'
+      if (a === 'fuel') return tags['building'] ? 'commercial' : 'roof'
+      if (a === 'theatre' || a === 'cinema' || a === 'arts_centre') return 'civic'
+    }
+
+    if (tags['shop']) {
+      const s = tags['shop']
+      if (s === 'supermarket' || s === 'mall' || s === 'department_store') return 'supermarket'
+      return 'retail'
+    }
+
+    if (tags['tourism']) {
+      const t = tags['tourism']
+      if (t === 'hotel' || t === 'motel' || t === 'hostel' || t === 'guest_house') return 'hotel'
+      if (t === 'museum' || t === 'gallery') return 'civic'
+    }
+
+    if (tags['office']) return 'office'
+    if (tags['craft']) return 'commercial'
+
+    if (tags['leisure']) {
+      const l = tags['leisure']
+      if (l === 'sports_centre' || l === 'fitness_centre') return 'sports_hall'
+      if (l === 'stadium') return 'stadium'
+    }
+
+    if (tags['man_made']) {
+      const m = tags['man_made']
+      if (m === 'works') return 'factory'
+      if (m === 'silo' || m === 'storage_tank') return 'industrial'
+      if (m === 'tower' || m === 'water_tower') return 'monument'
+    }
+
+    if (tags['railway'] === 'station') return 'train_station'
   }
+
   if (!raw) return undefined
   const valid: BuildingType[] = [
     'house', 'detached', 'semidetached_house', 'terrace', 'apartments', 'bungalow',
-    'hut', 'garage', 'garages', 'carport', 'warehouse', 'industrial', 'commercial',
-    'retail', 'office', 'supermarket', 'hotel', 'hospital', 'school', 'university',
-    'kindergarten', 'church', 'cathedral', 'mosque', 'temple', 'synagogue',
-    'train_station', 'stadium', 'sports_hall', 'fire_station', 'government',
-    'civic', 'public', 'service', 'parking', 'hangar', 'farm', 'farm_auxiliary',
-    'stable', 'roof', 'monument', 'castle', 'manor', 'yes',
+    'hut', 'cabin', 'shed', 'kiosk', 'garage', 'garages', 'carport', 'warehouse',
+    'industrial', 'factory', 'commercial', 'retail', 'office', 'supermarket', 'hotel',
+    'hospital', 'clinic', 'school', 'university', 'kindergarten', 'church', 'cathedral',
+    'chapel', 'mosque', 'temple', 'synagogue', 'train_station', 'stadium', 'sports_hall',
+    'fire_station', 'police', 'townhall', 'courthouse', 'government', 'civic', 'public',
+    'service', 'parking', 'hangar', 'farm', 'farm_auxiliary', 'barn', 'stable',
+    'greenhouse', 'roof', 'monument', 'castle', 'manor', 'ruins', 'restaurant', 'bank', 'yes',
   ]
   return valid.includes(raw as BuildingType) ? (raw as BuildingType) : 'yes'
 }
@@ -342,10 +466,19 @@ export function normalizeBuilding(way: RawOsmWay): Building | null {
   const colour = parseCssColour(way.tags['building:colour'] ?? way.tags['colour'])
   const roofColour = parseCssColour(way.tags['roof:colour'])
   const roofShape = normalizeRoofShape(way.tags['roof:shape'])
-  const roofHeight = parseFloat(way.tags['roof:height'] ?? '0') || undefined
+  const roofLevels = parseInt(way.tags['roof:levels'] ?? '0', 10) || undefined
+  const rawRoofHeight = parseFloat(way.tags['roof:height'] ?? '0')
+  const roofHeight = rawRoofHeight > 0
+    ? rawRoofHeight
+    : roofLevels
+      ? roofLevels * 2.5
+      : undefined
   const material = way.tags['building:material'] ?? way.tags['material']
   const roofMaterial = way.tags['roof:material']
+  const roofOrientationRaw = way.tags['roof:orientation']
+  const roofOrientation = roofOrientationRaw === 'across' ? 'across' : (roofOrientationRaw === 'along' ? 'along' : undefined)
   const name = way.tags['name']
+  const brand = way.tags['brand'] ?? way.tags['operator']
 
   return {
     id: way.id,
@@ -360,7 +493,10 @@ export function normalizeBuilding(way: RawOsmWay): Building | null {
     ...(roofMaterial ? { roofMaterial } : {}),
     ...(roofColour ? { roofColour } : {}),
     ...(roofHeight !== undefined ? { roofHeight } : {}),
+    ...(roofOrientation ? { roofOrientation } : {}),
+    ...(roofLevels !== undefined ? { roofLevels } : {}),
     ...(name !== undefined ? { name } : {}),
+    ...(brand !== undefined ? { brand } : {}),
   }
 }
 

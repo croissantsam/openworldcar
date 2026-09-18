@@ -5,6 +5,9 @@ import type { WorldPosition } from '@world-drive/math'
 
 type Props = {
   engine: GameEngine
+  isMobileLandscape?: boolean
+  externalExpanded?: boolean
+  onToggleExpanded?: () => void
 }
 
 // Iconic Paris landmarks for 1-click GPS routing
@@ -16,9 +19,45 @@ const LANDMARKS: Array<{ name: string; pos: WorldPosition; desc: string }> = [
   { name: 'Boulevard de Sébastopol', pos: { x: 250, y: 0, z: 60 }, desc: 'Grand axe nord-sud' },
 ]
 
-export function Minimap({ engine }: Props) {
+export function Minimap({
+  engine,
+  isMobileLandscape: propIsMobileLandscape,
+  externalExpanded,
+  onToggleExpanded,
+}: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const [expanded, setExpanded] = useState(false)
+  const [internalExpanded, setInternalExpanded] = useState(false)
+  const expanded = externalExpanded !== undefined ? externalExpanded : internalExpanded
+
+  const setExpanded = useCallback(
+    (val: boolean | ((prev: boolean) => boolean)) => {
+      if (onToggleExpanded) {
+        onToggleExpanded()
+      } else {
+        setInternalExpanded(val)
+      }
+    },
+    [onToggleExpanded],
+  )
+
+  const [autoIsMobile, setAutoIsMobile] = useState(false)
+  useEffect(() => {
+    const check = () => {
+      const isTouch =
+        'ontouchstart' in window ||
+        navigator.maxTouchPoints > 0 ||
+        window.matchMedia('(pointer: coarse)').matches
+      const isNarrowHeight = window.innerHeight <= 520 && window.innerWidth > window.innerHeight
+      setAutoIsMobile(isTouch || isNarrowHeight)
+    }
+    check()
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [])
+
+  const isMobileLandscape =
+    propIsMobileLandscape !== undefined ? propIsMobileLandscape : autoIsMobile
+
   const [gpsRouteActive, setGpsRouteActive] = useState(false)
   const [remainingDist, setRemainingDist] = useState<number | null>(null)
 
@@ -35,7 +74,7 @@ export function Minimap({ engine }: Props) {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [engine])
+  }, [engine, setExpanded])
 
   // Canvas render loop
   useEffect(() => {
@@ -65,8 +104,9 @@ export function Minimap({ engine }: Props) {
       const arrowRotation = headingAngle + Math.PI / 2
 
       // Zoom scale: world units to canvas pixels
-      // In radar mode: ~1.4 px/m (shows ~150m radius). In expanded mode: ~0.4 px/m (shows ~800m)
-      const scale = expanded ? 0.42 : 1.35
+      const scale = expanded
+        ? (isMobileLandscape ? 0.35 : 0.42)
+        : (isMobileLandscape ? 1.0 : 1.35)
 
       ctx.clearRect(0, 0, width, height)
 
@@ -459,7 +499,7 @@ export function Minimap({ engine }: Props) {
 
       const centerX = canvas.width / 2
       const centerY = canvas.height / 2
-      const scale = 0.42
+      const scale = isMobileLandscape ? 0.35 : 0.42
 
       const playerPos = engine.playerCar.getPosition()
       const worldX = playerPos.x + (clickX - centerX) / scale
@@ -467,88 +507,211 @@ export function Minimap({ engine }: Props) {
 
       engine.setGpsDestination({ x: worldX, y: 0, z: worldZ })
     },
-    [expanded, engine],
+    [expanded, engine, isMobileLandscape],
   )
 
-  return (
-    <>
-      {/* ── Minimap Widget (Bottom Left) ───────────────────────────────────── */}
+  // ── Mobile Landscape Expanded Modal Overlay ─────────────────────────────
+  if (isMobileLandscape && expanded) {
+    return (
       <div
         style={{
-          position: 'absolute',
-          bottom: 28,
-          left: 32,
+          position: 'fixed',
+          inset: 0,
+          zIndex: 100,
           display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'flex-start',
-          gap: 8,
-          zIndex: 40,
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: 'rgba(5, 8, 18, 0.88)',
+          backdropFilter: 'blur(16px)',
+          WebkitBackdropFilter: 'blur(16px)',
+          padding: '12px',
         }}
+        onClick={() => setExpanded(false)}
       >
-        {/* GPS Turn-by-Turn Bar */}
-        {gpsRouteActive && remainingDist !== null && (
+        <div
+          style={{
+            width: '100%',
+            maxWidth: 640,
+            maxHeight: '94vh',
+            backgroundColor: 'rgba(15, 23, 42, 0.96)',
+            border: '1px solid rgba(0, 212, 255, 0.4)',
+            borderRadius: 18,
+            boxShadow: '0 20px 50px rgba(0,0,0,0.85), 0 0 30px rgba(0,212,255,0.2)',
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Header */}
           <div
             style={{
+              padding: '8px 16px',
               display: 'flex',
               alignItems: 'center',
-              gap: 8,
-              padding: '6px 12px',
-              borderRadius: 6,
-              background: 'rgba(10, 16, 28, 0.92)',
-              border: '1px solid rgba(0, 240, 255, 0.5)',
-              backdropFilter: 'blur(10px)',
-              boxShadow: '0 4px 16px rgba(0, 212, 255, 0.25)',
-              fontFamily: "'Orbitron', sans-serif",
-              fontSize: 10,
-              color: '#00f0ff',
-              letterSpacing: 1,
+              justifyContent: 'space-between',
+              borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+              background: 'linear-gradient(180deg, rgba(30, 41, 59, 0.6) 0%, rgba(15, 23, 42, 0) 100%)',
             }}
           >
-            <span style={{ fontSize: 13 }}>🧭</span>
-            <span>GPS: {remainingDist}m</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 16 }}>📍</span>
+              <span
+                style={{
+                  fontFamily: "'Orbitron', sans-serif",
+                  fontSize: 11,
+                  fontWeight: 800,
+                  color: '#00d4ff',
+                  letterSpacing: 1.5,
+                }}
+              >
+                CARTE GPS — {(engine.currentDestination?.city ?? 'PARIS').toUpperCase()}
+              </span>
+            </div>
             <button
-              onClick={(e) => {
-                e.stopPropagation()
-                engine.setGpsDestination(null)
-              }}
+              onClick={() => setExpanded(false)}
               style={{
-                marginLeft: 4,
-                background: 'transparent',
-                border: 'none',
-                color: '#ff4d6d',
+                width: 28,
+                height: 28,
+                borderRadius: 8,
+                background: 'rgba(255, 255, 255, 0.08)',
+                border: '1px solid rgba(255, 255, 255, 0.15)',
+                color: '#fff',
+                fontSize: 14,
                 cursor: 'pointer',
-                fontSize: 11,
-                fontWeight: 700,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
               }}
-              title="Annuler GPS"
             >
               ✕
             </button>
           </div>
-        )}
 
+          {/* Body with horizontal split */}
+          <div
+            style={{
+              display: 'flex',
+              padding: 10,
+              gap: 12,
+              flex: 1,
+              minHeight: 0,
+              alignItems: 'center',
+            }}
+          >
+            {/* Radar Canvas */}
+            <div
+              onClick={handleMapClick}
+              style={{
+                position: 'relative',
+                width: 330,
+                height: 230,
+                borderRadius: 12,
+                overflow: 'hidden',
+                border: '1px solid rgba(0, 212, 255, 0.4)',
+                boxShadow: '0 4px 20px rgba(0, 0, 0, 0.5)',
+                cursor: 'crosshair',
+                flexShrink: 0,
+              }}
+            >
+              <canvas
+                ref={canvasRef}
+                width={330}
+                height={230}
+                style={{ width: '100%', height: '100%', display: 'block' }}
+              />
+            </div>
+
+            {/* Landmarks POI list */}
+            <div
+              style={{
+                flex: 1,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 6,
+                overflowY: 'auto',
+                maxHeight: 230,
+                paddingRight: 4,
+              }}
+            >
+              <div
+                style={{
+                  fontFamily: "'Orbitron', sans-serif",
+                  fontSize: 9,
+                  color: '#38bdf8',
+                  letterSpacing: 1,
+                  marginBottom: 2,
+                }}
+              >
+                DESTINATIONS 1-CLIC :
+              </div>
+              {LANDMARKS.map((lm) => (
+                <button
+                  key={lm.name}
+                  onClick={() => {
+                    engine.setGpsDestination(lm.pos)
+                    setExpanded(false)
+                  }}
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'flex-start',
+                    background: 'rgba(255, 255, 255, 0.05)',
+                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    borderRadius: 8,
+                    padding: '5px 8px',
+                    cursor: 'pointer',
+                    color: '#ffffff',
+                    textAlign: 'left',
+                  }}
+                >
+                  <span style={{ fontSize: 10, fontWeight: 700 }}>📍 {lm.name}</span>
+                  <span style={{ fontSize: 8, color: '#94a3b8' }}>{lm.desc}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // ── Standard / Mobile Landscape Radar Widget ──────────────────────────────
+  return (
+    <>
+      <div
+        style={{
+          position: 'absolute',
+          top: isMobileLandscape ? 'max(10px, env(safe-area-inset-top, 10px))' : 'auto',
+          bottom: isMobileLandscape ? 'auto' : 28,
+          left: isMobileLandscape ? 'max(12px, env(safe-area-inset-left, 12px))' : 32,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'flex-start',
+          gap: 6,
+          zIndex: 40,
+        }}
+      >
         {/* Radar Canvas Container */}
         <div
           onClick={handleMapClick}
           style={{
             position: 'relative',
-            width: expanded ? 520 : 190,
-            height: expanded ? 480 : 190,
+            width: expanded ? 520 : isMobileLandscape ? 116 : 190,
+            height: expanded ? 480 : isMobileLandscape ? 116 : 190,
             borderRadius: expanded ? 12 : '50%',
             overflow: 'hidden',
             cursor: expanded ? 'crosshair' : 'pointer',
             transition: 'width 0.25s ease, height 0.25s ease, border-radius 0.25s ease',
             boxShadow: '0 8px 32px rgba(0, 0, 0, 0.6), 0 0 20px rgba(0, 212, 255, 0.18)',
-            border: expanded
-              ? '1px solid rgba(0, 212, 255, 0.4)'
-              : 'none',
+            border: expanded ? '1px solid rgba(0, 212, 255, 0.4)' : 'none',
           }}
-          title={expanded ? 'Cliquez pour définir une destination GPS' : 'Cliquez ou appuyez sur M pour agrandir'}
+          title={expanded ? 'Cliquez pour définir une destination GPS' : 'Agrandir la carte'}
         >
           <canvas
             ref={canvasRef}
-            width={expanded ? 520 : 190}
-            height={expanded ? 480 : 190}
+            width={expanded ? 520 : isMobileLandscape ? 116 : 190}
+            height={expanded ? 480 : isMobileLandscape ? 116 : 190}
             style={{ width: '100%', height: '100%', display: 'block' }}
           />
 
@@ -560,25 +723,67 @@ export function Minimap({ engine }: Props) {
             }}
             style={{
               position: 'absolute',
-              top: 8,
-              right: 8,
+              top: isMobileLandscape ? 4 : 8,
+              right: isMobileLandscape ? 4 : 8,
               background: 'rgba(10, 16, 28, 0.85)',
               border: '1px solid rgba(0, 212, 255, 0.3)',
               color: '#00d4ff',
               borderRadius: 4,
-              padding: '3px 7px',
+              padding: isMobileLandscape ? '2px 5px' : '3px 7px',
               fontFamily: "'Orbitron', sans-serif",
-              fontSize: 9,
+              fontSize: isMobileLandscape ? 8 : 9,
               cursor: 'pointer',
               letterSpacing: 1,
             }}
           >
-            {expanded ? 'RÉDUIRE [M]' : 'CARTE [M]'}
+            {expanded ? '✕' : isMobileLandscape ? 'MAP' : 'CARTE [M]'}
           </button>
         </div>
 
-        {/* Expanded Navigation Sidebar & POI Fast Travel */}
-        {expanded && (
+        {/* GPS Turn-by-Turn Bar */}
+        {gpsRouteActive && remainingDist !== null && (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: isMobileLandscape ? '3px 8px' : '6px 12px',
+              borderRadius: 6,
+              background: 'rgba(10, 16, 28, 0.92)',
+              border: '1px solid rgba(0, 240, 255, 0.5)',
+              backdropFilter: 'blur(10px)',
+              boxShadow: '0 4px 16px rgba(0, 212, 255, 0.25)',
+              fontFamily: "'Orbitron', sans-serif",
+              fontSize: isMobileLandscape ? 8 : 10,
+              color: '#00f0ff',
+              letterSpacing: 1,
+            }}
+          >
+            <span style={{ fontSize: isMobileLandscape ? 10 : 13 }}>🧭</span>
+            <span>GPS: {remainingDist}m</span>
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                engine.setGpsDestination(null)
+              }}
+              style={{
+                marginLeft: 2,
+                background: 'transparent',
+                border: 'none',
+                color: '#ff4d6d',
+                cursor: 'pointer',
+                fontSize: 10,
+                fontWeight: 700,
+              }}
+              title="Annuler GPS"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
+        {/* Desktop Expanded Navigation Sidebar & POI Fast Travel */}
+        {!isMobileLandscape && expanded && (
           <div
             style={{
               display: 'flex',

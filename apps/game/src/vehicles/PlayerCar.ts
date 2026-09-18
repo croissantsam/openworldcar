@@ -522,6 +522,10 @@ export class PlayerCar {
     this.onInvincibilityChanged?.(true)
   }
 
+  grantSpawnInvincibility(durationMs = 30_000): void {
+    this.triggerInvincibility(durationMs)
+  }
+
   isInvincible(): boolean {
     return Date.now() < this.invincibleUntil
   }

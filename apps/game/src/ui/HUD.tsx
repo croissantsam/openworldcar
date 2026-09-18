@@ -6,6 +6,8 @@ import { getDistrictLabel, type WorldDestination } from '../world/destinations.j
 import { Minimap } from './Minimap.js'
 import { WorldTravelModal } from './WorldTravelModal.js'
 import { AddressSearchBar } from './AddressSearchBar.js'
+import { TouchControls } from './TouchControls.js'
+import { OrientationPrompt } from './OrientationPrompt.js'
 
 interface HUDProps {
   engine: GameEngine
@@ -24,12 +26,37 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
   )
   const [travelOpen, setTravelOpen] = useState(false)
   const [searchBarOpen, setSearchBarOpen] = useState(false)
+  const [mapExpanded, setMapExpanded] = useState(false)
   const [isWarping, setIsWarping] = useState(false)
   const [isGenerating, setIsGenerating] = useState(() => engine.chunkManager.isGenerating)
   const [invincibilitySec, setInvincibilitySec] = useState<number>(() =>
     engine.getInvincibilityRemaining()
   )
   const lastSeenRef = useRef<number>(Date.now())
+
+  // Touch / Mobile mode (Joystick on left + Frein on right)
+  const [touchMode, setTouchMode] = useState<boolean>(true)
+  const [, setHasTouch] = useState(false)
+
+  useEffect(() => {
+    const handleResize = () => {
+      const touch =
+        'ontouchstart' in window ||
+        navigator.maxTouchPoints > 0 ||
+        window.matchMedia('(pointer: coarse)').matches
+      setHasTouch(touch)
+    }
+
+    handleResize()
+    window.addEventListener('resize', handleResize)
+    window.addEventListener('orientationchange', handleResize)
+    return () => {
+      window.removeEventListener('resize', handleResize)
+      window.removeEventListener('orientationchange', handleResize)
+    }
+  }, [])
+
+  const isMobileLandscape = touchMode
 
   useEffect(() => {
     currentDestRef.current = currentDest
@@ -133,28 +160,29 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
 
   return (
     <>
-      {/* Speedometer */}
+      {/* Speedometer - floats neatly above the FREIN button when in mobile/touch mode */}
       <div
         style={{
           position: 'absolute',
-          bottom: 32,
-          right: 40,
+          bottom: touchMode ? 'max(116px, env(safe-area-inset-bottom, 116px))' : 32,
+          right: touchMode ? 'max(24px, env(safe-area-inset-right, 24px))' : 40,
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'flex-end',
           pointerEvents: 'none',
           userSelect: 'none',
+          zIndex: 35,
         }}
       >
         {/* Speed number */}
         <div
           style={{
             fontFamily: "'Orbitron', sans-serif",
-            fontSize: 72,
+            fontSize: touchMode ? 38 : 72,
             fontWeight: 900,
             color: '#fff',
             lineHeight: 1,
-            textShadow: '0 0 30px rgba(0, 212, 255, 0.6)',
+            textShadow: '0 0 25px rgba(0, 212, 255, 0.6)',
           }}
         >
           {speed}
@@ -162,10 +190,10 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
         <div
           style={{
             fontFamily: "'Inter', sans-serif",
-            fontSize: 13,
+            fontSize: touchMode ? 10 : 13,
             color: '#00d4ff',
-            letterSpacing: 3,
-            marginTop: -4,
+            letterSpacing: touchMode ? 2 : 3,
+            marginTop: -2,
           }}
         >
           KM/H
@@ -174,13 +202,13 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
         {/* Gear */}
         <div
           style={{
-            marginTop: 8,
+            marginTop: 4,
             background: 'rgba(0,0,0,0.5)',
             border: '1px solid rgba(0,212,255,0.3)',
             borderRadius: 4,
-            padding: '2px 12px',
+            padding: touchMode ? '1px 8px' : '2px 12px',
             fontFamily: "'Orbitron', sans-serif",
-            fontSize: 16,
+            fontSize: touchMode ? 12 : 16,
             color: '#00d4ff',
             letterSpacing: 2,
           }}
@@ -189,60 +217,90 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
         </div>
       </div>
 
-      {/* Controls hint (bottom-left) */}
-      <div
-        style={{
-          position: 'absolute',
-          bottom: 24,
-          left: 24,
-          color: 'rgba(255,255,255,0.45)',
-          fontSize: 11,
-          fontFamily: "'Inter', sans-serif",
-          lineHeight: 2,
-          pointerEvents: 'none',
-          userSelect: 'none',
-          background: 'rgba(0,0,0,0.3)',
-          padding: '8px 12px',
-          borderRadius: 6,
-          backdropFilter: 'blur(4px)',
-        }}
-      >
-        <div><strong style={{ color: '#00d4ff' }}>W / Z / ↑</strong> — Accelerate</div>
-        <div><strong style={{ color: '#00d4ff' }}>S / ↓</strong> — Brake / Reverse</div>
-        <div><strong style={{ color: '#00d4ff' }}>A / Q / ←</strong> — Steer Left</div>
-        <div><strong style={{ color: '#00d4ff' }}>D / →</strong> — Steer Right</div>
-        <div><strong style={{ color: '#00d4ff' }}>SPACE</strong> — Handbrake</div>
-        <div><strong style={{ color: '#00d4ff' }}>M</strong> — Carte / GPS</div>
-        <div><strong style={{ color: '#38bdf8' }}>T</strong> — 🌍 Voyager dans le monde</div>
-        <div><strong style={{ color: '#00d4ff' }}>`</strong> — Debug Overlay</div>
-      </div>
+      {/* Controls hint (bottom-left) - ONLY shown in keyboard desktop mode, never over the joystick */}
+      {!touchMode && (
+        <div
+          style={{
+            position: 'absolute',
+            bottom: 24,
+            left: 24,
+            color: 'rgba(255,255,255,0.45)',
+            fontSize: 11,
+            fontFamily: "'Inter', sans-serif",
+            lineHeight: 2,
+            pointerEvents: 'none',
+            userSelect: 'none',
+            background: 'rgba(0,0,0,0.3)',
+            padding: '8px 12px',
+            borderRadius: 6,
+            backdropFilter: 'blur(4px)',
+          }}
+        >
+          <div><strong style={{ color: '#00d4ff' }}>W / Z / ↑</strong> — Accelerate</div>
+          <div><strong style={{ color: '#00d4ff' }}>S / ↓</strong> — Brake / Reverse</div>
+          <div><strong style={{ color: '#00d4ff' }}>A / Q / ←</strong> — Steer Left</div>
+          <div><strong style={{ color: '#00d4ff' }}>D / →</strong> — Steer Right</div>
+          <div><strong style={{ color: '#00d4ff' }}>SPACE</strong> — Handbrake</div>
+          <div><strong style={{ color: '#00d4ff' }}>M</strong> — Carte / GPS</div>
+          <div><strong style={{ color: '#38bdf8' }}>T</strong> — 🌍 Voyager dans le monde</div>
+          <div><strong style={{ color: '#00d4ff' }}>`</strong> — Debug Overlay</div>
+        </div>
+      )}
+
+      {/* Desktop Mode Button to re-enable mobile joystick anytime */}
+      {!touchMode && (
+        <button
+          onClick={() => setTouchMode(true)}
+          style={{
+            position: 'absolute',
+            top: 14,
+            right: 14,
+            background: 'rgba(8, 14, 26, 0.85)',
+            border: '1px solid rgba(0, 212, 255, 0.4)',
+            borderRadius: 10,
+            padding: '6px 12px',
+            color: '#00d4ff',
+            fontFamily: "'Orbitron', sans-serif",
+            fontSize: 10,
+            fontWeight: 800,
+            letterSpacing: 1,
+            cursor: 'pointer',
+            zIndex: 60,
+            backdropFilter: 'blur(8px)',
+            boxShadow: '0 4px 14px rgba(0, 0, 0, 0.4)',
+          }}
+          title="Activer le joystick et les commandes tactiles mobiles"
+        >
+          🎮 JOYSTICK MOBILE
+        </button>
+      )}
 
       {/* Top Street Navigation Banner */}
       <div
         style={{
           position: 'absolute',
-          top: 20,
+          top: isMobileLandscape ? 'max(8px, env(safe-area-inset-top, 8px))' : 20,
           left: '50%',
           transform: 'translateX(-50%)',
           display: 'flex',
           alignItems: 'center',
-          gap: 14,
+          gap: isMobileLandscape ? 8 : 14,
           background: 'rgba(8, 12, 22, 0.88)',
           border: '1px solid rgba(0, 212, 255, 0.35)',
           boxShadow: '0 8px 32px rgba(0, 0, 0, 0.5), 0 0 15px rgba(0, 212, 255, 0.15)',
           backdropFilter: 'blur(12px)',
-          borderRadius: 24,
-          padding: '8px 16px 8px 20px',
+          borderRadius: isMobileLandscape ? 16 : 24,
+          padding: isMobileLandscape ? '4px 10px' : '8px 16px 8px 20px',
           userSelect: 'none',
           zIndex: 10,
-          maxWidth: '90vw',
+          maxWidth: '92vw',
         }}
       >
         {/* Navigation Arrow Icon */}
         <div
           style={{
-            width: 30,
-            height: 30,
+            width: isMobileLandscape ? 24 : 30,
+            height: isMobileLandscape ? 24 : 30,
             borderRadius: '50%',
             background: 'rgba(0, 212, 255, 0.15)',
             border: '1px solid rgba(0, 212, 255, 0.4)',
@@ -253,7 +311,7 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
             boxShadow: '0 0 10px rgba(0, 212, 255, 0.3)',
           }}
         >
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
+          <svg width={isMobileLandscape ? 12 : 15} height={isMobileLandscape ? 12 : 15} viewBox="0 0 24 24" fill="none">
             <path
               d="M12 2L19 21L12 17L5 21L12 2Z"
               fill="#00d4ff"
@@ -265,15 +323,15 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
         </div>
 
         {/* Street & Area Details */}
-        <div style={{ display: 'flex', flexDirection: 'column', minWidth: 160 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', minWidth: isMobileLandscape ? 110 : 160 }}>
           <div
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: 8,
-              fontSize: 9,
+              gap: 6,
+              fontSize: isMobileLandscape ? 8 : 9,
               fontFamily: "'Orbitron', sans-serif",
-              letterSpacing: 2,
+              letterSpacing: 1.5,
               color: 'rgba(0, 212, 255, 0.85)',
               textTransform: 'uppercase',
             }}
@@ -286,14 +344,15 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
           <div
             style={{
               fontFamily: "'Inter', sans-serif",
-              fontSize: 16,
+              fontSize: isMobileLandscape ? 13 : 16,
               fontWeight: 700,
               color: '#ffffff',
               letterSpacing: 0.5,
-              marginTop: 2,
+              marginTop: 1,
               whiteSpace: 'nowrap',
               overflow: 'hidden',
               textOverflow: 'ellipsis',
+              maxWidth: isMobileLandscape ? '180px' : '280px',
               textShadow: '0 0 12px rgba(255, 255, 255, 0.2)',
             }}
           >
@@ -304,16 +363,16 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
         {/* Speed Limit Badge */}
         <div
           style={{
-            width: 26,
-            height: 26,
+            width: isMobileLandscape ? 22 : 26,
+            height: isMobileLandscape ? 22 : 26,
             borderRadius: '50%',
             background: '#ffffff',
-            border: '2.5px solid #e02424',
+            border: isMobileLandscape ? '2px solid #e02424' : '2.5px solid #e02424',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             fontFamily: "'Inter', sans-serif",
-            fontSize: 10,
+            fontSize: isMobileLandscape ? 9 : 10,
             fontWeight: 900,
             color: '#111',
             boxShadow: '0 2px 8px rgba(0,0,0,0.4)',
@@ -328,65 +387,59 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
         <button
           onClick={() => setTravelOpen(true)}
           style={{
-            marginLeft: 8,
+            marginLeft: isMobileLandscape ? 4 : 8,
             background: 'linear-gradient(135deg, rgba(2, 132, 199, 0.3) 0%, rgba(37, 99, 235, 0.45) 100%)',
             border: '1px solid rgba(56, 189, 248, 0.5)',
-            borderRadius: 16,
-            padding: '6px 14px',
+            borderRadius: 14,
+            padding: isMobileLandscape ? '4px 8px' : '6px 14px',
             color: '#38bdf8',
             fontFamily: "'Orbitron', sans-serif",
-            fontSize: 10,
+            fontSize: isMobileLandscape ? 9 : 10,
             fontWeight: 800,
             letterSpacing: 1,
             cursor: 'pointer',
             display: 'flex',
             alignItems: 'center',
-            gap: 6,
+            gap: isMobileLandscape ? 3 : 6,
             boxShadow: '0 0 12px rgba(56, 189, 248, 0.25)',
             transition: 'all 0.2s',
           }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.background = 'linear-gradient(135deg, rgba(2, 132, 199, 0.6) 0%, rgba(37, 99, 235, 0.75) 100%)'
-            e.currentTarget.style.borderColor = '#38bdf8'
-            e.currentTarget.style.boxShadow = '0 0 18px rgba(56, 189, 248, 0.5)'
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = 'linear-gradient(135deg, rgba(2, 132, 199, 0.3) 0%, rgba(37, 99, 235, 0.45) 100%)'
-            e.currentTarget.style.borderColor = 'rgba(56, 189, 248, 0.5)'
-            e.currentTarget.style.boxShadow = '0 0 12px rgba(56, 189, 248, 0.25)'
-          }}
         >
-          <span>🌍 VOYAGER</span>
-          <span style={{ fontSize: 9, opacity: 0.75, background: 'rgba(255,255,255,0.15)', padding: '1px 5px', borderRadius: 4 }}>T</span>
+          <span>🌍 {isMobileLandscape ? 'VOYAGE' : 'VOYAGER'}</span>
+          {!isMobileLandscape && (
+            <span style={{ fontSize: 9, opacity: 0.75, background: 'rgba(255,255,255,0.15)', padding: '1px 5px', borderRadius: 4 }}>T</span>
+          )}
         </button>
 
         {/* Quick Address Search Action Button */}
         <button
           onClick={() => setSearchBarOpen((v) => !v)}
           style={{
-            marginLeft: 6,
+            marginLeft: isMobileLandscape ? 3 : 6,
             background: searchBarOpen
               ? 'linear-gradient(135deg, rgba(14, 165, 233, 0.6) 0%, rgba(2, 132, 199, 0.8) 100%)'
               : 'rgba(15, 23, 42, 0.7)',
             border: searchBarOpen ? '1px solid #38bdf8' : '1px solid rgba(56, 189, 248, 0.4)',
-            borderRadius: 16,
-            padding: '6px 12px',
+            borderRadius: 14,
+            padding: isMobileLandscape ? '4px 8px' : '6px 12px',
             color: '#38bdf8',
             fontFamily: "'Orbitron', sans-serif",
-            fontSize: 10,
+            fontSize: isMobileLandscape ? 9 : 10,
             fontWeight: 800,
             letterSpacing: 1,
             cursor: 'pointer',
             display: 'flex',
             alignItems: 'center',
-            gap: 5,
+            gap: isMobileLandscape ? 3 : 5,
             boxShadow: '0 0 10px rgba(56, 189, 248, 0.2)',
             transition: 'all 0.2s',
           }}
           title="Rechercher une adresse, une rue ou un monument (/)"
         >
-          <span>🔍 ADRESSE</span>
-          <span style={{ fontSize: 9, opacity: 0.75, background: 'rgba(255,255,255,0.15)', padding: '1px 5px', borderRadius: 4 }}>/</span>
+          <span>🔍 {isMobileLandscape ? 'RUE' : 'ADRESSE'}</span>
+          {!isMobileLandscape && (
+            <span style={{ fontSize: 9, opacity: 0.75, background: 'rgba(255,255,255,0.15)', padding: '1px 5px', borderRadius: 4 }}>/</span>
+          )}
         </button>
       </div>
 
@@ -395,12 +448,22 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
         <div
           style={{
             position: 'absolute',
-            top: searchBarOpen ? 134 : isGenerating ? 114 : 76,
+            top: isMobileLandscape
+              ? searchBarOpen
+                ? 88
+                : isGenerating
+                ? 72
+                : 46
+              : searchBarOpen
+              ? 134
+              : isGenerating
+              ? 114
+              : 76,
             left: '50%',
             transform: 'translateX(-50%)',
             display: 'flex',
             alignItems: 'center',
-            gap: 12,
+            gap: isMobileLandscape ? 8 : 12,
             background: invincibilitySec <= 5.0
               ? 'rgba(28, 10, 8, 0.92)'
               : 'rgba(8, 16, 28, 0.90)',
@@ -411,8 +474,8 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
               ? '0 8px 30px rgba(0,0,0,0.6), 0 0 22px rgba(255, 68, 0, 0.45)'
               : '0 8px 30px rgba(0,0,0,0.6), 0 0 20px rgba(0, 229, 255, 0.25)',
             backdropFilter: 'blur(16px)',
-            borderRadius: 22,
-            padding: '7px 18px',
+            borderRadius: isMobileLandscape ? 16 : 22,
+            padding: isMobileLandscape ? '4px 12px' : '7px 18px',
             userSelect: 'none',
             zIndex: 10,
             transition: 'top 0.2s ease, border-color 0.3s ease, background 0.3s ease',
@@ -421,8 +484,8 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
           {/* Animated Shield Icon */}
           <div
             style={{
-              width: 28,
-              height: 28,
+              width: isMobileLandscape ? 22 : 28,
+              height: isMobileLandscape ? 22 : 28,
               borderRadius: '50%',
               background: invincibilitySec <= 5.0 ? 'rgba(255, 68, 0, 0.2)' : 'rgba(0, 229, 255, 0.15)',
               border: invincibilitySec <= 5.0 ? '1.5px solid rgba(255, 68, 0, 0.6)' : '1.5px solid rgba(0, 229, 255, 0.5)',
@@ -433,7 +496,7 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
               boxShadow: invincibilitySec <= 5.0 ? '0 0 10px rgba(255, 68, 0, 0.5)' : '0 0 10px rgba(0, 229, 255, 0.4)',
             }}
           >
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
+            <svg width={isMobileLandscape ? 12 : 15} height={isMobileLandscape ? 12 : 15} viewBox="0 0 24 24" fill="none">
               <path
                 d="M12 2L4 5V11.5C4 16.5 7.5 21.2 12 22.5C16.5 21.2 20 16.5 20 11.5V5L12 2Z"
                 fill={invincibilitySec <= 5.0 ? '#ff4400' : '#00e5ff'}
@@ -453,27 +516,27 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
           </div>
 
           {/* Text Details & Progress */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
             <div
               style={{
                 fontFamily: "'Orbitron', sans-serif",
-                fontSize: 9,
+                fontSize: isMobileLandscape ? 8 : 9,
                 fontWeight: 800,
-                letterSpacing: 1.5,
+                letterSpacing: 1.2,
                 color: invincibilitySec <= 5.0 ? '#ff6622' : '#38bdf8',
                 textTransform: 'uppercase',
               }}
             >
-              {invincibilitySec <= 5.0 ? '⚠️ Fin du bouclier imminente' : '🛡️ Invincibilité anti-collision'}
+              {invincibilitySec <= 5.0 ? '⚠️ Fin bouclier' : '🛡️ Invincibilité'}
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: isMobileLandscape ? 6 : 10 }}>
               <span
                 style={{
                   fontFamily: "'Orbitron', sans-serif",
-                  fontSize: 14,
+                  fontSize: isMobileLandscape ? 12 : 14,
                   fontWeight: 800,
                   color: '#ffffff',
-                  minWidth: 36,
+                  minWidth: isMobileLandscape ? 28 : 36,
                 }}
               >
                 {Math.ceil(invincibilitySec)}s
@@ -481,8 +544,8 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
               {/* Energy progress bar */}
               <div
                 style={{
-                  width: 75,
-                  height: 6,
+                  width: isMobileLandscape ? 50 : 75,
+                  height: isMobileLandscape ? 5 : 6,
                   borderRadius: 3,
                   background: 'rgba(255, 255, 255, 0.12)',
                   overflow: 'hidden',
@@ -501,16 +564,18 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
                   }}
                 />
               </div>
-              <span
-                style={{
-                  fontFamily: "'Inter', sans-serif",
-                  fontSize: 10,
-                  color: 'rgba(255, 255, 255, 0.7)',
-                  letterSpacing: 0.2,
-                }}
-              >
-                Pass-through actif entre véhicules
-              </span>
+              {!isMobileLandscape && (
+                <span
+                  style={{
+                    fontFamily: "'Inter', sans-serif",
+                    fontSize: 10,
+                    color: 'rgba(255, 255, 255, 0.7)',
+                    letterSpacing: 0.2,
+                  }}
+                >
+                  Pass-through actif entre véhicules
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -521,11 +586,11 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
         <div
           style={{
             position: 'absolute',
-            top: 76,
+            top: isMobileLandscape ? 48 : 76,
             left: '50%',
             transform: 'translateX(-50%)',
             width: '92%',
-            maxWidth: '560px',
+            maxWidth: isMobileLandscape ? '460px' : '560px',
             zIndex: 100,
           }}
         >
@@ -547,7 +612,7 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
         <div
           style={{
             position: 'absolute',
-            top: 76,
+            top: isMobileLandscape ? 48 : 76,
             left: '50%',
             transform: 'translateX(-50%)',
             background: 'rgba(15, 23, 42, 0.92)',
@@ -555,25 +620,41 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
             boxShadow: '0 0 20px rgba(56, 189, 248, 0.5), 0 4px 12px rgba(0,0,0,0.5)',
             backdropFilter: 'blur(10px)',
             borderRadius: 20,
-            padding: '5px 16px',
+            padding: isMobileLandscape ? '3px 12px' : '5px 16px',
             display: 'flex',
             alignItems: 'center',
-            gap: 8,
-            fontSize: 11,
+            gap: 6,
+            fontSize: isMobileLandscape ? 9 : 11,
             fontFamily: "'Orbitron', sans-serif",
             color: '#38bdf8',
-            letterSpacing: 1.5,
+            letterSpacing: 1.2,
             zIndex: 15,
             pointerEvents: 'none',
           }}
         >
-          <span style={{ fontSize: 13, animation: 'spin 1s linear infinite' }}>⚡</span>
+          <span style={{ fontSize: isMobileLandscape ? 11 : 13, animation: 'spin 1s linear infinite' }}>⚡</span>
           <span>GÉNÉRATION DU MONDE EN DIRECT (OSM)…</span>
         </div>
       )}
 
       {/* GPS Radar Minimap */}
-      <Minimap engine={engine} />
+      <Minimap
+        engine={engine}
+        isMobileLandscape={isMobileLandscape}
+        externalExpanded={mapExpanded}
+        onToggleExpanded={() => setMapExpanded((v) => !v)}
+      />
+
+      {/* Mobile Touch Controls Overlay */}
+      <TouchControls
+        engine={engine}
+        onToggleMap={() => setMapExpanded((v) => !v)}
+        onToggleTravel={() => setTravelOpen(true)}
+        onToggleSearch={() => setSearchBarOpen((v) => !v)}
+      />
+
+      {/* Mobile Orientation Prompt (when in portrait mode) */}
+      <OrientationPrompt />
 
       {/* World Travel Modal */}
       <WorldTravelModal

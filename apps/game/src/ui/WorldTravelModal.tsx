@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import {
   WORLD_DESTINATIONS,
   createCustomDestination,
@@ -25,6 +25,16 @@ export const WorldTravelModal: React.FC<WorldTravelModalProps> = ({
   const [customLon, setCustomLon] = useState('')
   const [customName, setCustomName] = useState('')
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
+  const [isCompact, setIsCompact] = useState(false)
+
+  useEffect(() => {
+    const check = () => {
+      setIsCompact(window.innerHeight <= 540)
+    }
+    check()
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [])
 
   if (!isOpen) return null
 
@@ -68,7 +78,7 @@ export const WorldTravelModal: React.FC<WorldTravelModalProps> = ({
         backdropFilter: 'blur(16px)',
         WebkitBackdropFilter: 'blur(16px)',
         animation: 'fadeIn 0.25s ease-out',
-        padding: '24px',
+        padding: isCompact ? '8px' : '24px',
       }}
       onClick={onClose}
     >
@@ -76,10 +86,10 @@ export const WorldTravelModal: React.FC<WorldTravelModalProps> = ({
         style={{
           width: '100%',
           maxWidth: '1020px',
-          maxHeight: '92vh',
+          maxHeight: isCompact ? '96vh' : '92vh',
           backgroundColor: 'rgba(15, 23, 42, 0.95)',
           border: '1px solid rgba(56, 189, 248, 0.25)',
-          borderRadius: '24px',
+          borderRadius: isCompact ? '16px' : '24px',
           boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.85), 0 0 40px rgba(56, 189, 248, 0.18)',
           display: 'flex',
           flexDirection: 'column',
@@ -92,7 +102,7 @@ export const WorldTravelModal: React.FC<WorldTravelModalProps> = ({
         {/* Header */}
         <div
           style={{
-            padding: '22px 32px',
+            padding: isCompact ? '10px 16px' : '22px 32px',
             borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
             display: 'flex',
             alignItems: 'center',
@@ -101,12 +111,12 @@ export const WorldTravelModal: React.FC<WorldTravelModalProps> = ({
           }}
         >
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <span style={{ fontSize: '24px' }}>🌍</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontSize: isCompact ? '18px' : '24px' }}>🌍</span>
               <h2
                 style={{
                   margin: 0,
-                  fontSize: '22px',
+                  fontSize: isCompact ? '16px' : '22px',
                   fontWeight: 800,
                   letterSpacing: '0.04em',
                   background: 'linear-gradient(135deg, #ffffff 0%, #38bdf8 100%)',
@@ -117,9 +127,11 @@ export const WorldTravelModal: React.FC<WorldTravelModalProps> = ({
                 VOYAGE MONDIAL & GÉNÉRATION EN DIRECT
               </h2>
             </div>
-            <p style={{ margin: '6px 0 0', fontSize: '13px', color: '#94a3b8' }}>
-              Explorez les métropoles mondiales et générez de nouveaux chunks OpenStreetMap en temps réel pendant que vous roulez.
-            </p>
+            {!isCompact && (
+              <p style={{ margin: '6px 0 0', fontSize: '13px', color: '#94a3b8' }}>
+                Explorez les métropoles mondiales et générez de nouveaux chunks OpenStreetMap en temps réel pendant que vous roulez.
+              </p>
+            )}
           </div>
 
           <button
@@ -128,13 +140,13 @@ export const WorldTravelModal: React.FC<WorldTravelModalProps> = ({
               background: 'rgba(255, 255, 255, 0.06)',
               border: '1px solid rgba(255, 255, 255, 0.12)',
               color: '#94a3b8',
-              width: '36px',
-              height: '36px',
-              borderRadius: '12px',
+              width: isCompact ? '28px' : '36px',
+              height: isCompact ? '28px' : '36px',
+              borderRadius: isCompact ? '8px' : '12px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              fontSize: '18px',
+              fontSize: isCompact ? '14px' : '18px',
               cursor: 'pointer',
               transition: 'all 0.2s',
             }}
@@ -156,21 +168,24 @@ export const WorldTravelModal: React.FC<WorldTravelModalProps> = ({
         {/* Live Address Search Section */}
         <div
           style={{
-            padding: '16px 32px 14px',
+            padding: isCompact ? '8px 16px' : '16px 32px 14px',
             background: 'linear-gradient(180deg, rgba(30, 41, 59, 0.4) 0%, rgba(15, 23, 42, 0.3) 100%)',
             borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
           }}
         >
-          <div style={{ marginBottom: '8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: '12px', fontWeight: 700, color: '#38bdf8', letterSpacing: '0.06em' }}>
+          <div style={{ marginBottom: isCompact ? '4px' : '8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ fontSize: isCompact ? '10px' : '12px', fontWeight: 700, color: '#38bdf8', letterSpacing: '0.06em' }}>
               📍 RECHERCHER UNE ADRESSE DANS LE MONDE (OPENSTREETMAP) :
             </span>
-            <span style={{ fontSize: '11px', color: '#94a3b8' }}>
-              Streaming 100% procédural au fur et à mesure
-            </span>
+            {!isCompact && (
+              <span style={{ fontSize: '11px', color: '#94a3b8' }}>
+                Streaming 100% procédural au fur et à mesure
+              </span>
+            )}
           </div>
           <AddressSearchBar
-            autoFocus
+            autoFocus={!isCompact}
+            compact={isCompact}
             placeholder="Saisissez une adresse, rue ou monument (ex: 10 rue de la Paix, Tour Eiffel, Times Square)..."
             onSelectAddress={(dest) => {
               onSelectDestination(dest)
@@ -185,14 +200,14 @@ export const WorldTravelModal: React.FC<WorldTravelModalProps> = ({
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            padding: '14px 32px',
+            padding: isCompact ? '6px 16px' : '14px 32px',
             borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
             flexWrap: 'wrap',
-            gap: '12px',
+            gap: isCompact ? '6px' : '12px',
           }}
         >
           {/* Destination filter buttons */}
-          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: isCompact ? '4px' : '8px', flexWrap: 'wrap' }}>
             {(
               [
                 { id: 'all', label: `Toutes (${WORLD_DESTINATIONS.length})` },
@@ -218,8 +233,8 @@ export const WorldTravelModal: React.FC<WorldTravelModalProps> = ({
                       : '1px solid rgba(255, 255, 255, 0.08)',
                   color: selectedFilter === filter.id && !showCustomGps ? '#38bdf8' : '#94a3b8',
                   borderRadius: '9999px',
-                  padding: '6px 14px',
-                  fontSize: '12px',
+                  padding: isCompact ? '4px 10px' : '6px 14px',
+                  fontSize: isCompact ? '11px' : '12px',
                   fontWeight: 600,
                   cursor: 'pointer',
                   transition: 'all 0.2s',
@@ -242,8 +257,8 @@ export const WorldTravelModal: React.FC<WorldTravelModalProps> = ({
                 : '1px solid rgba(56, 189, 248, 0.3)',
               color: showCustomGps ? '#ffffff' : '#38bdf8',
               borderRadius: '9999px',
-              padding: '6px 14px',
-              fontSize: '12px',
+              padding: isCompact ? '4px 10px' : '6px 14px',
+              fontSize: isCompact ? '11px' : '12px',
               fontWeight: 700,
               cursor: 'pointer',
               display: 'flex',
@@ -392,12 +407,12 @@ export const WorldTravelModal: React.FC<WorldTravelModalProps> = ({
         {/* Destination Cards Grid */}
         <div
           style={{
-            padding: '20px 32px 32px',
+            padding: isCompact ? '10px 16px 16px' : '20px 32px 32px',
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
-            gap: '16px',
+            gridTemplateColumns: isCompact ? 'repeat(auto-fill, minmax(210px, 1fr))' : 'repeat(auto-fill, minmax(280px, 1fr))',
+            gap: isCompact ? '8px' : '16px',
             overflowY: 'auto',
-            maxHeight: 'calc(92vh - 220px)',
+            maxHeight: isCompact ? 'calc(96vh - 150px)' : 'calc(92vh - 220px)',
           }}
         >
           {filtered.map((dest) => {
@@ -412,8 +427,8 @@ export const WorldTravelModal: React.FC<WorldTravelModalProps> = ({
                   border: isCurrent
                     ? '1.5px solid #38bdf8'
                     : '1px solid rgba(255, 255, 255, 0.08)',
-                  borderRadius: '18px',
-                  padding: '18px',
+                  borderRadius: isCompact ? '12px' : '18px',
+                  padding: isCompact ? '10px 12px' : '18px',
                   display: 'flex',
                   flexDirection: 'column',
                   justifyContent: 'space-between',

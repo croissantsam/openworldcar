@@ -122,11 +122,16 @@ export class InputManager {
       this.keys.has(' ') ||
       this.keys.has('space')
 
+    const kThrottle = up ? 1 : 0
+    const kBrake = down ? 1 : 0
+    const kSteer = left ? -1 : right ? 1 : 0
+    const kHandbrake = handbrake
+
     return {
-      throttle: up ? 1 : 0,
-      brake: down ? 1 : 0,
-      steering: left ? -1 : right ? 1 : 0,
-      handbrake,
+      throttle: Math.max(kThrottle, Math.min(1, Math.max(0, this.virtualInput.throttle))),
+      brake: Math.max(kBrake, Math.min(1, Math.max(0, this.virtualInput.brake))),
+      steering: kSteer !== 0 ? kSteer : Math.min(1, Math.max(-1, this.virtualInput.steering)),
+      handbrake: kHandbrake || this.virtualInput.handbrake,
     }
   }
 

@@ -589,7 +589,6 @@ function buildFlatRoofWithDetails(
   parapetGeo.setIndex(pIdx)
   parapetGeo.computeVertexNormals()
   const parapetMesh = new THREE.Mesh(parapetGeo, facadeMat)
-  parapetMesh.castShadow = true
   parapetMesh.receiveShadow = true
   group.add(parapetMesh)
 
@@ -604,7 +603,6 @@ function buildFlatRoofWithDetails(
     const boxGeo = new THREE.BoxGeometry(hvacW, hvacH, hvacD)
     const boxMesh = new THREE.Mesh(boxGeo, equipMat)
     boxMesh.position.set(cx, baseHeight + hvacH / 2, cy)
-    boxMesh.castShadow = true
     boxMesh.receiveShadow = true
     group.add(boxMesh)
 
@@ -613,7 +611,6 @@ function buildFlatRoofWithDetails(
       const ventGeo = new THREE.BoxGeometry(hvacW * 0.65, 1.2, hvacD * 0.65)
       const ventMesh = new THREE.Mesh(ventGeo, equipMat)
       ventMesh.position.set(cx + hvacW * 0.85, baseHeight + 0.6, cy)
-      ventMesh.castShadow = true
       group.add(ventMesh)
     }
 
@@ -837,7 +834,6 @@ function buildGabledRoof(
   const chimMat = new THREE.MeshStandardMaterial({ color: 0x7c382b, roughness: 0.9 })
   const chimMesh = new THREE.Mesh(chimGeo, chimMat)
   chimMesh.position.set(cx + (ridgeAlongX ? spanX * 0.25 : 0), peakY + chimH * 0.3, cy + (ridgeAlongX ? 0 : spanY * 0.25))
-  chimMesh.castShadow = true
   group.add(chimMesh)
 
   return group
@@ -1167,7 +1163,6 @@ function buildOpenCanopy(
     const p = fp[i]!
     const pillar = new THREE.Mesh(pillarGeo, pillarMat)
     pillar.position.set(p.x, 0, p.y)
-    pillar.castShadow = true
     group.add(pillar)
   }
 

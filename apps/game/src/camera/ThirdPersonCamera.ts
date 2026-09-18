@@ -48,8 +48,11 @@ export class ThirdPersonCamera {
 
     // Dynamic FOV with speed — arcade rush of speed
     const targetFov = Math.min(MAX_FOV, BASE_FOV + speed * 0.30)
-    this.camera.fov = THREE.MathUtils.lerp(this.camera.fov, targetFov, 0.08)
-    this.camera.updateProjectionMatrix()
+    const newFov = THREE.MathUtils.lerp(this.camera.fov, targetFov, 0.08)
+    if (Math.abs(newFov - this.camera.fov) > 0.02) {
+      this.camera.fov = newFov
+      this.camera.updateProjectionMatrix()
+    }
 
     // Desired offset: behind the car's facing direction
     const distance = BASE_DISTANCE + speed * SPEED_DISTANCE_FACTOR

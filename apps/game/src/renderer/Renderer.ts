@@ -17,7 +17,7 @@ export class Renderer {
       stencil: true,
       powerPreference: 'high-performance',
     })
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5))
     this.renderer.setSize(mount.clientWidth, mount.clientHeight)
     this.renderer.shadowMap.enabled = true
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap
@@ -50,28 +50,46 @@ export class Renderer {
     window.addEventListener('resize', this._onResize)
   }
 
+  private sun!: THREE.DirectionalLight
+
   private _setupLighting(): void {
     // Ambient
     const ambient = new THREE.AmbientLight(0xfff1e0, 0.65)
     this.scene.add(ambient)
 
     // Sun — warm angled directional sunlight with crisp shadows & asphalt specular sheen
-    const sun = new THREE.DirectionalLight(0xfff6e4, 2.8)
-    sun.position.set(240, 320, 140)
-    sun.castShadow = true
-    sun.shadow.mapSize.set(2048, 2048)
-    sun.shadow.camera.near = 1
-    sun.shadow.camera.far = 1000
-    sun.shadow.camera.left = -500
-    sun.shadow.camera.right = 500
-    sun.shadow.camera.top = 500
-    sun.shadow.camera.bottom = -500
-    sun.shadow.bias = -0.0001
-    this.scene.add(sun)
+    this.sun = new THREE.DirectionalLight(0xfff6e4, 2.8)
+    this.sun.position.set(120, 180, 80)
+    this.sun.castShadow = true
+    this.sun.shadow.mapSize.set(2048, 2048)
+    this.sun.shadow.camera.near = 10
+    this.sun.shadow.camera.far = 400
+    this.sun.shadow.camera.left = -160
+    this.sun.shadow.camera.right = 160
+    this.sun.shadow.camera.top = 160
+    this.sun.shadow.camera.bottom = -160
+    this.sun.shadow.bias = -0.0003
+    this.sun.shadow.normalBias = 0.02
+    this.scene.add(this.sun)
+    this.scene.add(this.sun.target)
 
     // Hemisphere — sky / warm ground reflection
     const hemi = new THREE.HemisphereLight(0x72b9f8, 0x3d4a36, 0.85)
     this.scene.add(hemi)
+  }
+
+  /**
+   * Keep directional light and shadow camera centered on the player.
+   * This provides crisp shadows everywhere the player drives without rendering distant objects.
+   */
+  updateSunPosition(pos: { x: number; y: number; z: number }): void {
+    if (!this.sun) return
+    const offsetX = 120
+    const offsetY = 180
+    const offsetZ = 80
+    this.sun.position.set(pos.x + offsetX, pos.y + offsetY, pos.z + offsetZ)
+    this.sun.target.position.set(pos.x, pos.y, pos.z)
+    this.sun.target.updateMatrixWorld()
   }
 
   private _createGroundMesh(): void {

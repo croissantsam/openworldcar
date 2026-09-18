@@ -320,6 +320,9 @@ export class GameEngine {
     // ── Camera ─────────────────────────────────────────────────────────────
     this.camera.update(delta)
 
+    // ── Update Sun & Shadow Camera around Player ───────────────────────────
+    this.renderer.updateSunPosition(pos)
+
     // ── Render ─────────────────────────────────────────────────────────────
     this.renderer.render()
 

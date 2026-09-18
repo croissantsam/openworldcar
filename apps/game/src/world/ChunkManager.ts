@@ -27,10 +27,10 @@ import { BuildingMeshGenerator } from './BuildingMeshGenerator.js'
 import { ParkMeshGenerator } from './ParkMeshGenerator.js'
 import { RoadMeshGenerator } from './RoadMeshGenerator.js'
 
-/** Number of chunks loaded in each direction from the player (7x7 grid = 3.5km). */
-const LOAD_RADIUS = 3
-/** Chunks beyond this distance (in chunk units) are unloaded (5.5km). */
-const UNLOAD_RADIUS = 5
+/** Number of chunks loaded in each direction from the player (5x5 grid = 2.5km across). */
+const LOAD_RADIUS = 2
+/** Chunks beyond this distance (in chunk units) are unloaded (4km). */
+const UNLOAD_RADIUS = 4
 
 export type StreetInfo = {
   name: string

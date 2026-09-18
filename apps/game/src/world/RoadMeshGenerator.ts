@@ -992,7 +992,6 @@ function buildCleanSidewalk(
     curbGeo.computeVertexNormals()
     const curbMesh = new THREE.Mesh(curbGeo, CURB_MAT)
     curbMesh.receiveShadow = true
-    curbMesh.castShadow = true
     curbMesh.renderOrder = 5
     group.add(curbMesh)
   }
@@ -1343,26 +1342,34 @@ function buildParkingBays(
   return group
 }
 
+function tagTemplateGroup(group: THREE.Group): THREE.Group {
+  group.traverse((c) => {
+    c.userData['isTemplate'] = true
+  })
+  return group
+}
+
 // ── Reusable Street Lamp Template (Style Haussmann / Paris) ─────────────────
 let _streetLampTemplate: THREE.Group | null = null
 function getStreetLampTemplate(): THREE.Group {
   if (_streetLampTemplate) return _streetLampTemplate
   const group = new THREE.Group()
   const lampMat = new THREE.MeshStandardMaterial({ color: 0x1c2420, roughness: 0.52, metalness: 0.55 })
-  const baseGeo = new THREE.CylinderGeometry(0.18, 0.24, 0.7, 8)
+  const baseGeo = new THREE.CylinderGeometry(0.24, 0.32, 0.7, 8)
   baseGeo.translate(0, 0.35, 0)
   group.add(new THREE.Mesh(baseGeo, lampMat))
 
-  const shaftGeo = new THREE.CylinderGeometry(0.07, 0.11, 3.8, 8)
-  shaftGeo.translate(0, 2.6, 0)
+  const shaftGeo = new THREE.CylinderGeometry(0.09, 0.14, 3.2, 8)
+  shaftGeo.translate(0, 2.3, 0)
   group.add(new THREE.Mesh(shaftGeo, lampMat))
 
-  const armGeo = new THREE.BoxGeometry(0.06, 0.06, 0.7)
-  armGeo.translate(0, 4.3, 0.3)
+  const armGeo = new THREE.CylinderGeometry(0.06, 0.08, 1.2, 6)
+  armGeo.rotateZ(-0.45)
+  armGeo.translate(0, 3.8, 0.35)
   group.add(new THREE.Mesh(armGeo, lampMat))
 
   const headMat = new THREE.MeshStandardMaterial({
-    color: 0xfff2d4,
+    color: 0xfff0c8,
     emissive: 0xffe299,
     emissiveIntensity: 0.9,
     roughness: 0.2,
@@ -1371,7 +1378,7 @@ function getStreetLampTemplate(): THREE.Group {
   lanternGeo.translate(0, 4.2, 0.6)
   group.add(new THREE.Mesh(lanternGeo, headMat))
 
-  _streetLampTemplate = group
+  _streetLampTemplate = tagTemplateGroup(group)
   return _streetLampTemplate
 }
 
@@ -1413,7 +1420,7 @@ function getTrafficLightTemplate(): THREE.Group {
   greenLight.position.set(0, 2.98, 0.24)
   group.add(greenLight)
 
-  _trafficLightTemplate = group
+  _trafficLightTemplate = tagTemplateGroup(group)
   return _trafficLightTemplate
 }
 

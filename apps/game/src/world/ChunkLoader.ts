@@ -21,6 +21,7 @@ import { BuildingMeshGenerator } from './BuildingMeshGenerator.js'
 import { WaterwayMeshGenerator } from './WaterwayMeshGenerator.js'
 import { ParkMeshGenerator } from './ParkMeshGenerator.js'
 import { ChunkCache } from './ChunkCache.js'
+import { optimizeChunkGroup } from './ChunkOptimizer.js'
 
 export type LoadedChunk = {
   id: ChunkId
@@ -165,6 +166,7 @@ export class ChunkLoader {
     slabMesh.position.set(center.x, 0.001, center.z)
     slabMesh.receiveShadow = true
     slabMesh.renderOrder = 0
+    slabMesh.userData['skipMerge'] = true
     group.add(slabMesh)
 
     // 1. Waterways (rendered below roads so roads occlude river banks)
@@ -191,7 +193,8 @@ export class ChunkLoader {
       if (buildingGroup) group.add(buildingGroup)
     }
 
-    return group
+    // Consolidate static geometries to minimize draw calls by ~95%
+    return optimizeChunkGroup(group)
   }
 
   /**
@@ -207,6 +210,7 @@ export class ChunkLoader {
     slabMesh.position.set(center.x, -0.05, center.z)
     slabMesh.receiveShadow = true
     slabMesh.renderOrder = 0
+    slabMesh.userData['skipMerge'] = true
     group.add(slabMesh)
     return group
   }

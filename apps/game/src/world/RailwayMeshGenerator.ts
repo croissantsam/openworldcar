@@ -234,13 +234,11 @@ export class RailwayMeshGenerator {
     const rightRail = buildRibbon(pts, railHalfW, RAIL_H_OFFSET, RAIL_STEEL_MAT)
     if (leftRail) {
       shiftLateral(leftRail, pts, GAUGE / 2)
-      leftRail.castShadow = true
       leftRail.renderOrder = 3
       group.add(leftRail)
     }
     if (rightRail) {
       shiftLateral(rightRail, pts, -GAUGE / 2)
-      rightRail.castShadow = true
       rightRail.renderOrder = 3
       group.add(rightRail)
     }

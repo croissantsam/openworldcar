@@ -124,7 +124,6 @@ export class BarrierMeshGenerator {
           const postGeo = new THREE.BoxGeometry(0.08, railH, 0.08)
           const postMesh = new THREE.Mesh(postGeo, GUARD_RAIL_MAT)
           postMesh.position.set(px, railH / 2, pz)
-          postMesh.castShadow = true
           group.add(postMesh)
         }
       } else {
@@ -144,7 +143,6 @@ export class BarrierMeshGenerator {
           const postGeo = new THREE.BoxGeometry(0.08, fenceH, 0.08)
           const postMesh = new THREE.Mesh(postGeo, FENCE_POST_MAT)
           postMesh.position.set(px, fenceH / 2, pz)
-          postMesh.castShadow = true
           group.add(postMesh)
         }
       }

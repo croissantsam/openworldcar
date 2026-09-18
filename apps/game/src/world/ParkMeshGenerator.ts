@@ -182,6 +182,13 @@ let _plataneTemplate: THREE.Group | null = null
 let _lindenTemplate: THREE.Group | null = null
 let _ornamentalTemplate: THREE.Group | null = null
 
+function tagTemplateGroup(group: THREE.Group): THREE.Group {
+  group.traverse((c) => {
+    c.userData['isTemplate'] = true
+  })
+  return group
+}
+
 /**
  * Archetype 1: Parisian Plane Tree / Horse Chestnut (Platane / Marronnier)
  * Majestic spreading crown with multiple organic leafy tiers and branching boughs.
@@ -205,7 +212,6 @@ function getPlataneTemplate(): THREE.Group {
     bGeo.rotateY(angle)
     bGeo.translate(Math.sin(angle) * 0.6, 3.4, Math.cos(angle) * 0.6)
     const bMesh = new THREE.Mesh(bGeo, TRUNK_MAT)
-    bMesh.castShadow = true
     group.add(bMesh)
   }
 
@@ -228,7 +234,7 @@ function getPlataneTemplate(): THREE.Group {
     group.add(fMesh)
   }
 
-  _plataneTemplate = group
+  _plataneTemplate = tagTemplateGroup(group)
   return _plataneTemplate
 }
 
@@ -265,7 +271,7 @@ function getLindenTemplate(): THREE.Group {
     group.add(fMesh)
   }
 
-  _lindenTemplate = group
+  _lindenTemplate = tagTemplateGroup(group)
   return _lindenTemplate
 }
 
@@ -301,7 +307,7 @@ function getOrnamentalTemplate(): THREE.Group {
     group.add(fMesh)
   }
 
-  _ornamentalTemplate = group
+  _ornamentalTemplate = tagTemplateGroup(group)
   return _ornamentalTemplate
 }
 
@@ -317,14 +323,12 @@ function getBenchTemplate(): THREE.Group {
     const legGeo = new THREE.BoxGeometry(0.06, 0.44, 0.52)
     legGeo.translate(xOff, 0.22, 0)
     const leg = new THREE.Mesh(legGeo, BENCH_IRON_MAT)
-    leg.castShadow = true
     group.add(leg)
 
     // Backrest upright support
     const upGeo = new THREE.BoxGeometry(0.05, 0.45, 0.05)
     upGeo.translate(xOff, 0.60, -0.22)
     const up = new THREE.Mesh(upGeo, BENCH_IRON_MAT)
-    up.castShadow = true
     group.add(up)
   }
 
@@ -333,7 +337,6 @@ function getBenchTemplate(): THREE.Group {
     const slatGeo = new THREE.BoxGeometry(1.65, 0.035, 0.12)
     slatGeo.translate(0, 0.44, -0.16 + s * 0.15)
     const slat = new THREE.Mesh(slatGeo, BENCH_WOOD_MAT)
-    slat.castShadow = true
     group.add(slat)
   }
 
@@ -342,11 +345,10 @@ function getBenchTemplate(): THREE.Group {
     const backGeo = new THREE.BoxGeometry(1.65, 0.12, 0.035)
     backGeo.translate(0, 0.62 + b * 0.15, -0.24)
     const back = new THREE.Mesh(backGeo, BENCH_WOOD_MAT)
-    back.castShadow = true
     group.add(back)
   }
 
-  _benchTemplate = group
+  _benchTemplate = tagTemplateGroup(group)
   return _benchTemplate
 }
 
@@ -361,7 +363,6 @@ function getShrubTemplate(): THREE.Group {
   mainGeo.scale(1.2, 0.8, 1.0)
   mainGeo.translate(0, 0.55, 0)
   const shrub = new THREE.Mesh(mainGeo, SHRUB_MAT)
-  shrub.castShadow = true
   shrub.receiveShadow = true
   group.add(shrub)
 
@@ -378,7 +379,7 @@ function getShrubTemplate(): THREE.Group {
     group.add(bMesh)
   }
 
-  _shrubTemplate = group
+  _shrubTemplate = tagTemplateGroup(group)
   return _shrubTemplate
 }
 

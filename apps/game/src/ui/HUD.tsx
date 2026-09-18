@@ -217,63 +217,64 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
         </div>
       </div>
 
-      {/* Controls hint (bottom-left) - ONLY shown in keyboard desktop mode, never over the joystick */}
+      {/* Controls hint - ONLY shown in desktop keyboard mode, offset to right of minimap so they never overlap */}
       {!touchMode && (
         <div
           style={{
             position: 'absolute',
-            bottom: 24,
-            left: 24,
+            bottom: 28,
+            left: 236,
             color: 'rgba(255,255,255,0.45)',
             fontSize: 11,
             fontFamily: "'Inter', sans-serif",
-            lineHeight: 2,
+            lineHeight: 1.8,
             pointerEvents: 'none',
             userSelect: 'none',
-            background: 'rgba(0,0,0,0.3)',
-            padding: '8px 12px',
-            borderRadius: 6,
-            backdropFilter: 'blur(4px)',
+            background: 'rgba(0,0,0,0.4)',
+            padding: '8px 14px',
+            borderRadius: 8,
+            backdropFilter: 'blur(6px)',
+            border: '1px solid rgba(255,255,255,0.08)',
           }}
         >
-          <div><strong style={{ color: '#00d4ff' }}>W / Z / ↑</strong> — Accelerate</div>
-          <div><strong style={{ color: '#00d4ff' }}>S / ↓</strong> — Brake / Reverse</div>
-          <div><strong style={{ color: '#00d4ff' }}>A / Q / ←</strong> — Steer Left</div>
-          <div><strong style={{ color: '#00d4ff' }}>D / →</strong> — Steer Right</div>
-          <div><strong style={{ color: '#00d4ff' }}>SPACE</strong> — Handbrake</div>
-          <div><strong style={{ color: '#00d4ff' }}>M</strong> — Carte / GPS</div>
+          <div><strong style={{ color: '#00d4ff' }}>W / Z / ↑</strong> — Accélérer</div>
+          <div><strong style={{ color: '#00d4ff' }}>S / ↓</strong> — Frein / Marche arrière</div>
+          <div><strong style={{ color: '#00d4ff' }}>A / Q / ←</strong> — Tourner à gauche</div>
+          <div><strong style={{ color: '#00d4ff' }}>D / →</strong> — Tourner à droite</div>
+          <div><strong style={{ color: '#00d4ff' }}>ESPACE</strong> — Frein à main</div>
+          <div><strong style={{ color: '#00d4ff' }}>M</strong> — Carte GPS</div>
           <div><strong style={{ color: '#38bdf8' }}>T</strong> — 🌍 Voyager dans le monde</div>
-          <div><strong style={{ color: '#00d4ff' }}>`</strong> — Debug Overlay</div>
         </div>
       )}
 
-      {/* Desktop Mode Button to re-enable mobile joystick anytime */}
-      {!touchMode && (
-        <button
-          onClick={() => setTouchMode(true)}
-          style={{
-            position: 'absolute',
-            top: 14,
-            right: 14,
-            background: 'rgba(8, 14, 26, 0.85)',
-            border: '1px solid rgba(0, 212, 255, 0.4)',
-            borderRadius: 10,
-            padding: '6px 12px',
-            color: '#00d4ff',
-            fontFamily: "'Orbitron', sans-serif",
-            fontSize: 10,
-            fontWeight: 800,
-            letterSpacing: 1,
-            cursor: 'pointer',
-            zIndex: 60,
-            backdropFilter: 'blur(8px)',
-            boxShadow: '0 4px 14px rgba(0, 0, 0, 0.4)',
-          }}
-          title="Activer le joystick et les commandes tactiles mobiles"
-        >
-          🎮 JOYSTICK MOBILE
-        </button>
-      )}
+      {/* Mode Switch Button (Joystick Tactile vs Clavier Bureau) */}
+      <button
+        onClick={() => setTouchMode((v) => !v)}
+        style={{
+          position: 'absolute',
+          top: isMobileLandscape ? 'max(8px, env(safe-area-inset-top, 8px))' : 16,
+          right: isMobileLandscape ? 'max(12px, env(safe-area-inset-right, 12px))' : 20,
+          background: 'rgba(8, 14, 26, 0.88)',
+          border: '1px solid rgba(0, 212, 255, 0.45)',
+          borderRadius: 10,
+          padding: isMobileLandscape ? '4px 8px' : '6px 14px',
+          color: '#00d4ff',
+          fontFamily: "'Orbitron', sans-serif",
+          fontSize: isMobileLandscape ? 8 : 10,
+          fontWeight: 800,
+          letterSpacing: 1,
+          cursor: 'pointer',
+          zIndex: 60,
+          backdropFilter: 'blur(8px)',
+          boxShadow: '0 4px 14px rgba(0, 0, 0, 0.4)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 4,
+        }}
+        title="Basculer entre commandes tactiles (joystick) et clavier bureau"
+      >
+        <span>{touchMode ? '🎮 JOYSTICK' : '⌨️ CLAVIER'}</span>
+      </button>
 
       {/* Top Street Navigation Banner */}
       <div
@@ -645,13 +646,8 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
         onToggleExpanded={() => setMapExpanded((v) => !v)}
       />
 
-      {/* Mobile Touch Controls Overlay */}
-      <TouchControls
-        engine={engine}
-        onToggleMap={() => setMapExpanded((v) => !v)}
-        onToggleTravel={() => setTravelOpen(true)}
-        onToggleSearch={() => setSearchBarOpen((v) => !v)}
-      />
+      {/* Mobile Touch Controls Overlay (Joystick + Brake) */}
+      <TouchControls engine={engine} visible={touchMode} />
 
       {/* Mobile Orientation Prompt (when in portrait mode) */}
       <OrientationPrompt />

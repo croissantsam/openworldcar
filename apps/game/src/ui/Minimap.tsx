@@ -112,7 +112,11 @@ export function Minimap({
 
       // Background
       ctx.save()
-      ctx.fillStyle = expanded ? 'rgba(10, 16, 28, 0.95)' : 'rgba(10, 16, 28, 0.88)'
+      ctx.fillStyle = expanded
+        ? 'rgba(10, 16, 28, 0.95)'
+        : isMobileLandscape
+        ? 'rgba(10, 16, 28, 0.65)'
+        : 'rgba(10, 16, 28, 0.88)'
       if (!expanded) {
         ctx.beginPath()
         ctx.arc(centerX, centerY, width / 2 - 2, 0, Math.PI * 2)
@@ -697,47 +701,49 @@ export function Minimap({
           onClick={handleMapClick}
           style={{
             position: 'relative',
-            width: expanded ? 520 : isMobileLandscape ? 116 : 190,
-            height: expanded ? 480 : isMobileLandscape ? 116 : 190,
+            width: expanded ? 520 : isMobileLandscape ? 90 : 190,
+            height: expanded ? 480 : isMobileLandscape ? 90 : 190,
             borderRadius: expanded ? 12 : '50%',
             overflow: 'hidden',
             cursor: expanded ? 'crosshair' : 'pointer',
             transition: 'width 0.25s ease, height 0.25s ease, border-radius 0.25s ease',
             boxShadow: '0 8px 32px rgba(0, 0, 0, 0.6), 0 0 20px rgba(0, 212, 255, 0.18)',
-            border: expanded ? '1px solid rgba(0, 212, 255, 0.4)' : 'none',
+            border: expanded ? '1px solid rgba(0, 212, 255, 0.4)' : isMobileLandscape ? '1.5px solid rgba(0, 212, 255, 0.3)' : 'none',
           }}
           title={expanded ? 'Cliquez pour définir une destination GPS' : 'Agrandir la carte'}
         >
           <canvas
             ref={canvasRef}
-            width={expanded ? 520 : isMobileLandscape ? 116 : 190}
-            height={expanded ? 480 : isMobileLandscape ? 116 : 190}
+            width={expanded ? 520 : isMobileLandscape ? 90 : 190}
+            height={expanded ? 480 : isMobileLandscape ? 90 : 190}
             style={{ width: '100%', height: '100%', display: 'block' }}
           />
 
-          {/* Quick toggle button */}
-          <button
-            onClick={(e) => {
-              e.stopPropagation()
-              setExpanded((v) => !v)
-            }}
-            style={{
-              position: 'absolute',
-              top: isMobileLandscape ? 4 : 8,
-              right: isMobileLandscape ? 4 : 8,
-              background: 'rgba(10, 16, 28, 0.85)',
-              border: '1px solid rgba(0, 212, 255, 0.3)',
-              color: '#00d4ff',
-              borderRadius: 4,
-              padding: isMobileLandscape ? '2px 5px' : '3px 7px',
-              fontFamily: "'Orbitron', sans-serif",
-              fontSize: isMobileLandscape ? 8 : 9,
-              cursor: 'pointer',
-              letterSpacing: 1,
-            }}
-          >
-            {expanded ? '✕' : isMobileLandscape ? 'MAP' : 'CARTE [M]'}
-          </button>
+          {/* Quick toggle button - hidden on mobile landscape to keep radar ultra-clean */}
+          {(expanded || !isMobileLandscape) && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                setExpanded((v) => !v)
+              }}
+              style={{
+                position: 'absolute',
+                top: 8,
+                right: 8,
+                background: 'rgba(10, 16, 28, 0.85)',
+                border: '1px solid rgba(0, 212, 255, 0.3)',
+                color: '#00d4ff',
+                borderRadius: 4,
+                padding: '3px 7px',
+                fontFamily: "'Orbitron', sans-serif",
+                fontSize: 9,
+                cursor: 'pointer',
+                letterSpacing: 1,
+              }}
+            >
+              {expanded ? '✕' : 'CARTE [M]'}
+            </button>
+          )}
         </div>
 
         {/* GPS Turn-by-Turn Bar */}

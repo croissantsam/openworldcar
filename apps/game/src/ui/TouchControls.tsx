@@ -4,11 +4,6 @@ import type { GameEngine } from '../game/GameEngine.js'
 interface TouchControlsProps {
   engine: GameEngine
   visible?: boolean
-  onToggleMap?: () => void
-  onToggleTravel?: () => void
-  onToggleSearch?: () => void
-  onToggleMode?: () => void
-  isTouchMode?: boolean
 }
 
 const MAX_RADIUS = 54 // Max pixel travel for the joystick knob
@@ -17,15 +12,11 @@ const DEADZONE = 0.08
 export const TouchControls: React.FC<TouchControlsProps> = ({
   engine,
   visible = true,
-  onToggleMap,
-  onToggleMode,
-  isTouchMode = true,
 }) => {
   // Joystick knob offset from base center
   const [knobPos, setKnobPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
   const [isJoystickActive, setIsJoystickActive] = useState(false)
   const [isBraking, setIsBraking] = useState(false)
-  const [isFullscreen, setIsFullscreen] = useState(false)
 
   const joystickTouchId = useRef<number | null>(null)
   const brakeTouchId = useRef<number | null>(null)
@@ -33,23 +24,6 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
 
   // Cache base center in viewport coordinates
   const baseCenterRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 })
-
-  // Detect touch device
-  const isTouchDevice =
-    typeof window !== 'undefined' &&
-    ('ontouchstart' in window ||
-      navigator.maxTouchPoints > 0 ||
-      window.matchMedia('(pointer: coarse)').matches)
-
-  useEffect(() => {
-    const handleFullscreenChange = () => {
-      setIsFullscreen(!!document.fullscreenElement)
-    }
-    document.addEventListener('fullscreenchange', handleFullscreenChange)
-    return () => {
-      document.removeEventListener('fullscreenchange', handleFullscreenChange)
-    }
-  }, [])
 
   const triggerHaptic = (ms = 12) => {
     try {
@@ -251,18 +225,6 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
     applyInputs(knobPos.x, knobPos.y, false)
   }
 
-  const toggleFullscreen = async () => {
-    try {
-      if (!document.fullscreenElement) {
-        await document.documentElement.requestFullscreen()
-      } else {
-        await document.exitFullscreen()
-      }
-    } catch {
-      // Ignored
-    }
-  }
-
   if (!visible) {
     return null
   }
@@ -279,125 +241,6 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
         touchAction: 'none',
       }}
     >
-      {/* ── Top-Right Mobile Quick Action Icons ──────────────────────────── */}
-      <div
-        style={{
-          position: 'absolute',
-          top: 'max(10px, env(safe-area-inset-top, 10px))',
-          right: 'max(14px, env(safe-area-inset-right, 14px))',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-          pointerEvents: 'auto',
-          zIndex: 60,
-        }}
-      >
-        {/* Toggle Mode Button (Joystick / Clavier) */}
-        {onToggleMode && (
-          <button
-            onClick={onToggleMode}
-            style={{
-              height: 36,
-              padding: '0 10px',
-              borderRadius: 10,
-              background: 'rgba(8, 14, 26, 0.85)',
-              border: '1px solid rgba(0, 212, 255, 0.4)',
-              color: '#00d4ff',
-              fontFamily: "'Orbitron', sans-serif",
-              fontSize: 10,
-              fontWeight: 800,
-              letterSpacing: 1,
-              display: 'flex',
-              alignItems: 'center',
-              gap: 5,
-              cursor: 'pointer',
-              backdropFilter: 'blur(8px)',
-              boxShadow: '0 4px 14px rgba(0, 0, 0, 0.4)',
-            }}
-            title="Basculer entre commandes tactiles (joystick) et clavier bureau"
-          >
-            <span>{isTouchMode ? '🎮 TACTILE' : '⌨️ CLAVIER'}</span>
-          </button>
-        )}
-
-        {/* Fullscreen Toggle */}
-        <button
-          onClick={toggleFullscreen}
-          style={{
-            width: 36,
-            height: 36,
-            borderRadius: 10,
-            background: 'rgba(8, 14, 26, 0.82)',
-            border: '1px solid rgba(56, 189, 248, 0.4)',
-            color: '#38bdf8',
-            fontSize: 16,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            cursor: 'pointer',
-            backdropFilter: 'blur(8px)',
-            boxShadow: '0 4px 14px rgba(0, 0, 0, 0.4)',
-          }}
-          title="Plein écran"
-        >
-          {isFullscreen ? '⤦' : '⛶'}
-        </button>
-
-        {/* Respawn Button */}
-        <button
-          onClick={() => {
-            triggerHaptic(30)
-            engine.respawnPlayer()
-          }}
-          style={{
-            width: 36,
-            height: 36,
-            borderRadius: 10,
-            background: 'rgba(8, 14, 26, 0.82)',
-            border: '1px solid rgba(245, 158, 11, 0.4)',
-            color: '#fbbf24',
-            fontSize: 16,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            cursor: 'pointer',
-            backdropFilter: 'blur(8px)',
-            boxShadow: '0 4px 14px rgba(0, 0, 0, 0.4)',
-          }}
-          title="Recentrer le véhicule / Débloquer"
-        >
-          🔄
-        </button>
-
-        {/* Map toggle */}
-        {onToggleMap && (
-          <button
-            onClick={() => {
-              triggerHaptic(15)
-              onToggleMap()
-            }}
-            style={{
-              width: 36,
-              height: 36,
-              borderRadius: 10,
-              background: 'rgba(8, 14, 26, 0.82)',
-              border: '1px solid rgba(0, 212, 255, 0.4)',
-              color: '#00d4ff',
-              fontSize: 15,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              cursor: 'pointer',
-              backdropFilter: 'blur(8px)',
-              boxShadow: '0 4px 14px rgba(0, 0, 0, 0.4)',
-            }}
-            title="Agrandir la carte GPS"
-          >
-            🗺️
-          </button>
-        )}
-      </div>
-
       {/* ── Left Thumb Zone: Virtual Analog Joystick ─────────────────────── */}
       <div
         style={{

@@ -17,6 +17,12 @@ import * as THREE from 'three'
 import RAPIER from '@dimforge/rapier3d-compat'
 import type { Road, RoadSurface } from '@world-drive/shared'
 
+/** Per-chunk options passed by the loader. */
+export type RoadGenerateOptions = {
+  /** false when the chunk has real street lamps (OSM nodes): skip the procedural ones. */
+  syntheticLamps?: boolean
+}
+
 const LANE_WIDTH = 3.6 // metres per lane
 const SIDEWALK_HEIGHT = 0.12 // 12cm curb elevation above road
 const CURB_WIDTH = 0.18 // 18cm beveled granite curb
@@ -2119,7 +2125,7 @@ export class RoadMeshGenerator {
    * Main entry point: dispatches road generation according to the 3 elevation
    * modes defined in pont.txt (ground, bridge, tunnel).
    */
-  static generate(road: Road, allRoads?: Road[]): THREE.Group | null {
+  static generate(road: Road, allRoads?: Road[], _opts?: RoadGenerateOptions): THREE.Group | null {
     const pts = road.points
     if (pts.length < 2) return null
 

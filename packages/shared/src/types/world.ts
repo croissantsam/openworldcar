@@ -76,6 +76,8 @@ export type Road = {
   explicitWidth?: number
   /** Ordered list of world-space points along the road centre-line. */
   points: WorldPosition[]
+  /** Crossing / traffic-signal nodes on this way (from OSM node tags). */
+  crossings?: RoadCrossing[]
 }
 
 // ─── Building ────────────────────────────────────────────────────────────────
@@ -153,6 +155,8 @@ export type Building = {
   id: string
   /** Footprint polygon (world-space). Last point ≠ first point (open ring). */
   footprint: WorldPosition[]
+  /** Inner courtyards (open rings), from multipolygon relations. */
+  holes?: WorldPosition[][]
   height: number
   levels: number
   minHeight?: number
@@ -188,11 +192,53 @@ export type PoiCategory =
   | 'shop'
   | 'other'
 
+/** What a tagged OSM node represents, for rendering (street level). */
+export type PoiKind =
+  | 'shop'
+  | 'amenity'
+  | 'office'
+  | 'craft'
+  | 'tourism'
+  | 'tree'
+  | 'street_lamp'
+  | 'bench'
+  | 'bollard'
+  | 'bicycle_parking'
+  | 'waste_basket'
+  | 'bus_stop'
+  | 'subway_entrance'
+  | 'fire_hydrant'
+  | 'post_box'
+  | 'housenumber'
+  | 'entrance'
+  | 'advertising'
+  | 'fountain'
+  | 'crossing'
+  | 'traffic_signals'
+  | 'other'
+
 export type PointOfInterest = {
   id: string
   category: PoiCategory
   name?: string
   position: WorldPosition
+  /** Street-level kind (shop, tree, bench…). Absent on legacy/prebuilt data. */
+  kind?: PoiKind
+  /** Raw OSM tags of the node (decoded). */
+  tags?: Record<string, string>
+  brand?: string
+}
+
+/** A pedestrian crossing / traffic signal node lying on a road way. */
+export type RoadCrossing = {
+  nodeId: string
+  position: WorldPosition
+  /** Index of the node in the way's node list (best effort; snap by position). */
+  index: number
+  /** highway=traffic_signals or crossing=traffic_signals */
+  signals: boolean
+  /** crossing:markings / crossing value (zebra, lines, no, uncontrolled, marked…) */
+  markings?: string
 }
 
 // ─── Waterway & Water Areas ───────────────────────────────────────────────────

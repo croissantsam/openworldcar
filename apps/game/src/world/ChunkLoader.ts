@@ -22,6 +22,7 @@ import { WaterwayMeshGenerator } from './WaterwayMeshGenerator.js'
 import { ParkMeshGenerator } from './ParkMeshGenerator.js'
 import { ChunkCache } from './ChunkCache.js'
 import { optimizeChunkGroup, optimizeChunkGroupIncremental } from './ChunkOptimizer.js'
+import { deduplicateBuildings } from '@world-drive/world-data'
 
 export type LoadedChunk = {
   id: ChunkId
@@ -71,6 +72,7 @@ export function unionWorldChunk(base: WorldChunk, extra: WorldChunk): WorldChunk
   }
   appendMissing(out.roads, extra.roads)
   appendMissing(out.buildings, extra.buildings)
+  out.buildings = deduplicateBuildings(out.buildings)
   appendMissing(out.pointsOfInterest, extra.pointsOfInterest)
   appendMissing(out.waterways, extra.waterways)
   appendMissing(out.parks, extra.parks)
@@ -272,7 +274,8 @@ export class ChunkLoader {
       const roadGroup = RoadMeshGenerator.generate(road, allRoads as Road[])
       if (roadGroup) group.add(roadGroup)
     }
-    for (const building of chunk.buildings) {
+    const uniqueBuildings = deduplicateBuildings(chunk.buildings)
+    for (const building of uniqueBuildings) {
       yield 0.2 + 0.03 * building.footprint.length
       const buildingGroup = BuildingMeshGenerator.generate(building)
       if (buildingGroup) group.add(buildingGroup)

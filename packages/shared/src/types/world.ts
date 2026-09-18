@@ -166,6 +166,10 @@ export type Building = {
   roofLevels?: number
   name?: string
   brand?: string
+  /** Whether this element is an OSM building:part (3D sub-part of a building). */
+  isPart?: boolean
+  /** OSM source tag (e.g. cadastre-dgi-fr). */
+  source?: string
 }
 
 // ─── Point of Interest ───────────────────────────────────────────────────────

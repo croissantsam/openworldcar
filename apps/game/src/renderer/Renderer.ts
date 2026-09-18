@@ -16,6 +16,7 @@ export class Renderer {
       antialias: true,
       stencil: true,
       powerPreference: 'high-performance',
+      logarithmicDepthBuffer: true,
     })
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5))
     this.renderer.setSize(mount.clientWidth, mount.clientHeight)

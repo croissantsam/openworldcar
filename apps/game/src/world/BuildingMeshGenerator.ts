@@ -1216,10 +1216,31 @@ export class BuildingMeshGenerator {
     const bottomY = building.minHeight ?? 0
     const wallHeight = Math.max(1.5, building.height - bottomY)
 
-    const wallGeo = new THREE.ExtrudeGeometry(shape, {
+    const fullGeo = new THREE.ExtrudeGeometry(shape, {
       depth: wallHeight,
       bevelEnabled: false,
     })
+
+    // Extract ONLY the extruded side walls (materialIndex === 1), discarding redundant top/bottom caps.
+    // This prevents the top cap (textured with facade windows) from Z-fighting with roof geometry!
+    const wallGroup = fullGeo.groups.find((g) => g.materialIndex === 1)
+    let wallGeo: THREE.BufferGeometry
+    if (wallGroup) {
+      wallGeo = new THREE.BufferGeometry()
+      const pos = fullGeo.attributes['position'] as THREE.BufferAttribute
+      const uv = fullGeo.attributes['uv'] as THREE.BufferAttribute
+      const normal = fullGeo.attributes['normal'] as THREE.BufferAttribute
+      const start = wallGroup.start
+      const count = wallGroup.count
+
+      wallGeo.setAttribute('position', new THREE.BufferAttribute(pos.array.slice(start * 3, (start + count) * 3), 3))
+      if (normal) wallGeo.setAttribute('normal', new THREE.BufferAttribute(normal.array.slice(start * 3, (start + count) * 3), 3))
+      if (uv) wallGeo.setAttribute('uv', new THREE.BufferAttribute(uv.array.slice(start * 2, (start + count) * 2), 2))
+      fullGeo.dispose()
+    } else {
+      wallGeo = fullGeo
+    }
+
     wallGeo.rotateX(-Math.PI / 2)
     if (bottomY > 0) wallGeo.translate(0, bottomY, 0)
 
@@ -1254,7 +1275,7 @@ export class BuildingMeshGenerator {
       roofShape = 'round'
     }
 
-    const roofBaseH = building.height + 0.02
+    const roofBaseH = building.height
     const defaultPitch = Math.max(1.8, Math.min(8.0, building.height * 0.18))
     const roofPitch = building.roofHeight ?? defaultPitch
 

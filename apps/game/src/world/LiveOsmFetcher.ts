@@ -10,7 +10,7 @@ import {
   setWorldOrigin,
   geoToWorld,
 } from '@world-drive/math'
-import { normalizeRoad, normalizeBuilding, normalizeWaterway, normalizePark } from '@world-drive/world-data'
+import { normalizeRoad, normalizeBuilding, normalizeWaterway, normalizePark, deduplicateBuildings } from '@world-drive/world-data'
 import { generateChunks, type ChunkMap } from '@world-drive/world-data'
 
 /**
@@ -72,7 +72,7 @@ function parseOsmXml(xmlText: string): {
     if (park) { parks.push(park); continue }
   }
 
-  return { roads, buildings, waterways, parks, railways, barriers }
+  return { roads, buildings: deduplicateBuildings(buildings), waterways, parks, railways, barriers }
 }
 
 /**

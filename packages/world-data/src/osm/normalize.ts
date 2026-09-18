@@ -480,6 +480,9 @@ export function normalizeBuilding(way: RawOsmWay): Building | null {
   const name = way.tags['name']
   const brand = way.tags['brand'] ?? way.tags['operator']
 
+  const isPart = Boolean(way.tags['building:part'] && way.tags['building:part'] !== 'no')
+  const source = way.tags['source']
+
   return {
     id: way.id,
     footprint,
@@ -497,6 +500,8 @@ export function normalizeBuilding(way: RawOsmWay): Building | null {
     ...(roofLevels !== undefined ? { roofLevels } : {}),
     ...(name !== undefined ? { name } : {}),
     ...(brand !== undefined ? { brand } : {}),
+    ...(isPart ? { isPart: true } : {}),
+    ...(source ? { source } : {}),
   }
 }
 

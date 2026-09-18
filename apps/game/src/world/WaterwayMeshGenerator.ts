@@ -31,15 +31,18 @@ const EMBANKMENT_EDGE_MAT = new THREE.MeshStandardMaterial({
 
 // ── Animated Water ShaderMaterial ──────────────────────────────────────────
 const WATER_VERT = `
+  #include <logdepthbuf_pars_vertex>
   varying vec2 vUv;
   varying vec3 vWorldPos;
   void main() {
     vUv = uv;
     vWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    #include <logdepthbuf_vertex>
   }
 `
 const WATER_FRAG = `
+  #include <logdepthbuf_pars_fragment>
   uniform float uTime;
   varying vec2 vUv;
   varying vec3 vWorldPos;
@@ -58,6 +61,8 @@ const WATER_FRAG = `
   }
 
   void main() {
+    #include <logdepthbuf_fragment>
+
     // Coherent world-space flowing ripples
     vec2 p = vWorldPos.xz * 0.14;
     float n1 = noise(p * 3.2 + vec2(uTime * 0.35, uTime * 0.12));

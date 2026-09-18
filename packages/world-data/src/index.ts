@@ -3,6 +3,7 @@ export * from './osm/filter.js'
 export * from './osm/normalize.js'
 export * from './osm/parser.js'
 export * from './chunk/generator.js'
+export * from './osm/deduplicate.js'
 export * from './graph/RoadGraph.js'
 
 

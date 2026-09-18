@@ -26,6 +26,7 @@ import {
   normalizePoi,
   generateChunks,
   geoBoundingBox,
+  deduplicateBuildings,
 } from '@world-drive/world-data'
 import type { RawOsmWay, RawOsmNode } from '@world-drive/world-data'
 
@@ -104,10 +105,11 @@ async function main(): Promise<void> {
   }
 
   console.log(`🛣  Roads: ${roads.length}`)
-  console.log(`🏢 Buildings: ${buildings.length}`)
+  const cleanBuildings = deduplicateBuildings(buildings)
+  console.log(`🏢 Buildings: ${cleanBuildings.length} (deduplicated from ${buildings.length})`)
   console.log(`📍 POIs: ${pois.length}`)
 
-  const chunkMap = generateChunks(roads, buildings, pois)
+  const chunkMap = generateChunks(roads, cleanBuildings, pois)
 
   await mkdir(out, { recursive: true })
 

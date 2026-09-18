@@ -39,10 +39,10 @@ export type LoadResult = LoadedChunk | null | 'pending'
 // Continuous urban sub-base bedrock slab with 4m overlap across chunks (zero seams)
 const URBAN_SLAB_GEOMETRY = new THREE.PlaneGeometry(CHUNK_SIZE + 4, CHUNK_SIZE + 4)
 const URBAN_SLAB_MATERIAL = new THREE.MeshStandardMaterial({
-  color: 0x86827a, // Warm Parisian stone pavement foundation matching sidewalk tiles
+  color: 0x7c7872, // Warm Parisian stone pavement foundation
   roughness: 0.88,
   metalness: 0.04,
-  stencilWrite: true,
+  stencilWrite: false,
   stencilRef: 1,
   stencilFunc: THREE.NotEqualStencilFunc,
 })

@@ -23,17 +23,27 @@ export class PlayerSession {
   lastProcessedSeq = 0
   hasClientState = false
   connectedAt: number
+  invincibleUntil: number
 
   constructor(id: string, ws: WebSocket) {
     this.id = id
     this.ws = ws
     this.connectedAt = Date.now()
+    this.invincibleUntil = Date.now() + 30_000
     this.state = {
       id,
       position: { x: 0, y: 1.5, z: 0 },
       rotation: { x: 0, y: 0, z: 0 },
       velocity: { x: 0, y: 0, z: 0 },
     }
+  }
+
+  resetInvincibility(durationMs = 30_000): void {
+    this.invincibleUntil = Date.now() + durationMs
+  }
+
+  isInvincible(): boolean {
+    return Date.now() < this.invincibleUntil
   }
 
   send(data: string): void {

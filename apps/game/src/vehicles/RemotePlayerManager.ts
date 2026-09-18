@@ -30,29 +30,44 @@ function hashId(id: string): number {
   return h
 }
 
-function createNametagSprite(title: string, borderColor: string): THREE.Sprite {
+function renderNametagToCanvas(
+  canvas: HTMLCanvasElement,
+  title: string,
+  borderColor: string,
+  isShielded = false,
+): void {
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return
+  ctx.clearRect(0, 0, canvas.width, canvas.height)
+
+  ctx.fillStyle = isShielded ? 'rgba(8, 22, 38, 0.92)' : 'rgba(12, 14, 18, 0.88)'
+  ctx.beginPath()
+  ctx.roundRect(10, 8, 236, 48, 24)
+  ctx.fill()
+
+  ctx.strokeStyle = isShielded ? '#00e5ff' : borderColor
+  ctx.lineWidth = isShielded ? 3.5 : 2.5
+  ctx.stroke()
+
+  ctx.fillStyle = isShielded ? '#e0f7ff' : '#ffffff'
+  ctx.font = 'bold 20px system-ui, sans-serif'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillText(title, 128, 32)
+}
+
+function createNametagSprite(title: string, borderColor: string): {
+  sprite: THREE.Sprite
+  canvas: HTMLCanvasElement | null
+  texture: THREE.CanvasTexture | null
+} {
   if (typeof document === 'undefined') {
-    return new THREE.Sprite()
+    return { sprite: new THREE.Sprite(), canvas: null, texture: null }
   }
   const canvas = document.createElement('canvas')
   canvas.width = 256
   canvas.height = 64
-  const ctx = canvas.getContext('2d')!
-
-  ctx.fillStyle = 'rgba(12, 14, 18, 0.88)'
-  ctx.beginPath()
-  ctx.roundRect(12, 10, 232, 44, 22)
-  ctx.fill()
-
-  ctx.strokeStyle = borderColor
-  ctx.lineWidth = 3
-  ctx.stroke()
-
-  ctx.fillStyle = '#ffffff'
-  ctx.font = 'bold 22px system-ui, sans-serif'
-  ctx.textAlign = 'center'
-  ctx.textBaseline = 'middle'
-  ctx.fillText(title, 128, 32)
+  renderNametagToCanvas(canvas, title, borderColor, false)
 
   const tex = new THREE.CanvasTexture(canvas)
   const mat = new THREE.SpriteMaterial({ map: tex, depthTest: false })
@@ -60,21 +75,77 @@ function createNametagSprite(title: string, borderColor: string): THREE.Sprite {
   sprite.scale.set(2.4, 0.6, 1)
   sprite.position.set(0, 2.2, 0)
   sprite.renderOrder = 999
-  return sprite
+  return { sprite, canvas, texture: tex }
+}
+
+function buildRemoteShield(): {
+  group: THREE.Group
+  innerMat: THREE.MeshStandardMaterial
+  outerMat: THREE.MeshBasicMaterial
+  outerMesh: THREE.Mesh
+} {
+  const group = new THREE.Group()
+  group.name = 'remote_shield'
+
+  const innerGeo = new THREE.SphereGeometry(1, 24, 16)
+  const innerMat = new THREE.MeshStandardMaterial({
+    color: 0x00d4ff,
+    emissive: 0x0099ff,
+    emissiveIntensity: 0.8,
+    roughness: 0.15,
+    metalness: 0.15,
+    transparent: true,
+    opacity: 0.26,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  })
+  const innerMesh = new THREE.Mesh(innerGeo, innerMat)
+  innerMesh.scale.set(1.5, 1.1, 2.7)
+  innerMesh.position.set(0, 0.65, 0)
+  group.add(innerMesh)
+
+  const outerGeo = new THREE.IcosahedronGeometry(1.02, 2)
+  const outerMat = new THREE.MeshBasicMaterial({
+    color: 0x66f0ff,
+    wireframe: true,
+    transparent: true,
+    opacity: 0.22,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  })
+  const outerMesh = new THREE.Mesh(outerGeo, outerMat)
+  outerMesh.scale.set(1.53, 1.13, 2.73)
+  outerMesh.position.set(0, 0.65, 0)
+  group.add(outerMesh)
+
+  return { group, innerMat, outerMat, outerMesh }
 }
 
 type RemotePlayer = {
   id: string
   mesh: THREE.Group
   body: RAPIER.RigidBody | null
+  collider: RAPIER.Collider | null
   buffer: InterpolationBuffer
   lastSeen: number
+  invincibleUntil: number
+  shieldGroup: THREE.Group
+  shieldInnerMat: THREE.MeshStandardMaterial
+  shieldOuterMat: THREE.MeshBasicMaterial
+  shieldOuterMesh: THREE.Mesh
+  nametagCanvas: HTMLCanvasElement | null
+  nametagTexture: THREE.CanvasTexture | null
+  paletteHex: string
+  lastTagText: string
+  colliderWasEnabled: boolean
 }
 
 export class RemotePlayerManager {
   private scene: THREE.Scene
   private world: RAPIER.World | undefined
   private players = new Map<string, RemotePlayer>()
+  private isLocalInvincible = false
+  private localPos: { x: number; y: number; z: number } | null = null
 
   constructor(scene: THREE.Scene, world?: RAPIER.World | undefined) {
     this.scene = scene
@@ -83,6 +154,11 @@ export class RemotePlayerManager {
 
   setPhysicsWorld(world: RAPIER.World): void {
     this.world = world
+  }
+
+  setLocalPlayerState(pos: { x: number; y: number; z: number }, isInvincible: boolean): void {
+    this.localPos = pos
+    this.isLocalInvincible = isInvincible
   }
 
   /**
@@ -98,6 +174,8 @@ export class RemotePlayerManager {
       if (!player) {
         player = this._createRemotePlayer(snap.id, snap)
         this.players.set(snap.id, player)
+      } else if (snap.invincibleUntil !== undefined) {
+        player.invincibleUntil = snap.invincibleUntil
       }
 
       player.buffer.addSnapshot(snap)
@@ -110,6 +188,7 @@ export class RemotePlayerManager {
    */
   update(_dt: number): void {
     const now = performance.now()
+    const nowMs = Date.now()
 
     for (const [id, player] of this.players) {
       // Remove stale players that haven't been seen for 5 seconds
@@ -136,6 +215,70 @@ export class RemotePlayerManager {
             z: interp.quaternion.z,
             w: interp.quaternion.w,
           })
+        }
+      }
+
+      // ── Invincibility & Collision Filtering ─────────────────────────────
+      const remoteInvincible = nowMs < player.invincibleUntil
+      const eitherInvincible = this.isLocalInvincible || remoteInvincible
+
+      // Anti-stuck safety check: keep disabled if overlapping until safely separated
+      let canCollide = !eitherInvincible
+      if (canCollide && !player.colliderWasEnabled && this.localPos) {
+        const dx = player.mesh.position.x - this.localPos.x
+        const dz = player.mesh.position.z - this.localPos.z
+        if (dx * dx + dz * dz < 8.0) {
+          canCollide = false // Still overlapping, wait until separated
+        } else {
+          player.colliderWasEnabled = true
+        }
+      } else if (!canCollide) {
+        player.colliderWasEnabled = false
+      }
+
+      if (player.collider) {
+        player.collider.setEnabled(canCollide)
+      }
+
+      // ── 3D Shield & Nametag Animation ───────────────────────────────────
+      if (remoteInvincible) {
+        player.shieldGroup.visible = true
+        player.shieldOuterMesh.rotation.y += _dt * 0.45
+        player.shieldOuterMesh.rotation.z += _dt * 0.18
+        const remainingSec = Math.max(0, (player.invincibleUntil - nowMs) / 1000)
+        if (remainingSec <= 5.0) {
+          const flash = Math.sin(nowMs * 0.015) > 0
+          player.shieldInnerMat.color.setHex(flash ? 0xff3b00 : 0xffaa00)
+          player.shieldInnerMat.emissive.setHex(flash ? 0xff2200 : 0xff6600)
+          player.shieldOuterMat.color.setHex(flash ? 0xff7700 : 0xffdd44)
+          player.shieldInnerMat.opacity = flash ? 0.40 : 0.15
+        } else {
+          const pulse = Math.sin(nowMs * 0.004) * 0.07
+          player.shieldInnerMat.color.setHex(0x00d4ff)
+          player.shieldInnerMat.emissive.setHex(0x0088ff)
+          player.shieldOuterMat.color.setHex(0x66f0ff)
+          player.shieldInnerMat.opacity = 0.26 + pulse
+        }
+
+        // Nametag badge update
+        const ceilSec = Math.ceil(remainingSec)
+        const tagText = `🛡️ RIVAL #${id.slice(0, 4).toUpperCase()} [${ceilSec}s]`
+        if (tagText !== player.lastTagText) {
+          player.lastTagText = tagText
+          if (player.nametagCanvas && player.nametagTexture) {
+            renderNametagToCanvas(player.nametagCanvas, tagText, player.paletteHex, true)
+            player.nametagTexture.needsUpdate = true
+          }
+        }
+      } else {
+        player.shieldGroup.visible = false
+        const normalTag = `RIVAL #${id.slice(0, 4).toUpperCase()}`
+        if (player.lastTagText !== normalTag) {
+          player.lastTagText = normalTag
+          if (player.nametagCanvas && player.nametagTexture) {
+            renderNametagToCanvas(player.nametagCanvas, normalTag, player.paletteHex, false)
+            player.nametagTexture.needsUpdate = true
+          }
         }
       }
     }
@@ -228,14 +371,20 @@ export class RemotePlayerManager {
 
     // 6. Floating Rival Nametag Badge
     const shortTag = `RIVAL #${id.slice(0, 4).toUpperCase()}`
-    const nametag = createNametagSprite(shortTag, palette.hex)
+    const { sprite: nametag, canvas: nametagCanvas, texture: nametagTexture } = createNametagSprite(shortTag, palette.hex)
     group.add(nametag)
+
+    // 7. Holographic Shield Bubble
+    const shield = buildRemoteShield()
+    group.add(shield.group)
+    shield.group.visible = false
 
     group.position.set(snap.position.x, snap.position.y, snap.position.z)
     this.scene.add(group)
 
-    // 7. Rapier Kinematic Rigid Body with Chassis Collider
+    // 8. Rapier Kinematic Rigid Body with Chassis Collider
     let body: RAPIER.RigidBody | null = null
+    let collider: RAPIER.Collider | null = null
     if (this.world) {
       const bDesc = RAPIER.RigidBodyDesc.kinematicPositionBased()
         .setTranslation(snap.position.x, snap.position.y, snap.position.z)
@@ -250,18 +399,31 @@ export class RemotePlayerManager {
         .setTranslation(0, 0.16, 0)
         .setFriction(0.35)
         .setRestitution(0.3)
-      this.world.createCollider(chassisDesc, body)
+      collider = this.world.createCollider(chassisDesc, body)
     }
 
     const buffer = new InterpolationBuffer()
     buffer.addSnapshot(snap)
 
+    const invincibleUntil = snap.invincibleUntil ?? (Date.now() + 30_000)
+
     return {
       id,
       mesh: group,
       body,
+      collider,
       buffer,
       lastSeen: performance.now(),
+      invincibleUntil,
+      shieldGroup: shield.group,
+      shieldInnerMat: shield.innerMat,
+      shieldOuterMat: shield.outerMat,
+      shieldOuterMesh: shield.outerMesh,
+      nametagCanvas,
+      nametagTexture,
+      paletteHex: palette.hex,
+      lastTagText: shortTag,
+      colliderWasEnabled: true,
     }
   }
 

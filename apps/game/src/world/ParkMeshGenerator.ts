@@ -108,19 +108,19 @@ const grassTex = getGrassTexture()
 const barkTex = getBarkTexture()
 
 const PARK_MATS: Record<ParkType, THREE.MeshStandardMaterial> = {
-  park:        new THREE.MeshStandardMaterial({ map: grassTex, color: 0x427c3a, roughness: 0.88, metalness: 0.0, polygonOffset: true, polygonOffsetFactor: 1.0, polygonOffsetUnits: 1.0 }),
-  garden:      new THREE.MeshStandardMaterial({ map: grassTex, color: 0x48843e, roughness: 0.86, metalness: 0.0, polygonOffset: true, polygonOffsetFactor: 1.0, polygonOffsetUnits: 1.0 }),
-  grass:       new THREE.MeshStandardMaterial({ map: grassTex, color: 0x4c8842, roughness: 0.90, metalness: 0.0, polygonOffset: true, polygonOffsetFactor: 1.0, polygonOffsetUnits: 1.0 }),
-  forest:      new THREE.MeshStandardMaterial({ map: grassTex, color: 0x2b5428, roughness: 0.92, metalness: 0.0, polygonOffset: true, polygonOffsetFactor: 1.0, polygonOffsetUnits: 1.0 }),
-  recreation:  new THREE.MeshStandardMaterial({ map: grassTex, color: 0x46823c, roughness: 0.85, metalness: 0.0, polygonOffset: true, polygonOffsetFactor: 1.0, polygonOffsetUnits: 1.0 }),
+  park:        new THREE.MeshStandardMaterial({ map: grassTex, color: 0x3e7a36, roughness: 0.88, metalness: 0.0, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1.0, polygonOffsetUnits: -1.0 }),
+  garden:      new THREE.MeshStandardMaterial({ map: grassTex, color: 0x44823a, roughness: 0.86, metalness: 0.0, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1.0, polygonOffsetUnits: -1.0 }),
+  grass:       new THREE.MeshStandardMaterial({ map: grassTex, color: 0x48863e, roughness: 0.90, metalness: 0.0, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1.0, polygonOffsetUnits: -1.0 }),
+  forest:      new THREE.MeshStandardMaterial({ map: grassTex, color: 0x285025, roughness: 0.92, metalness: 0.0, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1.0, polygonOffsetUnits: -1.0 }),
+  recreation:  new THREE.MeshStandardMaterial({ map: grassTex, color: 0x428038, roughness: 0.85, metalness: 0.0, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1.0, polygonOffsetUnits: -1.0 }),
   // Other types
-  cemetery:    new THREE.MeshStandardMaterial({ color: 0x8a8880, roughness: 0.95, metalness: 0.0, polygonOffset: true, polygonOffsetFactor: 1.0, polygonOffsetUnits: 1.0 }),
-  farmland:    new THREE.MeshStandardMaterial({ color: 0x9a7c48, roughness: 0.98, metalness: 0.0, polygonOffset: true, polygonOffsetFactor: 1.0, polygonOffsetUnits: 1.0 }),
-  parking_lot: new THREE.MeshStandardMaterial({ color: 0x909498, roughness: 0.85, metalness: 0.04, polygonOffset: true, polygonOffsetFactor: 1.0, polygonOffsetUnits: 1.0 }),
-  pitch:       new THREE.MeshStandardMaterial({ color: 0x2a7a28, roughness: 0.95, metalness: 0.0, polygonOffset: true, polygonOffsetFactor: 1.0, polygonOffsetUnits: 1.0 }),
-  beach:       new THREE.MeshStandardMaterial({ color: 0xe8d898, roughness: 0.98, metalness: 0.0, polygonOffset: true, polygonOffsetFactor: 1.0, polygonOffsetUnits: 1.0 }),
-  cliff:       new THREE.MeshStandardMaterial({ color: 0x8c7a6a, roughness: 0.96, metalness: 0.02, polygonOffset: true, polygonOffsetFactor: 1.0, polygonOffsetUnits: 1.0 }),
-  scrub:       new THREE.MeshStandardMaterial({ color: 0x608048, roughness: 0.96, metalness: 0.0, polygonOffset: true, polygonOffsetFactor: 1.0, polygonOffsetUnits: 1.0 }),
+  cemetery:    new THREE.MeshStandardMaterial({ color: 0x8a8880, roughness: 0.95, metalness: 0.0, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1.0, polygonOffsetUnits: -1.0 }),
+  farmland:    new THREE.MeshStandardMaterial({ color: 0x9a7c48, roughness: 0.98, metalness: 0.0, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1.0, polygonOffsetUnits: -1.0 }),
+  parking_lot: new THREE.MeshStandardMaterial({ color: 0x909498, roughness: 0.85, metalness: 0.04, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1.0, polygonOffsetUnits: -1.0 }),
+  pitch:       new THREE.MeshStandardMaterial({ color: 0x2a7a28, roughness: 0.95, metalness: 0.0, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1.0, polygonOffsetUnits: -1.0 }),
+  beach:       new THREE.MeshStandardMaterial({ color: 0xe8d898, roughness: 0.98, metalness: 0.0, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1.0, polygonOffsetUnits: -1.0 }),
+  cliff:       new THREE.MeshStandardMaterial({ color: 0x8c7a6a, roughness: 0.96, metalness: 0.02, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1.0, polygonOffsetUnits: -1.0 }),
+  scrub:       new THREE.MeshStandardMaterial({ color: 0x608048, roughness: 0.96, metalness: 0.0, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1.0, polygonOffsetUnits: -1.0 }),
 }
 
 // Tree bark
@@ -474,7 +474,7 @@ export class ParkMeshGenerator {
 
     const geo = new THREE.ShapeGeometry(shape)
     geo.rotateX(-Math.PI / 2)
-    geo.translate(0, 0.016, 0)
+    geo.translate(0, 0.020, 0)
 
     // Compute seamless world-space planar UV mapping for grass texture
     const posAttr = geo.getAttribute('position')
@@ -492,7 +492,7 @@ export class ParkMeshGenerator {
     const mat = PARK_MATS[park.type] ?? PARK_MATS['park']
     const lawn = new THREE.Mesh(geo, mat)
     lawn.receiveShadow = true
-    lawn.renderOrder = 1
+    lawn.renderOrder = 2
     group.add(lawn)
 
     // ── 2. Type-specific overlays (Cemetery, Parking lot, Pitch) ───────────

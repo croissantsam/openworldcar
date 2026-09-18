@@ -130,6 +130,64 @@ class CrashAudio {
       noiseSource.stop(now + 0.55)
     }
   }
+
+  playShieldActivated(): void {
+    this.init()
+    if (!this.ctx || this.ctx.state === 'suspended') return
+    const now = this.ctx.currentTime
+
+    // Rising harmonic sci-fi chime
+    const freqs = [440, 659.25, 880]
+    freqs.forEach((freq, idx) => {
+      if (!this.ctx) return
+      const osc = this.ctx.createOscillator()
+      const gain = this.ctx.createGain()
+      osc.type = 'sine'
+      osc.frequency.setValueAtTime(freq, now + idx * 0.08)
+      gain.gain.setValueAtTime(0, now + idx * 0.08)
+      gain.gain.linearRampToValueAtTime(0.18, now + idx * 0.08 + 0.03)
+      gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.08 + 0.45)
+      osc.connect(gain)
+      gain.connect(this.ctx.destination)
+      osc.start(now + idx * 0.08)
+      osc.stop(now + idx * 0.08 + 0.5)
+    })
+  }
+
+  playShieldWarning(): void {
+    this.init()
+    if (!this.ctx || this.ctx.state === 'suspended') return
+    const now = this.ctx.currentTime
+
+    const osc = this.ctx.createOscillator()
+    const gain = this.ctx.createGain()
+    osc.type = 'triangle'
+    osc.frequency.setValueAtTime(620, now)
+    gain.gain.setValueAtTime(0.12, now)
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.12)
+    osc.connect(gain)
+    gain.connect(this.ctx.destination)
+    osc.start(now)
+    osc.stop(now + 0.14)
+  }
+
+  playShieldDeactivated(): void {
+    this.init()
+    if (!this.ctx || this.ctx.state === 'suspended') return
+    const now = this.ctx.currentTime
+
+    const osc = this.ctx.createOscillator()
+    const gain = this.ctx.createGain()
+    osc.type = 'sine'
+    osc.frequency.setValueAtTime(520, now)
+    osc.frequency.exponentialRampToValueAtTime(160, now + 0.35)
+    gain.gain.setValueAtTime(0.18, now)
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.38)
+    osc.connect(gain)
+    gain.connect(this.ctx.destination)
+    osc.start(now)
+    osc.stop(now + 0.4)
+  }
 }
 
 // ── 2. 3D Spark Particle System ────────────────────────────────────────────
@@ -340,6 +398,18 @@ export class ImpactFX {
       const mat = s.mesh.material as THREE.MeshBasicMaterial
       mat.opacity = 1.0 - progress
     }
+  }
+
+  playShieldActivated(): void {
+    this.audio.playShieldActivated()
+  }
+
+  playShieldWarning(): void {
+    this.audio.playShieldWarning()
+  }
+
+  playShieldDeactivated(): void {
+    this.audio.playShieldDeactivated()
   }
 
   dispose(): void {

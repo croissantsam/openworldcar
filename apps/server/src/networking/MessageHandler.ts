@@ -49,6 +49,9 @@ export class MessageHandler {
           } satisfies ServerMessage),
         )
         break
+      case 'player_respawn':
+        session.resetInvincibility(30_000)
+        break
       case 'leave':
         this.server.removePlayer(session.id)
         break

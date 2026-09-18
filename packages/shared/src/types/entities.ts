@@ -10,6 +10,8 @@ export type PlayerSnapshot = {
   velocity: { x: number; y: number; z: number }
   /** Server tick number this snapshot belongs to. */
   tick: number
+  /** Timestamp (ms) until which the player is invincible against collisions with other players. */
+  invincibleUntil?: number
 }
 
 // ─── NPC ─────────────────────────────────────────────────────────────────────

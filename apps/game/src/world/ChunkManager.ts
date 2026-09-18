@@ -161,7 +161,7 @@ export class ChunkManager {
             }
           }
           for (const road of loaded.data.roads ?? []) {
-            const roadColliders = RoadMeshGenerator.createColliderDescs(road)
+            const roadColliders = RoadMeshGenerator.createColliderDescs(road, loaded.data.roads)
             for (const colDesc of roadColliders) {
               this.world.createCollider(colDesc, body)
             }

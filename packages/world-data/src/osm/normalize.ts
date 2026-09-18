@@ -22,19 +22,32 @@ function parseMaxSpeed(raw: string | undefined): number | undefined {
   return isNaN(n) ? undefined : n
 }
 
-function normalizeLanes(raw: string | undefined, highway: string): number {
+function normalizeLanes(
+  raw: string | undefined,
+  highway: string,
+  isOneway = false,
+  isLink = false,
+): number {
   if (raw) {
     const n = parseInt(raw, 10)
-    if (!isNaN(n)) return Math.max(2, n)
+    if (!isNaN(n)) return Math.max(1, n)
   }
-  // Grosses avenues (primary, motorway, trunk) : 4 voies
-  if (highway === 'motorway' || highway === 'trunk' || highway === 'primary') return 4
-  // Rues de ville & boulevards : 2 voies
+  // Bretelles d'échangeur / rampes : 1 voie par défaut
+  if (isLink || highway.endsWith('_link')) return 1
+  // Voies de service & chemins ruraux / agricoles : 1 voie
+  if (highway === 'service' || highway === 'track') return 1
+  // Grandes artères (motorway, trunk, primary)
+  if (highway === 'motorway' || highway === 'trunk' || highway === 'primary') {
+    return isOneway ? 2 : 4
+  }
+  // Rues urbaines à sens unique : 1 voie de circulation
+  if (isOneway) return 1
+  // Rues urbaines à double sens : 2 voies
   return 2
 }
 
 function normalizeHighwayType(raw: string): HighwayType {
-  if (raw.endsWith('_link')) raw = raw.replace('_link', '')
+  const clean = raw.endsWith('_link') ? raw.replace('_link', '') : raw
   const map: Record<string, HighwayType> = {
     motorway: 'motorway',
     trunk: 'trunk',
@@ -42,8 +55,9 @@ function normalizeHighwayType(raw: string): HighwayType {
     secondary: 'secondary',
     tertiary: 'tertiary',
     residential: 'residential',
+    living_street: 'living_street',
     service: 'service',
-    living_street: 'residential',
+    track: 'track',
     pedestrian: 'pedestrian',
     cycleway: 'cycleway',
     footway: 'footway',
@@ -52,7 +66,7 @@ function normalizeHighwayType(raw: string): HighwayType {
     unclassified: 'unclassified',
     road: 'unclassified',
   }
-  return map[raw] ?? 'unclassified'
+  return map[clean] ?? 'unclassified'
 }
 
 function normalizeRoadSurface(raw: string | undefined): RoadSurface | undefined {
@@ -97,11 +111,11 @@ function normalizeSidewalk(tags: OsmTags, highway: string): 'both' | 'left' | 'r
   const swLeft = tags['sidewalk:left']
   const swRight = tags['sidewalk:right']
 
-  if (sw === 'none' || sw === 'no') return 'none'
-  if (sw === 'both' || sw === 'yes' || (swBoth && swBoth !== 'no')) return 'both'
-  if (sw === 'left' || (swLeft && swLeft !== 'no' && (!swRight || swRight === 'no'))) return 'left'
-  if (sw === 'right' || (swRight && swRight !== 'no' && (!swLeft || swLeft === 'no'))) return 'right'
-  if (swLeft && swLeft !== 'no' && swRight && swRight !== 'no') return 'both'
+  if (sw === 'none' || sw === 'no' || sw === 'separate') return 'none'
+  if (swBoth === 'separate' || swBoth === 'no' || swBoth === 'none') return 'none'
+  if (sw === 'both' || sw === 'yes' || swBoth === 'yes') return 'both'
+  if (sw === 'left' || swLeft === 'yes') return 'left'
+  if (sw === 'right' || swRight === 'yes') return 'right'
 
   // Default: motorways, trunks, and link ramps have no pedestrian sidewalks
   if (highway === 'motorway' || highway === 'trunk' || highway.endsWith('_link')) {
@@ -163,8 +177,14 @@ export function normalizeRoad(way: RawOsmWay): Road | null {
   // Bridge clearance height calculation (from pont.txt sections 6, 10, 21)
   const bridgeHeight = isBridge ? Math.max(3.8, Math.abs(layer) * 4.5 || 4.5) : undefined
 
+  const isLink = highway.endsWith('_link')
   const onewayTag = way.tags['oneway']
   const isOneway = onewayTag === 'yes' || onewayTag === '1' || onewayTag === '-1' || isRoundabout || highway === 'motorway' || highway === 'motorway_link'
+
+  const lanesFwdRaw = parseInt(way.tags['lanes:forward'] ?? '', 10)
+  const lanesBwdRaw = parseInt(way.tags['lanes:backward'] ?? '', 10)
+  const lanesForward = !isNaN(lanesFwdRaw) ? lanesFwdRaw : undefined
+  const lanesBackward = !isNaN(lanesBwdRaw) ? lanesBwdRaw : undefined
 
   const hasBusLane = Boolean(
     way.tags['bus:lanes'] ||
@@ -182,13 +202,16 @@ export function normalizeRoad(way: RawOsmWay): Road | null {
   const isLit = way.tags['lit'] === 'yes'
 
   const rawWidth = parseFloat(way.tags['width'] ?? way.tags['est_width'] ?? '0')
-  const explicitWidth = rawWidth > 0 && !isNaN(rawWidth) ? rawWidth : undefined
+  const explicitWidth = rawWidth > 0 && !isNaN(rawWidth) ? Math.max(3.2, rawWidth) : undefined
 
   return {
     id: way.id,
     highway: normalizeHighwayType(highway),
     ...(name !== undefined ? { name } : {}),
-    lanes: normalizeLanes(way.tags['lanes'], highway),
+    lanes: normalizeLanes(way.tags['lanes'], highway, isOneway, isLink),
+    ...(lanesForward !== undefined ? { lanesForward } : {}),
+    ...(lanesBackward !== undefined ? { lanesBackward } : {}),
+    ...(isLink ? { isLink: true } : {}),
     ...(maxSpeed !== undefined ? { maxSpeed } : {}),
     ...(surface !== undefined ? { surface } : {}),
     ...(isRoundabout ? { isRoundabout: true } : {}),

@@ -106,6 +106,7 @@ export class GameServer {
           rotation: s.state.rotation,
           velocity: s.state.velocity,
           tick: this.tick,
+          invincibleUntil: s.invincibleUntil,
         }
       })
 

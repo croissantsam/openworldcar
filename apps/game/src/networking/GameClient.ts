@@ -24,9 +24,7 @@ import { v4 as uuidv4 } from 'uuid'
 
 /** Resolve WS server URL. Override with VITE_WS_URL env var. */
 function resolveWsUrl(): string {
-  const isDev = window.location.hostname === 'localhost'
-  if (isDev) return 'wss://openspeed.onrender.com'
-  return `wss://openspeed.onrender.com`
+  return 'wss://openspeed.onrender.com'
 }
 
 const MIN_RECONNECT_MS = 1_000
@@ -35,7 +33,7 @@ const PING_INTERVAL_MS = 2_000
 
 export class GameClient {
   private ws: WebSocket | null = null
-  private readonly playerId: string = uuidv4()
+  private playerId: string = uuidv4()
   private readonly wsUrl = resolveWsUrl()
 
   private _latency = 0
@@ -91,6 +89,9 @@ export class GameClient {
     try {
       const msg = parseServerMessage(event.data)
       switch (msg.type) {
+        case 'welcome':
+          this.playerId = msg.playerId
+          break
         case 'pong':
           this._latency = (Date.now() - msg.timestamp) / 2
           break
@@ -117,6 +118,15 @@ export class GameClient {
     this.reconnectTimer = setTimeout(() => this._connect(), this.reconnectDelay)
     // Exponential backoff
     this.reconnectDelay = Math.min(this.reconnectDelay * 2, MAX_RECONNECT_MS)
+  }
+
+  sendRespawn(): void {
+    if (this.ws?.readyState !== WebSocket.OPEN) return
+    this.ws.send(
+      serializeMessage({
+        type: 'player_respawn',
+      }),
+    )
   }
 
   sendInput(input: Pick<PlayerInput, 'throttle' | 'brake' | 'steering'>): void {

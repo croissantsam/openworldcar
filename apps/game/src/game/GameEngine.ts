@@ -90,6 +90,8 @@ export class GameEngine {
   // ─── Destination & Travel ────────────────────────────────────────────────
   currentDestination: WorldDestination = WORLD_DESTINATIONS[0]!
   onDestinationChanged?: (dest: WorldDestination) => void
+  onInvincibilityChanged?: (invincible: boolean) => void
+  onInvincibilityWarning?: () => void
 
   stats: DebugStats = {
     fps: 0,
@@ -138,6 +140,21 @@ export class GameEngine {
     this.playerCar.onImpact = (intensity, point, direction) => {
       this.camera.addTrauma(intensity)
       this.impactFX.triggerImpact(intensity, point, direction)
+    }
+
+    // Wire invincibility audio & events
+    this.playerCar.onInvincibilityChanged = (invincible) => {
+      if (invincible) {
+        this.impactFX.playShieldActivated()
+      } else {
+        this.impactFX.playShieldDeactivated()
+      }
+      this.onInvincibilityChanged?.(invincible)
+    }
+
+    this.playerCar.onInvincibilityWarning = () => {
+      this.impactFX.playShieldWarning()
+      this.onInvincibilityWarning?.()
     }
 
     this.chunkManager = new ChunkManager(this.renderer.scene, this.world)
@@ -255,6 +272,7 @@ export class GameEngine {
       this.impactFX?.triggerWaterSplash(pos)
       this.camera.addTrauma(0.65)
       this.playerCar.teleport(this.lastSafePos, this.lastSafeYaw)
+      this.gameClient.sendRespawn()
     } else if (pos.y >= -7.0) {
       // Car is safely on road (surface or inside subterranean tunnel) — update safe respawn position
       this.lastSafePos = { x: pos.x, y: pos.y, z: pos.z }
@@ -293,6 +311,7 @@ export class GameEngine {
     tickWater()
 
     // ── Remote Multiplayer Players ─────────────────────────────────────────
+    this.remotePlayers?.setLocalPlayerState(pos, this.playerCar.isInvincible())
     this.remotePlayers?.update(delta)
 
     // ── Impact Sparks & Screen FX ───────────────────────────────────────────
@@ -355,6 +374,14 @@ export class GameEngine {
     return this.remotePlayers?.getPlayerPositions() ?? []
   }
 
+  getInvincibilityRemaining(): number {
+    return this.playerCar?.getInvincibilityRemaining() ?? 0
+  }
+
+  isPlayerInvincible(): boolean {
+    return this.playerCar?.isInvincible() ?? false
+  }
+
   recalculateGpsRoute(): void {
     if (!this.gpsDestination || !this.chunkManager || !this.playerCar) return
     const roads = this.chunkManager.getActiveRoads()
@@ -386,6 +413,7 @@ export class GameEngine {
     const spawnPos = destination.spawnPosition ?? { x: 62.5, y: 0.5, z: 62.5 }
     const spawnHeading = destination.spawnHeading ?? 0
     this.playerCar.teleport(spawnPos, spawnHeading)
+    this.gameClient.sendRespawn()
 
     // 4. Update camera
     this.camera.update(0.016)
@@ -415,6 +443,7 @@ export class GameEngine {
           this.chunkManager.clearAllChunks()
           // Reposition car directly onto the real OSM road centerline
           this.playerCar.teleport(realOsm.spawnPoint, realOsm.spawnHeading)
+          this.gameClient.sendRespawn()
           this.camera.update(0.016)
           this.chunkManager.update(realOsm.spawnPoint)
           // Mark the new destination as covered so streaming doesn't re-fetch immediately

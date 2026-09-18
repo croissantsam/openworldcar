@@ -28,7 +28,7 @@ export const WORLD_DESTINATIONS: WorldDestination[] = [
     description: '164 Rue de Saussure dans le 17e arrondissement de Paris, quartier des Batignolles et Parc Martin Luther King.',
     origin: { latitude: 48.890169, longitude: 2.305174 },
     chunkDir: '/chunks/paris_saussure',
-    spawnPosition: { x: -23.4, y: 0.5, z: 13.1 },
+    spawnPosition: { x: -15.4, y: 0.5, z: 8.6 },
     spawnHeading: 1.106,
     landmarks: [
       { name: '164 Rue de Saussure', icon: '🏠', category: 'address' },

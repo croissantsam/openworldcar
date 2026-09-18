@@ -29,6 +29,7 @@ export type ClientMessage =
   | { type: 'player_state'; state: PlayerStateUpdate; seq: number }
   | { type: 'ping'; timestamp: number }
   | { type: 'request_chunk'; chunkId: ChunkId }
+  | { type: 'player_respawn' }
   | { type: 'leave' }
 
 // ─── Server → Client ─────────────────────────────────────────────────────────

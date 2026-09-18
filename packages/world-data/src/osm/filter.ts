@@ -23,6 +23,7 @@ const WANTED_HIGHWAYS = new Set([
   'living_street',
   'pedestrian',
   'service',
+  'track',
   'unclassified',
   'road',
 ])

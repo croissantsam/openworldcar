@@ -10,7 +10,9 @@ export type HighwayType =
   | 'secondary'
   | 'tertiary'
   | 'residential'
+  | 'living_street'
   | 'service'
+  | 'track'
   | 'path'
   | 'footway'
   | 'cycleway'
@@ -39,7 +41,11 @@ export type Road = {
   highway: HighwayType
   name?: string
   lanes: number
+  lanesForward?: number
+  lanesBackward?: number
   maxSpeed?: number
+  /** Whether this is a slip road / interchange ramp (_link tag in OSM). */
+  isLink?: boolean
   /** Whether this is a roundabout (junction=roundabout). */
   isRoundabout?: boolean
   /** Road surface material from OSM surface tag. */

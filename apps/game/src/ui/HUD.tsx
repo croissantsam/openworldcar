@@ -26,6 +26,9 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
   const [searchBarOpen, setSearchBarOpen] = useState(false)
   const [isWarping, setIsWarping] = useState(false)
   const [isGenerating, setIsGenerating] = useState(() => engine.chunkManager.isGenerating)
+  const [invincibilitySec, setInvincibilitySec] = useState<number>(() =>
+    engine.getInvincibilityRemaining()
+  )
   const lastSeenRef = useRef<number>(Date.now())
 
   useEffect(() => {
@@ -46,6 +49,10 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
       const pos = engine.playerCar.getPosition()
       const currentGeo = worldToGeo(pos)
       setDistrict(getDistrictLabel(currentGeo, newDest))
+    }
+
+    engine.onInvincibilityChanged = () => {
+      setInvincibilitySec(engine.getInvincibilityRemaining())
     }
 
     engine.chunkManager.onGeneratingStatusChange = (gen) => {
@@ -104,6 +111,8 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
           setStreet(null)
         }
       }
+
+      setInvincibilitySec(engine.getInvincibilityRemaining())
     }, 100) // 10 Hz
 
     return () => {
@@ -380,6 +389,132 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
           <span style={{ fontSize: 9, opacity: 0.75, background: 'rgba(255,255,255,0.15)', padding: '1px 5px', borderRadius: 4 }}>/</span>
         </button>
       </div>
+
+      {/* 30s Spawn Invincibility Banner */}
+      {invincibilitySec > 0 && (
+        <div
+          style={{
+            position: 'absolute',
+            top: searchBarOpen ? 134 : isGenerating ? 114 : 76,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            background: invincibilitySec <= 5.0
+              ? 'rgba(28, 10, 8, 0.92)'
+              : 'rgba(8, 16, 28, 0.90)',
+            border: invincibilitySec <= 5.0
+              ? '1px solid rgba(255, 68, 0, 0.8)'
+              : '1px solid rgba(0, 229, 255, 0.55)',
+            boxShadow: invincibilitySec <= 5.0
+              ? '0 8px 30px rgba(0,0,0,0.6), 0 0 22px rgba(255, 68, 0, 0.45)'
+              : '0 8px 30px rgba(0,0,0,0.6), 0 0 20px rgba(0, 229, 255, 0.25)',
+            backdropFilter: 'blur(16px)',
+            borderRadius: 22,
+            padding: '7px 18px',
+            userSelect: 'none',
+            zIndex: 10,
+            transition: 'top 0.2s ease, border-color 0.3s ease, background 0.3s ease',
+          }}
+        >
+          {/* Animated Shield Icon */}
+          <div
+            style={{
+              width: 28,
+              height: 28,
+              borderRadius: '50%',
+              background: invincibilitySec <= 5.0 ? 'rgba(255, 68, 0, 0.2)' : 'rgba(0, 229, 255, 0.15)',
+              border: invincibilitySec <= 5.0 ? '1.5px solid rgba(255, 68, 0, 0.6)' : '1.5px solid rgba(0, 229, 255, 0.5)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
+              boxShadow: invincibilitySec <= 5.0 ? '0 0 10px rgba(255, 68, 0, 0.5)' : '0 0 10px rgba(0, 229, 255, 0.4)',
+            }}
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
+              <path
+                d="M12 2L4 5V11.5C4 16.5 7.5 21.2 12 22.5C16.5 21.2 20 16.5 20 11.5V5L12 2Z"
+                fill={invincibilitySec <= 5.0 ? '#ff4400' : '#00e5ff'}
+                fillOpacity="0.25"
+                stroke={invincibilitySec <= 5.0 ? '#ff4400' : '#00e5ff'}
+                strokeWidth="2"
+                strokeLinejoin="round"
+              />
+              <path
+                d="M9 12L11 14L15 10"
+                stroke={invincibilitySec <= 5.0 ? '#ff7733' : '#a7f3d0'}
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </div>
+
+          {/* Text Details & Progress */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <div
+              style={{
+                fontFamily: "'Orbitron', sans-serif",
+                fontSize: 9,
+                fontWeight: 800,
+                letterSpacing: 1.5,
+                color: invincibilitySec <= 5.0 ? '#ff6622' : '#38bdf8',
+                textTransform: 'uppercase',
+              }}
+            >
+              {invincibilitySec <= 5.0 ? '⚠️ Fin du bouclier imminente' : '🛡️ Invincibilité anti-collision'}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span
+                style={{
+                  fontFamily: "'Orbitron', sans-serif",
+                  fontSize: 14,
+                  fontWeight: 800,
+                  color: '#ffffff',
+                  minWidth: 36,
+                }}
+              >
+                {Math.ceil(invincibilitySec)}s
+              </span>
+              {/* Energy progress bar */}
+              <div
+                style={{
+                  width: 75,
+                  height: 6,
+                  borderRadius: 3,
+                  background: 'rgba(255, 255, 255, 0.12)',
+                  overflow: 'hidden',
+                }}
+              >
+                <div
+                  style={{
+                    width: `${Math.min(100, Math.max(0, (invincibilitySec / 30) * 100))}%`,
+                    height: '100%',
+                    background: invincibilitySec <= 5.0
+                      ? 'linear-gradient(90deg, #ff4400, #ff8800)'
+                      : 'linear-gradient(90deg, #00b4d8, #00f2fe)',
+                    borderRadius: 3,
+                    transition: 'width 0.1s linear',
+                    boxShadow: invincibilitySec <= 5.0 ? '0 0 8px #ff4400' : '0 0 8px #00f2fe',
+                  }}
+                />
+              </div>
+              <span
+                style={{
+                  fontFamily: "'Inter', sans-serif",
+                  fontSize: 10,
+                  color: 'rgba(255, 255, 255, 0.7)',
+                  letterSpacing: 0.2,
+                }}
+              >
+                Pass-through actif entre véhicules
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Quick Address Search Overlay */}
       {searchBarOpen && (

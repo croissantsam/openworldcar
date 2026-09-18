@@ -3,7 +3,7 @@
  * directly from OpenStreetMap on the fly.
  */
 
-import type { WorldChunk, Road, Building, Waterway, Park, Railway, Barrier } from '@world-drive/shared'
+import type { WorldChunk, Road, Building, Waterway, Park, Railway, Barrier, PointOfInterest, PoiKind, PoiCategory, RoadCrossing } from '@world-drive/shared'
 import {
   type GeoPosition,
   type WorldPosition,
@@ -41,6 +41,71 @@ function parseTags(body: string): Record<string, string> {
   return tags
 }
 
+const COMMERCE_AMENITIES = new Set([
+  'restaurant', 'cafe', 'bar', 'pub', 'fast_food', 'ice_cream', 'food_court', 'pharmacy', 'bank',
+  'post_office', 'clinic', 'dentist', 'doctors', 'veterinary', 'cinema', 'theatre', 'library',
+  'bureau_de_change', 'car_rental', 'car_wash', 'fuel', 'marketplace', 'nightclub', 'casino',
+  'driving_school', 'language_school', 'music_school', 'coworking_space', 'internet_cafe',
+])
+
+/** Classify a tagged node for street-level rendering; null = not interesting. */
+function poiKindOf(tags: Record<string, string>): PoiKind | null {
+  if (tags['shop']) return 'shop'
+  const amenity = tags['amenity']
+  if (amenity) {
+    if (COMMERCE_AMENITIES.has(amenity)) return 'amenity'
+    if (amenity === 'bench') return 'bench'
+    if (amenity === 'bicycle_parking') return 'bicycle_parking'
+    if (amenity === 'waste_basket' || amenity === 'recycling') return 'waste_basket'
+    if (amenity === 'post_box') return 'post_box'
+    if (amenity === 'fountain' || amenity === 'drinking_water') return 'fountain'
+  }
+  if (tags['office']) return 'office'
+  if (tags['craft']) return 'craft'
+  if (tags['tourism'] && tags['tourism'] !== 'information') return 'tourism'
+  if (tags['natural'] === 'tree') return 'tree'
+  const hw = tags['highway']
+  if (hw === 'street_lamp') return 'street_lamp'
+  if (hw === 'bus_stop' || (tags['public_transport'] === 'platform' && tags['bus'] === 'yes')) return 'bus_stop'
+  if (hw === 'crossing') return 'crossing'
+  if (hw === 'traffic_signals') return 'traffic_signals'
+  if (tags['barrier'] === 'bollard') return 'bollard'
+  const rw = tags['railway']
+  if (rw === 'subway_entrance' || rw === 'train_station_entrance') return 'subway_entrance'
+  if (tags['emergency'] === 'fire_hydrant') return 'fire_hydrant'
+  if (tags['advertising']) return 'advertising'
+  if (tags['entrance']) return 'entrance'
+  if (tags['addr:housenumber']) return 'housenumber'
+  return null
+}
+
+function poiCategoryOf(kind: PoiKind, tags: Record<string, string>): PoiCategory {
+  const amenity = tags['amenity']
+  if (kind === 'shop') return 'shop'
+  if (amenity === 'restaurant' || amenity === 'fast_food' || amenity === 'cafe') return 'restaurant'
+  if (amenity === 'fuel') return 'fuel'
+  if (amenity === 'hospital' || amenity === 'clinic') return 'hospital'
+  if (amenity === 'police') return 'police'
+  return 'other'
+}
+
+/** Build a PointOfInterest from a tagged node (world position already projected). */
+function poiFromNode(node: RawOsmNode, position: WorldPosition): PointOfInterest | null {
+  const kind = poiKindOf(node.tags)
+  if (!kind) return null
+  const name = node.tags['name']
+  const brand = node.tags['brand']
+  return {
+    id: node.id,
+    category: poiCategoryOf(kind, node.tags),
+    ...(name !== undefined ? { name } : {}),
+    position,
+    kind,
+    tags: node.tags,
+    ...(brand !== undefined ? { brand } : {}),
+  }
+}
+
 /**
  * Shared XML parser: parses OSM XML into Road[], Building[], Waterway[], Park[]
  * and the tagged nodes (shops, trees, crossings, street furniture, addresses…)
@@ -68,6 +133,7 @@ function parseOsmXml(xmlText: string): {
   // The attribute part must not contain "/>" so a self-closing node can never
   // swallow the following elements up to some later </node>.
   const taggedNodes: RawOsmNode[] = []
+  const crossingNodes = new Map<string, RawOsmNode>()
   const taggedMatches = xmlText.matchAll(/<node id="(\d+)"((?:[^>/]|\/(?!>))*)>([\s\S]*?)<\/node>/g)
   for (const tm of taggedMatches) {
     const body = tm[3]!
@@ -75,7 +141,10 @@ function parseOsmXml(xmlText: string): {
     const coords = nodes.get(tm[1]!)
     if (!coords) continue
     const tags = parseTags(body)
-    taggedNodes.push({ id: tm[1]!, tags, lon: coords[0], lat: coords[1] })
+    const node: RawOsmNode = { id: tm[1]!, tags, lon: coords[0], lat: coords[1] }
+    taggedNodes.push(node)
+    const hw = tags['highway']
+    if (hw === 'crossing' || hw === 'traffic_signals') crossingNodes.set(node.id, node)
   }
 
   const roads: Road[] = []
@@ -90,10 +159,14 @@ function parseOsmXml(xmlText: string): {
     const wayId = wm[1]!
     const body = wm[2]!
     const coords: [number, number][] = []
+    const refs: string[] = []
 
     for (const nd of body.matchAll(/<nd ref="(\d+)"/g)) {
       const pt = nodes.get(nd[1]!)
-      if (pt) coords.push(pt)
+      if (pt) {
+        coords.push(pt)
+        refs.push(nd[1]!)
+      }
     }
 
     if (coords.length < 2) continue
@@ -103,7 +176,28 @@ function parseOsmXml(xmlText: string): {
     const raw = { id: wayId, tags, coords }
 
     const road = normalizeRoad(raw)
-    if (road) { roads.push(road); continue }
+    if (road) {
+      // Pedestrian crossings / signals mapped as nodes of this way
+      if (crossingNodes.size > 0) {
+        const crossings: RoadCrossing[] = []
+        for (let i = 0; i < refs.length; i++) {
+          const cn = crossingNodes.get(refs[i]!)
+          if (!cn) continue
+          const t = cn.tags
+          const markings = t['crossing:markings'] ?? t['crossing']
+          crossings.push({
+            nodeId: cn.id,
+            position: geoToWorld({ latitude: cn.lat, longitude: cn.lon }),
+            index: i,
+            signals: t['highway'] === 'traffic_signals' || t['crossing'] === 'traffic_signals',
+            ...(markings !== undefined ? { markings } : {}),
+          })
+        }
+        if (crossings.length > 0) road.crossings = crossings
+      }
+      roads.push(road)
+      continue
+    }
 
     const building = normalizeBuilding(raw)
     if (building) { buildings.push(building); continue }
@@ -116,6 +210,16 @@ function parseOsmXml(xmlText: string): {
   }
 
   return { roads, buildings, waterways, parks, railways, barriers, taggedNodes }
+}
+
+/** Project and classify tagged nodes into street-level POIs (world origin must be set). */
+function poisFromNodes(taggedNodes: RawOsmNode[]): PointOfInterest[] {
+  const pois: PointOfInterest[] = []
+  for (const n of taggedNodes) {
+    const poi = poiFromNode(n, geoToWorld({ latitude: n.lat, longitude: n.lon }))
+    if (poi) pois.push(poi)
+  }
+  return pois
 }
 
 /**
@@ -182,10 +286,11 @@ export async function fetchOsmChunksForArea(
   if (!xmlText || xmlText.length < 50) return null
 
   const { roads, buildings, waterways, parks, railways, barriers, taggedNodes } = parseOsmXml(xmlText)
-  console.info(`[LiveOsmFetcher] ${taggedNodes.length} tagged nodes parsed (${roads.length} roads, ${buildings.length} buildings)`)
+  const pois = poisFromNodes(taggedNodes)
+  console.info(`[LiveOsmFetcher] ${taggedNodes.length} tagged nodes parsed → ${pois.length} POIs (${roads.length} roads, ${buildings.length} buildings)`)
   if (roads.length === 0) return null
 
-  return generateChunks(roads, buildings, [], waterways, parks, railways, barriers)
+  return generateChunks(roads, buildings, pois, waterways, parks, railways, barriers)
 }
 
 export interface RealOsmAreaResult {
@@ -226,14 +331,15 @@ export async function fetchRealOsmArea(
 
   // 3. Parse ways into roads, buildings, waterways, parks, railways and barriers
   const { roads, buildings, waterways, parks, railways, barriers, taggedNodes } = parseOsmXml(xmlText)
-  console.info(`[LiveOsmFetcher] ${taggedNodes.length} tagged nodes parsed (${roads.length} roads, ${buildings.length} buildings)`)
+  const pois = poisFromNodes(taggedNodes)
+  console.info(`[LiveOsmFetcher] ${taggedNodes.length} tagged nodes parsed → ${pois.length} POIs (${roads.length} roads, ${buildings.length} buildings)`)
 
   if (roads.length === 0) {
     return null
   }
 
   // 4. Partition into chunk grid
-  const chunks = generateChunks(roads, buildings, [], waterways, parks, railways, barriers)
+  const chunks = generateChunks(roads, buildings, pois, waterways, parks, railways, barriers)
 
   // 5. Find the best on-road spawn point closest to preferredSpawn or world (0, 0)
   let bestDistSq = Infinity

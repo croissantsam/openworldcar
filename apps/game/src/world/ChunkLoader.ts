@@ -20,6 +20,8 @@ import { RoadMeshGenerator } from './RoadMeshGenerator.js'
 import { BuildingMeshGenerator } from './BuildingMeshGenerator.js'
 import { WaterwayMeshGenerator } from './WaterwayMeshGenerator.js'
 import { ParkMeshGenerator } from './ParkMeshGenerator.js'
+import { StreetFurnitureGenerator } from './StreetFurnitureGenerator.js'
+import { StorefrontGenerator } from './StorefrontGenerator.js'
 import { ChunkCache } from './ChunkCache.js'
 import { optimizeChunkGroup, optimizeChunkGroupIncremental } from './ChunkOptimizer.js'
 
@@ -267,15 +269,27 @@ export class ChunkLoader {
       const parkGroup = ParkMeshGenerator.generate(park, allRoads as Road[])
       if (parkGroup) group.add(parkGroup)
     }
+    const pois = chunk.pointsOfInterest ?? []
+    const hasRealLamps = pois.some((p) => p.kind === 'street_lamp')
     for (const road of chunk.roads) {
       yield estimateRoadMs(road)
-      const roadGroup = RoadMeshGenerator.generate(road, allRoads as Road[])
+      const roadGroup = RoadMeshGenerator.generate(road, allRoads as Road[], { syntheticLamps: !hasRealLamps })
       if (roadGroup) group.add(roadGroup)
     }
     for (const building of chunk.buildings) {
       yield 0.2 + 0.03 * building.footprint.length
       const buildingGroup = BuildingMeshGenerator.generate(building)
       if (buildingGroup) group.add(buildingGroup)
+    }
+
+    // Street-level reality from tagged nodes (instanced; cheap per chunk)
+    if (pois.length > 0) {
+      yield 4
+      const furniture = StreetFurnitureGenerator.generate(pois, allRoads as Road[], chunk.buildings)
+      if (furniture) group.add(furniture)
+      yield 4
+      const storefronts = StorefrontGenerator.generate(pois, chunk.buildings, allRoads as Road[])
+      if (storefronts) group.add(storefronts)
     }
 
     return yield* optimizeChunkGroupIncremental(group)

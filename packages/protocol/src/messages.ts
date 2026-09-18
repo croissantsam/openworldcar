@@ -40,6 +40,7 @@ export type ServerMessage =
       playerId: string
       /** Server tick rate in Hz. */
       tickRate: number
+      playerCount?: number
     }
   | {
       type: 'world_snapshot'
@@ -48,6 +49,7 @@ export type ServerMessage =
       lastProcessedSeq: number
       players: PlayerSnapshot[]
       npcs: NPCSnapshot[]
+      playerCount?: number
     }
   | {
       type: 'chunk'

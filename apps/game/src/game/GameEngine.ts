@@ -388,6 +388,21 @@ export class GameEngine {
     return this.remotePlayers?.getPlayerPositions() ?? []
   }
 
+  getConnectedPlayerCount(): number {
+    if (!this.gameClient || !this.gameClient.isConnected) return 0
+    const clientCount = this.gameClient.connectedPlayerCount
+    const visibleRemote = this.remotePlayers?.getPlayerPositions().length ?? 0
+    return Math.max(clientCount, visibleRemote + 1)
+  }
+
+  isNetworkConnected(): boolean {
+    return this.gameClient?.isConnected ?? false
+  }
+
+  getNetworkLatency(): number {
+    return this.gameClient?.latency ?? -1
+  }
+
   getInvincibilityRemaining(): number {
     return this.playerCar?.getInvincibilityRemaining() ?? 0
   }

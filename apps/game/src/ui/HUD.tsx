@@ -33,6 +33,9 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
   const [invincibilitySec, setInvincibilitySec] = useState<number>(() =>
     engine.getInvincibilityRemaining()
   )
+  const [playerCount, setPlayerCount] = useState<number>(() => engine.getConnectedPlayerCount())
+  const [isNetworkConnected, setIsNetworkConnected] = useState<boolean>(() => engine.isNetworkConnected())
+  const [networkPing, setNetworkPing] = useState<number>(() => engine.getNetworkLatency())
   const lastSeenRef = useRef<number>(Date.now())
 
   // Touch / Mobile mode (Joystick on left + Frein on right)
@@ -146,6 +149,9 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
       }
 
       setInvincibilitySec(engine.getInvincibilityRemaining())
+      setPlayerCount(engine.getConnectedPlayerCount())
+      setIsNetworkConnected(engine.isNetworkConnected())
+      setNetworkPing(engine.getNetworkLatency())
     }, 100) // 10 Hz
 
     return () => {
@@ -253,6 +259,169 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
           <div><strong style={{ color: '#38bdf8' }}>T</strong> — 🌍 Voyager dans le monde</div>
         </div>
       )}
+
+      {/* Sleek Top-Left Connected Players Badge */}
+      <div
+        style={{
+          position: 'absolute',
+          top: isMobileLandscape ? 'max(8px, env(safe-area-inset-top, 8px))' : 16,
+          left: isMobileLandscape ? 'max(14px, env(safe-area-inset-left, 14px))' : 20,
+          display: 'flex',
+          alignItems: 'center',
+          gap: isMobileLandscape ? 6 : 8,
+          background: 'rgba(10, 16, 28, 0.75)',
+          backdropFilter: 'blur(12px)',
+          WebkitBackdropFilter: 'blur(12px)',
+          border: isNetworkConnected
+            ? '1px solid rgba(0, 212, 255, 0.35)'
+            : '1px solid rgba(239, 68, 68, 0.4)',
+          borderRadius: 12,
+          padding: isMobileLandscape ? '4px 10px' : '6px 14px',
+          height: isMobileLandscape ? 34 : 40,
+          boxSizing: 'border-box',
+          userSelect: 'none',
+          pointerEvents: 'auto',
+          zIndex: 60,
+          boxShadow: isNetworkConnected
+            ? '0 4px 16px rgba(0, 0, 0, 0.4), 0 0 12px rgba(0, 212, 255, 0.15)'
+            : '0 4px 16px rgba(0, 0, 0, 0.4), 0 0 10px rgba(239, 68, 68, 0.2)',
+          transition: 'border-color 0.3s ease, box-shadow 0.3s ease',
+        }}
+        title={
+          isNetworkConnected
+            ? `${playerCount} ${playerCount > 1 ? 'joueurs connectés' : 'joueur connecté'} au serveur${
+                networkPing >= 0 ? ` (${networkPing}ms)` : ''
+              }`
+            : 'Déconnecté du serveur multijoueur'
+        }
+      >
+        {/* Animated Live Status Dot */}
+        <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div
+            style={{
+              width: isMobileLandscape ? 7 : 8,
+              height: isMobileLandscape ? 7 : 8,
+              borderRadius: '50%',
+              backgroundColor: isNetworkConnected ? '#10b981' : '#ef4444',
+              boxShadow: isNetworkConnected
+                ? '0 0 8px #10b981'
+                : '0 0 6px #ef4444',
+            }}
+          />
+          {isNetworkConnected && (
+            <div
+              style={{
+                position: 'absolute',
+                width: isMobileLandscape ? 13 : 16,
+                height: isMobileLandscape ? 13 : 16,
+                borderRadius: '50%',
+                border: '1.5px solid rgba(16, 185, 129, 0.6)',
+                animation: 'pulseRing 2s cubic-bezier(0, 0, 0.2, 1) infinite',
+                pointerEvents: 'none',
+              }}
+            />
+          )}
+        </div>
+
+        {/* Players Group SVG Icon */}
+        <svg
+          width={isMobileLandscape ? 13 : 15}
+          height={isMobileLandscape ? 13 : 15}
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke={isNetworkConnected ? '#00d4ff' : '#94a3b8'}
+          strokeWidth="2.2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          style={{ flexShrink: 0 }}
+        >
+          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+          <circle cx="9" cy="7" r="4" />
+          <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+          <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+        </svg>
+
+        {/* Player Count & Label */}
+        {isNetworkConnected ? (
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 5 }}>
+            <span
+              style={{
+                fontFamily: "'Orbitron', sans-serif",
+                fontSize: isMobileLandscape ? 13 : 15,
+                fontWeight: 900,
+                color: '#ffffff',
+                lineHeight: 1,
+                textShadow: '0 0 10px rgba(0, 212, 255, 0.5)',
+              }}
+            >
+              {playerCount}
+            </span>
+            <span
+              style={{
+                fontFamily: "'Inter', sans-serif",
+                fontSize: isMobileLandscape ? 8 : 10,
+                fontWeight: 700,
+                color: '#94a3b8',
+                letterSpacing: 1,
+                lineHeight: 1,
+                textTransform: 'uppercase',
+              }}
+            >
+              {isMobileLandscape
+                ? playerCount > 1
+                  ? 'JOUEURS'
+                  : 'JOUEUR'
+                : playerCount > 1
+                ? 'JOUEURS CONNECTÉS'
+                : 'JOUEUR CONNECTÉ'}
+            </span>
+          </div>
+        ) : (
+          <span
+            style={{
+              fontFamily: "'Inter', sans-serif",
+              fontSize: isMobileLandscape ? 8 : 10,
+              fontWeight: 700,
+              color: '#f87171',
+              letterSpacing: 1,
+              lineHeight: 1,
+              textTransform: 'uppercase',
+            }}
+          >
+            HORS-LIGNE
+          </span>
+        )}
+
+        {/* Latency / Ping Indicator (when online & available) */}
+        {isNetworkConnected && networkPing >= 0 && (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              borderLeft: '1px solid rgba(255, 255, 255, 0.12)',
+              paddingLeft: isMobileLandscape ? 5 : 8,
+              marginLeft: 2,
+            }}
+          >
+            <span
+              style={{
+                fontFamily: "'Orbitron', sans-serif",
+                fontSize: isMobileLandscape ? 8 : 10,
+                fontWeight: 700,
+                color:
+                  networkPing < 80
+                    ? '#34d399'
+                    : networkPing < 150
+                    ? '#fbbf24'
+                    : '#f87171',
+                lineHeight: 1,
+              }}
+            >
+              {networkPing}ms
+            </span>
+          </div>
+        )}
+      </div>
 
       {/* Sleek Top-Right Menu Button */}
       <button
@@ -786,6 +955,14 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
           </div>
         </div>
       )}
+      {/* Keyframe animations for HUD elements */}
+      <style>{`
+        @keyframes pulseRing {
+          0% { transform: scale(0.9); opacity: 0.8; }
+          70% { transform: scale(2.0); opacity: 0; }
+          100% { transform: scale(2.0); opacity: 0; }
+        }
+      `}</style>
     </>
   )
 }

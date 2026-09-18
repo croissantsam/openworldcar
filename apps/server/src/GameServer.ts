@@ -116,10 +116,15 @@ export class GameServer {
         lastProcessedSeq: session.lastProcessedSeq,
         players: playerSnapshots,
         npcs: npcSnapshots,
+        playerCount: this.sessions.size,
       }
 
       session.send(serializeMessage(snapshot))
     }
+  }
+
+  get connectedPlayerCount(): number {
+    return this.sessions.size
   }
 
   updatePlayerState(id: string, state: PlayerStateUpdate): void {

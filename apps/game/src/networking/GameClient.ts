@@ -38,6 +38,7 @@ export class GameClient {
 
   private _latency = 0
   private _nearbyPlayers = 0
+  private _playerCount = 0
   private inputSeq = 0
 
   private pingTimer: ReturnType<typeof setInterval> | null = null
@@ -73,6 +74,7 @@ export class GameClient {
   private _onOpen = (): void => {
     this.connected = true
     this.reconnectDelay = MIN_RECONNECT_MS
+    this._playerCount = Math.max(1, this._playerCount)
 
     this.ws?.send(
       serializeMessage({ type: 'join', playerId: this.playerId } satisfies ClientMessage),
@@ -91,13 +93,27 @@ export class GameClient {
       switch (msg.type) {
         case 'welcome':
           this.playerId = msg.playerId
+          if (typeof msg.playerCount === 'number') {
+            this._playerCount = msg.playerCount
+          }
           break
         case 'pong':
           this._latency = (Date.now() - msg.timestamp) / 2
           break
         case 'world_snapshot':
           this._nearbyPlayers = msg.players.length
+          if (typeof msg.playerCount === 'number') {
+            this._playerCount = msg.playerCount
+          } else {
+            this._playerCount = msg.players.length + 1
+          }
           this.onSnapshot?.(msg.players, this.playerId)
+          break
+        case 'player_joined':
+          this._playerCount++
+          break
+        case 'player_left':
+          this._playerCount = Math.max(1, this._playerCount - 1)
           break
         default:
           break
@@ -109,6 +125,7 @@ export class GameClient {
 
   private _onClose = (): void => {
     this.connected = false
+    this._playerCount = 0
     if (this.pingTimer) { clearInterval(this.pingTimer); this.pingTimer = null }
     this._scheduleReconnect()
   }
@@ -167,12 +184,18 @@ export class GameClient {
     return this._nearbyPlayers
   }
 
+  get connectedPlayerCount(): number {
+    return this.connected ? Math.max(1, this._playerCount) : 0
+  }
+
   get isConnected(): boolean {
     return this.connected
   }
 
   disconnect(): void {
     this.disposed = true
+    this.connected = false
+    this._playerCount = 0
     if (this.pingTimer) clearInterval(this.pingTimer)
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
     this.ws?.close()

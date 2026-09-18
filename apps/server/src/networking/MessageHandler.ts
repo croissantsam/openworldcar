@@ -65,6 +65,7 @@ export class MessageHandler {
       type: 'welcome',
       playerId: session.id,
       tickRate: 20,
+      playerCount: this.server.connectedPlayerCount,
     }
     session.send(serializeMessage(welcome))
     console.log(`[Server] Player joined: ${session.id}`)

@@ -6,7 +6,7 @@ interface TouchControlsProps {
   visible?: boolean
 }
 
-const MAX_RADIUS = 54 // Max pixel travel for the joystick knob
+const MAX_RADIUS = 34 // Max pixel travel for the smaller joystick knob
 const DEADZONE = 0.08
 
 export const TouchControls: React.FC<TouchControlsProps> = ({
@@ -241,14 +241,14 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
         touchAction: 'none',
       }}
     >
-      {/* ── Left Thumb Zone: Virtual Analog Joystick ─────────────────────── */}
+      {/* ── Left Thumb Zone: Virtual Analog Joystick (Compact) ─────────── */}
       <div
         style={{
           position: 'absolute',
-          bottom: 'max(20px, env(safe-area-inset-bottom, 20px))',
-          left: 'max(24px, env(safe-area-inset-left, 24px))',
-          width: 140,
-          height: 140,
+          bottom: 'max(16px, env(safe-area-inset-bottom, 16px))',
+          left: 'max(20px, env(safe-area-inset-left, 20px))',
+          width: 96,
+          height: 96,
           pointerEvents: 'auto',
           touchAction: 'none',
           display: 'flex',
@@ -266,20 +266,20 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
           ref={baseRef}
           style={{
             position: 'relative',
-            width: 130,
-            height: 130,
+            width: 88,
+            height: 88,
             borderRadius: '50%',
             background: isJoystickActive
-              ? 'radial-gradient(circle, rgba(0, 212, 255, 0.15) 0%, rgba(8, 16, 32, 0.82) 75%)'
-              : 'radial-gradient(circle, rgba(15, 23, 42, 0.6) 0%, rgba(8, 14, 26, 0.75) 100%)',
+              ? 'radial-gradient(circle, rgba(0, 212, 255, 0.12) 0%, rgba(8, 16, 32, 0.6) 75%)'
+              : 'radial-gradient(circle, rgba(15, 23, 42, 0.3) 0%, rgba(8, 14, 26, 0.45) 100%)',
             border: isJoystickActive
-              ? '2px solid rgba(0, 212, 255, 0.75)'
-              : '1.5px solid rgba(56, 189, 248, 0.35)',
+              ? '2px solid rgba(0, 212, 255, 0.7)'
+              : '1.5px solid rgba(56, 189, 248, 0.25)',
             boxShadow: isJoystickActive
-              ? '0 0 28px rgba(0, 212, 255, 0.4), inset 0 0 20px rgba(0, 212, 255, 0.18)'
-              : '0 8px 32px rgba(0, 0, 0, 0.6), inset 0 1px 2px rgba(255, 255, 255, 0.1)',
-            backdropFilter: 'blur(12px)',
-            WebkitBackdropFilter: 'blur(12px)',
+              ? '0 0 20px rgba(0, 212, 255, 0.35), inset 0 0 12px rgba(0, 212, 255, 0.15)'
+              : '0 4px 16px rgba(0, 0, 0, 0.4)',
+            backdropFilter: 'blur(8px)',
+            WebkitBackdropFilter: 'blur(8px)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -290,9 +290,9 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
           <span
             style={{
               position: 'absolute',
-              top: 6,
-              fontSize: 10,
-              color: isJoystickActive && knobPos.y < -15 ? '#00d4ff' : 'rgba(56, 189, 248, 0.4)',
+              top: 4,
+              fontSize: 8,
+              color: isJoystickActive && knobPos.y < -12 ? '#00d4ff' : 'rgba(56, 189, 248, 0.35)',
               fontWeight: 900,
               transition: 'color 0.1s',
             }}
@@ -302,9 +302,9 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
           <span
             style={{
               position: 'absolute',
-              bottom: 6,
-              fontSize: 10,
-              color: isJoystickActive && knobPos.y > 15 ? '#f87171' : 'rgba(56, 189, 248, 0.4)',
+              bottom: 4,
+              fontSize: 8,
+              color: isJoystickActive && knobPos.y > 12 ? '#f87171' : 'rgba(56, 189, 248, 0.35)',
               fontWeight: 900,
               transition: 'color 0.1s',
             }}
@@ -314,9 +314,9 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
           <span
             style={{
               position: 'absolute',
-              left: 8,
-              fontSize: 10,
-              color: isJoystickActive && knobPos.x < -15 ? '#00d4ff' : 'rgba(56, 189, 248, 0.4)',
+              left: 5,
+              fontSize: 8,
+              color: isJoystickActive && knobPos.x < -12 ? '#00d4ff' : 'rgba(56, 189, 248, 0.35)',
               fontWeight: 900,
               transition: 'color 0.1s',
             }}
@@ -326,9 +326,9 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
           <span
             style={{
               position: 'absolute',
-              right: 8,
-              fontSize: 10,
-              color: isJoystickActive && knobPos.x > 15 ? '#00d4ff' : 'rgba(56, 189, 248, 0.4)',
+              right: 5,
+              fontSize: 8,
+              color: isJoystickActive && knobPos.x > 12 ? '#00d4ff' : 'rgba(56, 189, 248, 0.35)',
               fontWeight: 900,
               transition: 'color 0.1s',
             }}
@@ -340,18 +340,18 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
           <div
             style={{
               position: 'absolute',
-              width: '70%',
+              width: '60%',
               height: 1,
-              background: 'rgba(56, 189, 248, 0.15)',
+              background: 'rgba(56, 189, 248, 0.12)',
               pointerEvents: 'none',
             }}
           />
           <div
             style={{
               position: 'absolute',
-              height: '70%',
+              height: '60%',
               width: 1,
-              background: 'rgba(56, 189, 248, 0.15)',
+              background: 'rgba(56, 189, 248, 0.12)',
               pointerEvents: 'none',
             }}
           />
@@ -359,18 +359,18 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
           {/* Joystick Movable Thumb Knob */}
           <div
             style={{
-              width: 58,
-              height: 58,
+              width: 38,
+              height: 38,
               borderRadius: '50%',
               background: isJoystickActive
                 ? 'linear-gradient(135deg, #00d4ff 0%, #0284c7 100%)'
-                : 'linear-gradient(135deg, rgba(30, 41, 59, 0.9) 0%, rgba(15, 23, 42, 0.95) 100%)',
+                : 'linear-gradient(135deg, rgba(30, 41, 59, 0.8) 0%, rgba(15, 23, 42, 0.85) 100%)',
               border: isJoystickActive
-                ? '2.5px solid #ffffff'
-                : '2px solid rgba(0, 212, 255, 0.6)',
+                ? '2px solid #ffffff'
+                : '1.5px solid rgba(0, 212, 255, 0.5)',
               boxShadow: isJoystickActive
-                ? '0 0 25px rgba(0, 212, 255, 0.8), inset 0 0 10px rgba(255, 255, 255, 0.5)'
-                : '0 4px 16px rgba(0, 0, 0, 0.6), inset 0 0 8px rgba(0, 212, 255, 0.25)',
+                ? '0 0 16px rgba(0, 212, 255, 0.7), inset 0 0 6px rgba(255, 255, 255, 0.4)'
+                : '0 4px 10px rgba(0, 0, 0, 0.5), inset 0 0 5px rgba(0, 212, 255, 0.2)',
               transform: `translate(${knobPos.x}px, ${knobPos.y}px)`,
               transition: isJoystickActive ? 'none' : 'transform 0.18s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
               display: 'flex',
@@ -383,11 +383,11 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
             {/* Knob metallic core dot */}
             <div
               style={{
-                width: 18,
-                height: 18,
+                width: 12,
+                height: 12,
                 borderRadius: '50%',
-                background: isJoystickActive ? '#ffffff' : 'rgba(0, 212, 255, 0.8)',
-                boxShadow: isJoystickActive ? '0 0 8px #ffffff' : '0 0 6px rgba(0, 212, 255, 0.5)',
+                background: isJoystickActive ? '#ffffff' : 'rgba(0, 212, 255, 0.75)',
+                boxShadow: isJoystickActive ? '0 0 6px #ffffff' : '0 0 4px rgba(0, 212, 255, 0.4)',
               }}
             />
           </div>
@@ -398,8 +398,8 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
       <div
         style={{
           position: 'absolute',
-          bottom: 'max(24px, env(safe-area-inset-bottom, 24px))',
-          right: 'max(28px, env(safe-area-inset-right, 28px))',
+          bottom: 'max(20px, env(safe-area-inset-bottom, 20px))',
+          right: 'max(24px, env(safe-area-inset-right, 24px))',
           pointerEvents: 'auto',
           touchAction: 'none',
         }}
@@ -412,16 +412,16 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
           onMouseUp={handleBrakeEnd}
           onMouseLeave={handleBrakeEnd}
           style={{
-            width: 88,
-            height: 88,
+            width: 80,
+            height: 80,
             borderRadius: '50%',
             background: isBraking
-              ? 'linear-gradient(135deg, rgba(239, 68, 68, 0.85) 0%, rgba(185, 28, 28, 0.98) 100%)'
-              : 'linear-gradient(135deg, rgba(30, 15, 20, 0.85) 0%, rgba(18, 8, 12, 0.9) 100%)',
-            border: isBraking ? '3px solid #ef4444' : '2px solid rgba(239, 68, 68, 0.55)',
+              ? 'radial-gradient(circle, rgba(239, 68, 68, 0.9) 0%, rgba(185, 28, 28, 0.98) 100%)'
+              : 'radial-gradient(circle, rgba(239, 68, 68, 0.2) 0%, rgba(15, 23, 42, 0.6) 100%)',
+            border: isBraking ? '2.5px solid #ef4444' : '1.5px solid rgba(239, 68, 68, 0.55)',
             boxShadow: isBraking
-              ? '0 0 35px rgba(239, 68, 68, 0.85), inset 0 0 16px rgba(239, 68, 68, 0.5)'
-              : '0 8px 30px rgba(0, 0, 0, 0.7), inset 0 0 10px rgba(239, 68, 68, 0.2)',
+              ? '0 0 30px rgba(239, 68, 68, 0.8), inset 0 0 14px rgba(239, 68, 68, 0.5)'
+              : '0 4px 20px rgba(0, 0, 0, 0.5), inset 0 0 8px rgba(239, 68, 68, 0.2)',
             transform: isBraking ? 'scale(0.92)' : 'scale(1)',
             transition: 'transform 0.08s ease, background 0.1s ease, border-color 0.1s ease',
             color: '#ffffff',
@@ -430,20 +430,20 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
             alignItems: 'center',
             justifyContent: 'center',
             cursor: 'pointer',
-            backdropFilter: 'blur(12px)',
-            WebkitBackdropFilter: 'blur(12px)',
+            backdropFilter: 'blur(10px)',
+            WebkitBackdropFilter: 'blur(10px)',
           }}
         >
-          <span style={{ fontSize: 24, lineHeight: 1 }}>🛑</span>
+          <span style={{ fontSize: 20, lineHeight: 1 }}>🛑</span>
           <span
             style={{
               fontFamily: "'Orbitron', sans-serif",
-              fontSize: 11,
+              fontSize: 10,
               fontWeight: 900,
               letterSpacing: 1.5,
-              marginTop: 4,
+              marginTop: 3,
               color: isBraking ? '#ffffff' : '#f87171',
-              textShadow: isBraking ? '0 0 10px #ffffff' : '0 0 6px rgba(239, 68, 68, 0.5)',
+              textShadow: isBraking ? '0 0 8px #ffffff' : '0 0 6px rgba(239, 68, 68, 0.4)',
             }}
           >
             FREIN

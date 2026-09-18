@@ -106,7 +106,7 @@ export function Minimap({
       // Zoom scale: world units to canvas pixels
       const scale = expanded
         ? (isMobileLandscape ? 0.35 : 0.42)
-        : (isMobileLandscape ? 1.0 : 1.35)
+        : (isMobileLandscape ? 1.1 : 1.35)
 
       ctx.clearRect(0, 0, width, height)
 
@@ -701,21 +701,21 @@ export function Minimap({
           onClick={handleMapClick}
           style={{
             position: 'relative',
-            width: expanded ? 520 : isMobileLandscape ? 90 : 190,
-            height: expanded ? 480 : isMobileLandscape ? 90 : 190,
+            width: expanded ? 520 : isMobileLandscape ? 140 : 190,
+            height: expanded ? 480 : isMobileLandscape ? 140 : 190,
             borderRadius: expanded ? 12 : '50%',
             overflow: 'hidden',
             cursor: expanded ? 'crosshair' : 'pointer',
             transition: 'width 0.25s ease, height 0.25s ease, border-radius 0.25s ease',
             boxShadow: '0 8px 32px rgba(0, 0, 0, 0.6), 0 0 20px rgba(0, 212, 255, 0.18)',
-            border: expanded ? '1px solid rgba(0, 212, 255, 0.4)' : isMobileLandscape ? '1.5px solid rgba(0, 212, 255, 0.3)' : 'none',
+            border: expanded ? '1px solid rgba(0, 212, 255, 0.4)' : isMobileLandscape ? '1.5px solid rgba(0, 212, 255, 0.35)' : 'none',
           }}
           title={expanded ? 'Cliquez pour définir une destination GPS' : 'Agrandir la carte'}
         >
           <canvas
             ref={canvasRef}
-            width={expanded ? 520 : isMobileLandscape ? 90 : 190}
-            height={expanded ? 480 : isMobileLandscape ? 90 : 190}
+            width={expanded ? 520 : isMobileLandscape ? 140 : 190}
+            height={expanded ? 480 : isMobileLandscape ? 140 : 190}
             style={{ width: '100%', height: '100%', display: 'block' }}
           />
 

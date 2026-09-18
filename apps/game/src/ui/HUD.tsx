@@ -26,6 +26,7 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
   )
   const [travelOpen, setTravelOpen] = useState(false)
   const [searchBarOpen, setSearchBarOpen] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
   const [mapExpanded, setMapExpanded] = useState(false)
   const [isWarping, setIsWarping] = useState(false)
   const [isGenerating, setIsGenerating] = useState(() => engine.chunkManager.isGenerating)
@@ -160,64 +161,65 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
 
   return (
     <>
-      {/* Speedometer - floats neatly above the FREIN button when in mobile/touch mode */}
+      {/* Speedometer - Minimalist, modern glass badge directly above the FREIN button */}
       <div
         style={{
           position: 'absolute',
-          bottom: touchMode ? 'max(116px, env(safe-area-inset-bottom, 116px))' : 32,
-          right: touchMode ? 'max(24px, env(safe-area-inset-right, 24px))' : 40,
+          bottom: touchMode ? 'max(110px, env(safe-area-inset-bottom, 110px))' : 28,
+          right: touchMode ? 'max(24px, env(safe-area-inset-right, 24px))' : 32,
           display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'flex-end',
+          alignItems: 'center',
+          gap: 8,
+          background: 'rgba(10, 16, 28, 0.7)',
+          backdropFilter: 'blur(10px)',
+          WebkitBackdropFilter: 'blur(10px)',
+          border: '1px solid rgba(0, 212, 255, 0.3)',
+          borderRadius: 14,
+          padding: '4px 12px',
           pointerEvents: 'none',
           userSelect: 'none',
           zIndex: 35,
+          boxShadow: '0 4px 16px rgba(0, 0, 0, 0.4)',
         }}
       >
-        {/* Speed number */}
-        <div
+        <span
           style={{
             fontFamily: "'Orbitron', sans-serif",
-            fontSize: touchMode ? 38 : 72,
+            fontSize: touchMode ? 28 : 36,
             fontWeight: 900,
             color: '#fff',
             lineHeight: 1,
-            textShadow: '0 0 25px rgba(0, 212, 255, 0.6)',
+            textShadow: '0 0 12px rgba(0, 212, 255, 0.5)',
           }}
         >
           {speed}
-        </div>
-        <div
-          style={{
-            fontFamily: "'Inter', sans-serif",
-            fontSize: touchMode ? 10 : 13,
-            color: '#00d4ff',
-            letterSpacing: touchMode ? 2 : 3,
-            marginTop: -2,
-          }}
-        >
-          KM/H
-        </div>
-
-        {/* Gear */}
-        <div
-          style={{
-            marginTop: 4,
-            background: 'rgba(0,0,0,0.5)',
-            border: '1px solid rgba(0,212,255,0.3)',
-            borderRadius: 4,
-            padding: touchMode ? '1px 8px' : '2px 12px',
-            fontFamily: "'Orbitron', sans-serif",
-            fontSize: touchMode ? 12 : 16,
-            color: '#00d4ff',
-            letterSpacing: 2,
-          }}
-        >
-          {gear}
+        </span>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+          <span
+            style={{
+              fontFamily: "'Inter', sans-serif",
+              fontSize: 8,
+              fontWeight: 700,
+              color: '#00d4ff',
+              letterSpacing: 1.2,
+            }}
+          >
+            KM/H
+          </span>
+          <span
+            style={{
+              fontFamily: "'Orbitron', sans-serif",
+              fontSize: 10,
+              fontWeight: 800,
+              color: gear === 'R' ? '#f87171' : gear === 'P' ? '#fbbf24' : '#34d399',
+            }}
+          >
+            {gear}
+          </span>
         </div>
       </div>
 
-      {/* Controls hint - ONLY shown in desktop keyboard mode, offset to right of minimap so they never overlap */}
+      {/* Controls hint - ONLY shown in desktop keyboard mode, offset to right of minimap */}
       {!touchMode && (
         <div
           style={{
@@ -247,202 +249,278 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
         </div>
       )}
 
-      {/* Mode Switch Button (Joystick Tactile vs Clavier Bureau) */}
+      {/* Sleek Top-Right Menu Button */}
       <button
-        onClick={() => setTouchMode((v) => !v)}
+        onClick={() => setMenuOpen(true)}
         style={{
           position: 'absolute',
           top: isMobileLandscape ? 'max(8px, env(safe-area-inset-top, 8px))' : 16,
-          right: isMobileLandscape ? 'max(12px, env(safe-area-inset-right, 12px))' : 20,
-          background: 'rgba(8, 14, 26, 0.88)',
-          border: '1px solid rgba(0, 212, 255, 0.45)',
+          right: isMobileLandscape ? 'max(14px, env(safe-area-inset-right, 14px))' : 20,
+          width: isMobileLandscape ? 34 : 40,
+          height: isMobileLandscape ? 34 : 40,
           borderRadius: 10,
-          padding: isMobileLandscape ? '4px 8px' : '6px 14px',
+          background: 'rgba(10, 16, 28, 0.75)',
+          backdropFilter: 'blur(10px)',
+          WebkitBackdropFilter: 'blur(10px)',
+          border: '1px solid rgba(0, 212, 255, 0.35)',
           color: '#00d4ff',
-          fontFamily: "'Orbitron', sans-serif",
-          fontSize: isMobileLandscape ? 8 : 10,
-          fontWeight: 800,
-          letterSpacing: 1,
-          cursor: 'pointer',
-          zIndex: 60,
-          backdropFilter: 'blur(8px)',
-          boxShadow: '0 4px 14px rgba(0, 0, 0, 0.4)',
+          fontSize: isMobileLandscape ? 16 : 18,
           display: 'flex',
           alignItems: 'center',
-          gap: 4,
+          justifyContent: 'center',
+          cursor: 'pointer',
+          zIndex: 60,
+          boxShadow: '0 4px 16px rgba(0, 0, 0, 0.4)',
         }}
-        title="Basculer entre commandes tactiles (joystick) et clavier bureau"
+        title="Menu du jeu (Voyager, Chercher, Débloquer)"
       >
-        <span>{touchMode ? '🎮 JOYSTICK' : '⌨️ CLAVIER'}</span>
+        ☰
       </button>
 
-      {/* Top Street Navigation Banner */}
+      {/* Minimalist Top Street Badge */}
       <div
         style={{
           position: 'absolute',
-          top: isMobileLandscape ? 'max(8px, env(safe-area-inset-top, 8px))' : 20,
+          top: isMobileLandscape ? 'max(8px, env(safe-area-inset-top, 8px))' : 16,
           left: '50%',
           transform: 'translateX(-50%)',
+          background: 'rgba(10, 16, 28, 0.72)',
+          backdropFilter: 'blur(12px)',
+          WebkitBackdropFilter: 'blur(12px)',
+          border: '1px solid rgba(0, 212, 255, 0.25)',
+          borderRadius: 20,
+          padding: isMobileLandscape ? '4px 12px' : '6px 18px',
           display: 'flex',
           alignItems: 'center',
-          gap: isMobileLandscape ? 8 : 14,
-          background: 'rgba(8, 12, 22, 0.88)',
-          border: '1px solid rgba(0, 212, 255, 0.35)',
-          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.5), 0 0 15px rgba(0, 212, 255, 0.15)',
-          backdropFilter: 'blur(12px)',
-          borderRadius: isMobileLandscape ? 16 : 24,
-          padding: isMobileLandscape ? '4px 10px' : '8px 16px 8px 20px',
+          gap: 7,
+          pointerEvents: 'none',
           userSelect: 'none',
-          zIndex: 10,
-          maxWidth: '92vw',
+          zIndex: 20,
+          maxWidth: isMobileLandscape ? 'calc(100vw - 320px)' : '70vw',
+          boxShadow: '0 4px 16px rgba(0, 0, 0, 0.35)',
         }}
       >
-        {/* Navigation Arrow Icon */}
-        <div
+        <span style={{ fontSize: isMobileLandscape ? 11 : 13 }}>📍</span>
+        <span
           style={{
-            width: isMobileLandscape ? 24 : 30,
-            height: isMobileLandscape ? 24 : 30,
-            borderRadius: '50%',
-            background: 'rgba(0, 212, 255, 0.15)',
-            border: '1px solid rgba(0, 212, 255, 0.4)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            flexShrink: 0,
-            boxShadow: '0 0 10px rgba(0, 212, 255, 0.3)',
+            fontFamily: "'Inter', sans-serif",
+            fontSize: isMobileLandscape ? 12 : 14,
+            fontWeight: 700,
+            color: '#ffffff',
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
           }}
         >
-          <svg width={isMobileLandscape ? 12 : 15} height={isMobileLandscape ? 12 : 15} viewBox="0 0 24 24" fill="none">
-            <path
-              d="M12 2L19 21L12 17L5 21L12 2Z"
-              fill="#00d4ff"
-              stroke="#00d4ff"
-              strokeWidth="1.5"
-              strokeLinejoin="round"
-            />
-          </svg>
-        </div>
-
-        {/* Street & Area Details */}
-        <div style={{ display: 'flex', flexDirection: 'column', minWidth: isMobileLandscape ? 110 : 160 }}>
-          <div
+          {street ? street.name : `${currentDest.flag} ${currentDest.city}`}
+        </span>
+        {street?.maxSpeed && (
+          <span
             style={{
+              fontSize: isMobileLandscape ? 8 : 9,
+              fontWeight: 900,
+              color: '#111',
+              background: '#fff',
+              borderRadius: '50%',
+              width: isMobileLandscape ? 18 : 20,
+              height: isMobileLandscape ? 18 : 20,
               display: 'flex',
               alignItems: 'center',
-              gap: 6,
-              fontSize: isMobileLandscape ? 8 : 9,
-              fontFamily: "'Orbitron', sans-serif",
-              letterSpacing: 1.5,
-              color: 'rgba(0, 212, 255, 0.85)',
-              textTransform: 'uppercase',
+              justifyContent: 'center',
+              border: '1.5px solid #e02424',
+              marginLeft: 2,
+              flexShrink: 0,
             }}
           >
-            <span>{currentDest.flag} {district.toUpperCase()}</span>
-            <span style={{ opacity: 0.4 }}>•</span>
-            <span>{street?.highway ? street.highway.toUpperCase() : 'NAVIGATION'}</span>
-          </div>
+            {street.maxSpeed}
+          </span>
+        )}
+      </div>
 
-          <div
-            style={{
-              fontFamily: "'Inter', sans-serif",
-              fontSize: isMobileLandscape ? 13 : 16,
-              fontWeight: 700,
-              color: '#ffffff',
-              letterSpacing: 0.5,
-              marginTop: 1,
-              whiteSpace: 'nowrap',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              maxWidth: isMobileLandscape ? '180px' : '280px',
-              textShadow: '0 0 12px rgba(255, 255, 255, 0.2)',
-            }}
-          >
-            {street ? street.name : 'Navigation urbaine'}
-          </div>
-        </div>
-
-        {/* Speed Limit Badge */}
+      {/* Quick Menu Overlay */}
+      {menuOpen && (
         <div
           style={{
-            width: isMobileLandscape ? 22 : 26,
-            height: isMobileLandscape ? 22 : 26,
-            borderRadius: '50%',
-            background: '#ffffff',
-            border: isMobileLandscape ? '2px solid #e02424' : '2.5px solid #e02424',
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 0, 0, 0.7)',
+            backdropFilter: 'blur(14px)',
+            WebkitBackdropFilter: 'blur(14px)',
+            zIndex: 200,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            fontFamily: "'Inter', sans-serif",
-            fontSize: isMobileLandscape ? 9 : 10,
-            fontWeight: 900,
-            color: '#111',
-            boxShadow: '0 2px 8px rgba(0,0,0,0.4)',
-            flexShrink: 0,
+            padding: 16,
           }}
-          title={street?.maxSpeed ? `Vitesse max: ${street.maxSpeed} km/h` : 'Zone 50'}
+          onClick={() => setMenuOpen(false)}
         >
-          {street?.maxSpeed ?? 50}
+          <div
+            style={{
+              background: 'rgba(15, 23, 42, 0.95)',
+              border: '1px solid rgba(0, 212, 255, 0.4)',
+              borderRadius: 20,
+              padding: '18px 22px',
+              maxWidth: 380,
+              width: '90%',
+              boxShadow: '0 20px 50px rgba(0,0,0,0.8), 0 0 25px rgba(0, 212, 255, 0.2)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 12,
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 12, fontWeight: 900, color: '#00d4ff', letterSpacing: 2 }}>
+                MENU DU JEU
+              </span>
+              <button
+                onClick={() => setMenuOpen(false)}
+                style={{
+                  background: 'rgba(255,255,255,0.08)',
+                  border: '1px solid rgba(255,255,255,0.15)',
+                  borderRadius: 8,
+                  color: '#fff',
+                  width: 28,
+                  height: 28,
+                  cursor: 'pointer',
+                  fontSize: 13,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              {/* 1. Voyage mondial */}
+              <button
+                onClick={() => {
+                  setMenuOpen(false)
+                  setTravelOpen(true)
+                }}
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'flex-start',
+                  gap: 3,
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  border: '1px solid rgba(0, 212, 255, 0.3)',
+                  borderRadius: 12,
+                  padding: '10px 12px',
+                  cursor: 'pointer',
+                  color: '#ffffff',
+                  textAlign: 'left',
+                }}
+              >
+                <span style={{ fontSize: 20 }}>🌍</span>
+                <span style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 10, fontWeight: 800, color: '#00d4ff' }}>Voyager</span>
+                <span style={{ fontSize: 8, color: '#94a3b8' }}>Changer de ville</span>
+              </button>
+
+              {/* 2. Recherche adresse */}
+              <button
+                onClick={() => {
+                  setMenuOpen(false)
+                  setSearchBarOpen(true)
+                }}
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'flex-start',
+                  gap: 3,
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  border: '1px solid rgba(0, 212, 255, 0.3)',
+                  borderRadius: 12,
+                  padding: '10px 12px',
+                  cursor: 'pointer',
+                  color: '#ffffff',
+                  textAlign: 'left',
+                }}
+              >
+                <span style={{ fontSize: 20 }}>🔍</span>
+                <span style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 10, fontWeight: 800, color: '#00d4ff' }}>Rechercher</span>
+                <span style={{ fontSize: 8, color: '#94a3b8' }}>Rue ou monument</span>
+              </button>
+
+              {/* 3. Débloquer véhicule */}
+              <button
+                onClick={() => {
+                  engine.respawnPlayer()
+                  setMenuOpen(false)
+                }}
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'flex-start',
+                  gap: 3,
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  border: '1px solid rgba(245, 158, 11, 0.35)',
+                  borderRadius: 12,
+                  padding: '10px 12px',
+                  cursor: 'pointer',
+                  color: '#ffffff',
+                  textAlign: 'left',
+                }}
+              >
+                <span style={{ fontSize: 20 }}>🔄</span>
+                <span style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 10, fontWeight: 800, color: '#fbbf24' }}>Débloquer</span>
+                <span style={{ fontSize: 8, color: '#94a3b8' }}>Recentrer voiture</span>
+              </button>
+
+              {/* 4. Carte GPS */}
+              <button
+                onClick={() => {
+                  setMenuOpen(false)
+                  setMapExpanded(true)
+                }}
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'flex-start',
+                  gap: 3,
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  border: '1px solid rgba(0, 212, 255, 0.3)',
+                  borderRadius: 12,
+                  padding: '10px 12px',
+                  cursor: 'pointer',
+                  color: '#ffffff',
+                  textAlign: 'left',
+                }}
+              >
+                <span style={{ fontSize: 20 }}>🗺️</span>
+                <span style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 10, fontWeight: 800, color: '#00d4ff' }}>Carte GPS</span>
+                <span style={{ fontSize: 8, color: '#94a3b8' }}>Vue aérienne</span>
+              </button>
+            </div>
+
+            {/* Toggle tactile / clavier */}
+            <button
+              onClick={() => setTouchMode((v) => !v)}
+              style={{
+                marginTop: 4,
+                background: 'rgba(0, 212, 255, 0.1)',
+                border: '1px solid rgba(0, 212, 255, 0.4)',
+                borderRadius: 10,
+                padding: '8px 12px',
+                color: '#00d4ff',
+                fontFamily: "'Orbitron', sans-serif",
+                fontSize: 10,
+                fontWeight: 800,
+                letterSpacing: 1,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6,
+              }}
+            >
+              <span>{touchMode ? '🎮 COMMANDES TACTILES ACTIVES' : '⌨️ COMMANDES CLAVIER ACTIVES'}</span>
+            </button>
+          </div>
         </div>
-
-        {/* World Travel Action Button */}
-        <button
-          onClick={() => setTravelOpen(true)}
-          style={{
-            marginLeft: isMobileLandscape ? 4 : 8,
-            background: 'linear-gradient(135deg, rgba(2, 132, 199, 0.3) 0%, rgba(37, 99, 235, 0.45) 100%)',
-            border: '1px solid rgba(56, 189, 248, 0.5)',
-            borderRadius: 14,
-            padding: isMobileLandscape ? '4px 8px' : '6px 14px',
-            color: '#38bdf8',
-            fontFamily: "'Orbitron', sans-serif",
-            fontSize: isMobileLandscape ? 9 : 10,
-            fontWeight: 800,
-            letterSpacing: 1,
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: isMobileLandscape ? 3 : 6,
-            boxShadow: '0 0 12px rgba(56, 189, 248, 0.25)',
-            transition: 'all 0.2s',
-          }}
-        >
-          <span>🌍 {isMobileLandscape ? 'VOYAGE' : 'VOYAGER'}</span>
-          {!isMobileLandscape && (
-            <span style={{ fontSize: 9, opacity: 0.75, background: 'rgba(255,255,255,0.15)', padding: '1px 5px', borderRadius: 4 }}>T</span>
-          )}
-        </button>
-
-        {/* Quick Address Search Action Button */}
-        <button
-          onClick={() => setSearchBarOpen((v) => !v)}
-          style={{
-            marginLeft: isMobileLandscape ? 3 : 6,
-            background: searchBarOpen
-              ? 'linear-gradient(135deg, rgba(14, 165, 233, 0.6) 0%, rgba(2, 132, 199, 0.8) 100%)'
-              : 'rgba(15, 23, 42, 0.7)',
-            border: searchBarOpen ? '1px solid #38bdf8' : '1px solid rgba(56, 189, 248, 0.4)',
-            borderRadius: 14,
-            padding: isMobileLandscape ? '4px 8px' : '6px 12px',
-            color: '#38bdf8',
-            fontFamily: "'Orbitron', sans-serif",
-            fontSize: isMobileLandscape ? 9 : 10,
-            fontWeight: 800,
-            letterSpacing: 1,
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: isMobileLandscape ? 3 : 5,
-            boxShadow: '0 0 10px rgba(56, 189, 248, 0.2)',
-            transition: 'all 0.2s',
-          }}
-          title="Rechercher une adresse, une rue ou un monument (/)"
-        >
-          <span>🔍 {isMobileLandscape ? 'RUE' : 'ADRESSE'}</span>
-          {!isMobileLandscape && (
-            <span style={{ fontSize: 9, opacity: 0.75, background: 'rgba(255,255,255,0.15)', padding: '1px 5px', borderRadius: 4 }}>/</span>
-          )}
-        </button>
-      </div>
+      )}
 
       {/* 30s Spawn Invincibility Banner */}
       {invincibilitySec > 0 && (

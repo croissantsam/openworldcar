@@ -5,8 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
+    "prebuild": "pnpm --filter '@world-drive/server^...' build",
     "build": "tsc -p tsconfig.json",
+    "pretypecheck": "pnpm --filter '@world-drive/server^...' build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "clean": "rm -rf dist",
     "start": "node dist/index.js"
   },
   "dependencies": {

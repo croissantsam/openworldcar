@@ -8,7 +8,7 @@
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "lint": "pnpm -r lint",
-    "clean": "pnpm -r clean"
+    "clean": "rm -rf packages/*/dist apps/*/dist"
   },
   "devDependencies": {
     "typescript": "^5.5.4"

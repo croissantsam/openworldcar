@@ -39,6 +39,9 @@ const FETCH_RADIUS = 300
  */
 const REFETCH_THRESHOLD = FETCH_RADIUS * 0.5
 
+/** Cooldown (ms) before retrying after a failed OSM download. */
+const FAILURE_COOLDOWN_MS = 45_000
+
 export type OsmStreamingCallback = (chunks: ChunkMap) => void
 
 export class OsmStreamingManager {
@@ -54,6 +57,9 @@ export class OsmStreamingManager {
   /** Last known player geo position (for debouncing). */
   private lastUpdatePos: GeoPosition | null = null
 
+  /** When the last fetch failed (API error / bandwidth limit); retried after a cooldown. */
+  private lastFailureAt = 0
+
   /** Called with new chunk data when a fetch completes successfully. */
   onChunksReady: OsmStreamingCallback | null = null
 
@@ -63,6 +69,8 @@ export class OsmStreamingManager {
    */
   update(playerGeo: GeoPosition): void {
     if (this.isFetching) return
+    // After a failed download (e.g. OSM 509 bandwidth limit) wait before retrying
+    if (this.lastFailureAt > 0 && performance.now() - this.lastFailureAt < FAILURE_COOLDOWN_MS) return
 
     // Throttle: only re-evaluate if player moved >= 10m since last check
     if (this.lastUpdatePos) {
@@ -101,7 +109,14 @@ export class OsmStreamingManager {
     fetchOsmChunksForArea(center, FETCH_RADIUS, signal)
       .then((chunks) => {
         if (signal.aborted) return
-        if (chunks && chunks.size > 0) {
+        if (chunks === null) {
+          // Download failed (API error, bandwidth limit): NOT covered — retry later
+          this.lastFailureAt = performance.now()
+          console.warn('[OsmStreaming] OSM download failed; will retry in a moment.')
+          return
+        }
+        this.lastFailureAt = 0
+        if (chunks.size > 0) {
           this.fetchedCenters.push(center)
           console.info(
             `[OsmStreaming] Received ${chunks.size} new OSM chunks`,

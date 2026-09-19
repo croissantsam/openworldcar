@@ -12,6 +12,8 @@ import {
 } from '@world-drive/math'
 import { normalizeRoad, normalizeBuilding, normalizeWaterway, normalizePark, deduplicateBuildings } from '@world-drive/world-data'
 import { generateChunks, type ChunkMap, type RawOsmNode } from '@world-drive/world-data'
+import { parseMultipolygonBuildings } from './OsmMultipolygon.js'
+import { fillMissingHeights } from './BuildingHeights.js'
 
 /**
  * Decode the XML character entities the OSM API emits in attribute values
@@ -120,6 +122,10 @@ function parseOsmXml(xmlText: string): {
   barriers: Barrier[]
   /** Nodes that carry at least one tag, with decoded tag values. */
   taggedNodes: RawOsmNode[]
+  /** All node coordinates by id ([lon, lat]). */
+  nodes: Map<string, [number, number]>
+  /** All ways' ordered node ids, tagged or not. */
+  wayNodeRefs: Map<string, string[]>
 } {
   const nodes = new Map<string, [number, number]>()
   const nodeMatches = xmlText.matchAll(
@@ -153,6 +159,8 @@ function parseOsmXml(xmlText: string): {
   const parks: Park[] = []
   const railways: Railway[] = []
   const barriers: Barrier[] = []
+  /** Every way's ordered node ids (tagged or not): multipolygon rings are stitched from these. */
+  const wayNodeRefs = new Map<string, string[]>()
 
   const wayMatches = xmlText.matchAll(/<way id="(\d+)"[^>]*>([\s\S]*?)<\/way>/g)
   for (const wm of wayMatches) {
@@ -168,6 +176,7 @@ function parseOsmXml(xmlText: string): {
         refs.push(nd[1]!)
       }
     }
+    wayNodeRefs.set(wayId, refs)
 
     if (coords.length < 2) continue
 
@@ -209,7 +218,22 @@ function parseOsmXml(xmlText: string): {
     if (park) { parks.push(park); continue }
   }
 
-  return { roads, buildings: deduplicateBuildings(buildings), waterways, parks, railways, barriers, taggedNodes }
+  // Resolve duplicated / superseded outlines among way buildings (upstream rule)
+  const emitted = new Set(buildings.map((b) => b.id))
+  const dedupedBuildings = deduplicateBuildings(buildings)
+
+  // Buildings mapped as multipolygon relations (courtyard blocks): their outer
+  // ways carry no tags, so they were absent from the scene until now. Added after
+  // deduplication, which compares outer rings only and would otherwise drop a
+  // courtyard block or a building standing inside its courtyard.
+  const relationBuildings = parseMultipolygonBuildings(xmlText, nodes, wayNodeRefs, normalizeBuilding, parseTags, emitted)
+  for (const b of relationBuildings) dedupedBuildings.push(b)
+
+  // Buildings without any height/levels tag take the median of their tagged
+  // neighbours instead of a flat default (no more 2-storey stubs in a 7-storey street).
+  fillMissingHeights(dedupedBuildings)
+
+  return { roads, buildings: dedupedBuildings, waterways, parks, railways, barriers, taggedNodes, nodes, wayNodeRefs }
 }
 
 /** Project and classify tagged nodes into street-level POIs (world origin must be set). */
@@ -288,7 +312,8 @@ export async function fetchOsmChunksForArea(
   const { roads, buildings, waterways, parks, railways, barriers, taggedNodes } = parseOsmXml(xmlText)
   const pois = poisFromNodes(taggedNodes)
   console.info(`[LiveOsmFetcher] ${taggedNodes.length} tagged nodes parsed → ${pois.length} POIs (${roads.length} roads, ${buildings.length} buildings)`)
-  if (roads.length === 0) return null
+  // Genuinely empty area (no roads): an empty map. A failed download stays null.
+  if (roads.length === 0) return new Map()
 
   return generateChunks(roads, buildings, pois, waterways, parks, railways, barriers)
 }

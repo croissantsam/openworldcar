@@ -16,6 +16,7 @@
 import * as THREE from 'three'
 import RAPIER from '@dimforge/rapier3d-compat'
 import type { Road, RoadSurface } from '@world-drive/shared'
+import { buildParkedCars } from './ParkedCarGenerator.js'
 
 /** Per-chunk options passed by the loader. */
 export type RoadGenerateOptions = {
@@ -2125,7 +2126,7 @@ export class RoadMeshGenerator {
    * Main entry point: dispatches road generation according to the 3 elevation
    * modes defined in pont.txt (ground, bridge, tunnel).
    */
-  static generate(road: Road, allRoads?: Road[], _opts?: RoadGenerateOptions): THREE.Group | null {
+  static generate(road: Road, allRoads?: Road[], opts?: RoadGenerateOptions): THREE.Group | null {
     const pts = road.points
     if (pts.length < 2) return null
 
@@ -2137,7 +2138,7 @@ export class RoadMeshGenerator {
       return RoadMeshGenerator.generateTunnelRoad(road, allRoads)
     }
 
-    return RoadMeshGenerator.generateGroundRoad(road, allRoads)
+    return RoadMeshGenerator.generateGroundRoad(road, allRoads, opts)
   }
 
   /**
@@ -2553,7 +2554,7 @@ export class RoadMeshGenerator {
   /**
    * Generates a ground-level road with sidewalks, pedestrian crossings and markings.
    */
-  static generateGroundRoad(road: Road, allRoads?: Road[]): THREE.Group | null {
+  static generateGroundRoad(road: Road, allRoads?: Road[], opts?: RoadGenerateOptions): THREE.Group | null {
     const rawPts = road.points
     if (rawPts.length < 2) return null
 
@@ -2915,7 +2916,90 @@ export class RoadMeshGenerator {
       roadLength += Math.hypot(b.x - a.x, b.z - a.z)
     }
 
-    // Roadside parking bays (only on urban streets)
+    // Arc-length table over the resampled centre-line (shared by crossings & parking)
+    const arcTable: number[] = [0]
+    for (let i = 1; i < smoothPts.length; i++) {
+      arcTable.push(arcTable[i - 1]! + Math.hypot(smoothPts[i]!.x - smoothPts[i - 1]!.x, smoothPts[i]!.z - smoothPts[i - 1]!.z))
+    }
+    const pointAtArc = (s: number): { x: number; y: number; z: number; dx: number; dz: number } => {
+      let i = 0
+      while (i < smoothPts.length - 2 && arcTable[i + 1]! < s) i++
+      const a = smoothPts[i]!; const b = smoothPts[i + 1]!
+      const segL = arcTable[i + 1]! - arcTable[i]!
+      const t = segL > 1e-6 ? Math.max(0, Math.min(1, (s - arcTable[i]!) / segL)) : 0
+      let dx = b.x - a.x; let dz = b.z - a.z
+      if (segL > 1e-6) { dx /= segL; dz /= segL } else { dx = 0; dz = 1 }
+      return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, z: a.z + (b.z - a.z) * t, dx, dz }
+    }
+
+    // ── 9a. Pedestrian crossings & signals at their REAL OSM node positions ──
+    type CrossingPlacement = { x: number; y: number; z: number; dx: number; dz: number; arc: number; signals: boolean; markings: boolean }
+    const crossingPlacements: CrossingPlacement[] = []
+    const realCrossings = road.crossings ?? []
+    const drawsCrossings = (r: Road): boolean =>
+      !r.bridge && !r.tunnel && !r.isLink &&
+      r.highway !== 'path' && r.highway !== 'footway' && r.highway !== 'cycleway' && r.highway !== 'steps' &&
+      r.highway !== 'pedestrian' && r.highway !== 'motorway' && r.highway !== 'trunk'
+
+    if (isUrbanStreet && realCrossings.length > 0 && roadLength >= 8) {
+      for (const c of realCrossings) {
+        const m = c.markings
+        const noMarkings = m === 'no' || m === 'unmarked' || m === 'informal'
+        const drawMarkings = m === undefined ? c.signals : !noMarkings
+        if (!drawMarkings && !c.signals) continue
+
+        // A bare junction signal (no crossing tag) is drawn once per approach way; a real
+        // crossing node shared by two street ways is owned by the smallest road id.
+        const isJunctionSignal = c.signals && m === undefined
+        if (!isJunctionSignal && allRoads) {
+          let owned = true
+          for (const other of allRoads) {
+            if (other.id === road.id || !other.crossings || other.id >= road.id || !drawsCrossings(other)) continue
+            if (other.crossings.some((oc) => oc.nodeId === c.nodeId)) { owned = false; break }
+          }
+          if (!owned) continue
+        }
+
+        // Snap the node to the nearest point of the way polyline
+        let bestArc = 0
+        let bestD = Infinity
+        for (let i = 0; i < smoothPts.length - 1; i++) {
+          const a = smoothPts[i]!; const b = smoothPts[i + 1]!
+          const sdx = b.x - a.x; const sdz = b.z - a.z
+          const lenSq = sdx * sdx + sdz * sdz
+          if (lenSq < 1e-6) continue
+          let t = ((c.position.x - a.x) * sdx + (c.position.z - a.z) * sdz) / lenSq
+          t = Math.max(0, Math.min(1, t))
+          const d = Math.hypot(c.position.x - (a.x + sdx * t), c.position.z - (a.z + sdz * t))
+          if (d < bestD) { bestD = d; bestArc = arcTable[i]! + Math.sqrt(lenSq) * t }
+        }
+        if (bestD > 6) continue
+
+        // Nodes sitting on the way's end (junction node): pull the marking onto the approach
+        let s = bestArc
+        const nearStart = s < 3.0
+        const nearEnd = s > roadLength - 3.0
+        if (nearStart || nearEnd) {
+          if (roadLength < 12) continue
+          s = nearStart ? Math.min(4.5, roadLength / 2) : Math.max(roadLength - 4.5, roadLength / 2)
+        }
+        const p = pointAtArc(s)
+        const flip = nearStart && !road.oneway // traffic approaching the start travels backwards
+        crossingPlacements.push({
+          x: p.x, y: p.y, z: p.z,
+          dx: flip ? -p.dx : p.dx, dz: flip ? -p.dz : p.dz,
+          arc: s, signals: c.signals, markings: drawMarkings,
+        })
+      }
+    } else if (isUrbanStreet && realCrossings.length === 0 && roadLength >= 60 &&
+      (hw === 'primary' || hw === 'secondary' || hw === 'tertiary')) {
+      // No crossing data on this way at all: one heuristic signalised crossing near the start (major roads only)
+      const s = Math.min(14, roadLength * 0.35)
+      const p = pointAtArc(s)
+      crossingPlacements.push({ x: p.x, y: p.y, z: p.z, dx: p.dx, dz: p.dz, arc: s, signals: true, markings: true })
+    }
+
+    // ── 9b. Roadside parking (bays + parked cars, only on urban streets) ──────
     if (isUrbanStreet && road.parkingLane && road.parkingLane !== 'none' && roadLength >= 15) {
       if (road.parkingLane === 'both' || road.parkingLane === 'right') {
         const baysR = buildParkingBays(raisedPts, halfW, 'right', roadLength)
@@ -2925,54 +3009,58 @@ export class RoadMeshGenerator {
         const baysL = buildParkingBays(raisedPts, halfW, 'left', roadLength)
         if (baysL) group.add(baysL)
       }
+
+      // Parked cars (one InstancedMesh, visual only). Same side convention as the
+      // sidewalks/bays in this file: 'left' = +normal, 'right' = -normal.
+      const cw = road.cycleway
+      const cwSide = !cw || cw === 'none' ? 'none' : cw === 'both' ? 'both' : cw === 'left' ? 'left' : 'right'
+      const sideFree = (side: 'left' | 'right'): boolean =>
+        cwSide !== 'both' && cwSide !== side && !(side === 'right' && road.hasBusLane)
+      const carSides: number[] = []
+      if ((road.parkingLane === 'both' || road.parkingLane === 'left') && sideFree('left')) carSides.push(1)
+      if ((road.parkingLane === 'both' || road.parkingLane === 'right') && sideFree('right')) carSides.push(-1)
+      // Keep a drivable lane: no cars on roads narrower than 5.4 m, one side only under 7.4 m
+      if (roadW < 5.4) carSides.length = 0
+      else if (carSides.length === 2 && roadW < 7.4) carSides.length = 1
+      if (carSides.length > 0) {
+        const cars = buildParkedCars({
+          roadId: road.id,
+          points: smoothPts,
+          halfW,
+          sides: carSides,
+          crossingArcs: crossingPlacements.map((c) => c.arc),
+          oneway: road.oneway ?? false,
+          isOnOtherRoad: (x, z) => isPointInRoadAsphalt(x, z, getObstacles(), 2.6),
+        })
+        if (cars) group.add(cars)
+      }
     }
 
-    // Crosswalks and traffic lights (NEVER on motorways, trunks or link ramps)
-    if (isUrbanStreet && roadLength >= 25) {
-      // Place crosswalk near junction/start
-      const crossDist = Math.min(14, roadLength * 0.35)
-      let accum = 0
+    // ── 9c. Draw the crossings: zebra, stop line + signal pole (kerb side, facing traffic)
+    for (const cp of crossingPlacements) {
+      const dir = { dx: cp.dx, dz: cp.dz }
+      const norm = { nx: -cp.dz, nz: cp.dx }
 
-      for (let i = 0; i < smoothPts.length - 1; i++) {
-        const a = smoothPts[i]!; const b = smoothPts[i + 1]!
-        const segLen = Math.hypot(b.x - a.x, b.z - a.z)
-        if (accum + segLen >= crossDist) {
-          const t = (crossDist - accum) / segLen
-          let dx = b.x - a.x; let dz = b.z - a.z
-          if (segLen > 0) { dx /= segLen; dz /= segLen; }
-          const norm = { nx: -dz, nz: dx }
-          const crosswalkPt = {
-            x: a.x + dx * (crossDist - accum),
-            y: a.y + (b.y - a.y) * t,
-            z: a.z + dz * (crossDist - accum),
-          }
+      if (cp.markings) {
+        const crosswalk = buildCrosswalk(cp, dir, halfW)
+        if (crosswalk) { crosswalk.renderOrder = 4; group.add(crosswalk) }
+      }
 
-          // Zebra stripes
-          const crosswalk = buildCrosswalk(crosswalkPt, { dx, dz }, halfW)
-          if (crosswalk) { crosswalk.renderOrder = 4; group.add(crosswalk) }
+      if (cp.signals) {
+        // Stop line 2.5m before the crossing on the approach lanes
+        const stopPt = { x: cp.x - dir.dx * 2.5, y: cp.y, z: cp.z - dir.dz * 2.5 }
+        const stopLine = buildStopLine(stopPt, dir, halfW)
+        if (stopLine) { stopLine.renderOrder = 4; group.add(stopLine) }
 
-          // Stop line 2.5m before crosswalk
-          const stopPt = {
-            x: crosswalkPt.x - dx * 2.5,
-            y: crosswalkPt.y,
-            z: crosswalkPt.z - dz * 2.5,
-          }
-          const stopLine = buildStopLine(stopPt, { dx, dz }, halfW)
-          if (stopLine) { stopLine.renderOrder = 4; group.add(stopLine) }
-
-          // 3D Traffic Light signal pole at the crosswalk
-          const signalTmpl = getTrafficLightTemplate()
-          const signalPole = signalTmpl.clone()
-          signalPole.position.set(
-            crosswalkPt.x + norm.nx * (halfW + 0.8),
-            crosswalkPt.y,
-            crosswalkPt.z + norm.nz * (halfW + 0.8),
-          )
-          signalPole.rotation.y = Math.atan2(dx, dz) + Math.PI / 2
-          group.add(signalPole)
-          break
-        }
-        accum += segLen
+        // One 3D traffic-light pole per crossing on the kerb, arm over the road
+        const signalPole = getTrafficLightTemplate().clone()
+        signalPole.position.set(
+          cp.x + norm.nx * (halfW + 0.8),
+          cp.y,
+          cp.z + norm.nz * (halfW + 0.8),
+        )
+        signalPole.rotation.y = Math.atan2(dir.dx, dir.dz) + Math.PI / 2
+        group.add(signalPole)
       }
     }
 
@@ -3025,8 +3113,8 @@ export class RoadMeshGenerator {
       }
     }
 
-    // ── 10. Parisian Street Lamps along the Sidewalk (highway=street_lamp / lit=yes) ──
-    if (swMode !== 'none' && !isHighway && !isLink && (road.lit || isUrbanStreet) && roadLength >= 35) {
+    // ── 10. Procedural street lamps along the sidewalk (skipped when the chunk has real OSM lamp nodes) ──
+    if (opts?.syntheticLamps !== false && swMode !== 'none' && !isHighway && !isLink && (road.lit || isUrbanStreet) && roadLength >= 35) {
       const lampTmpl = getStreetLampTemplate()
       const lampSpacing = 32
       const numLamps = Math.min(8, Math.max(1, Math.floor(roadLength / lampSpacing)))

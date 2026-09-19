@@ -105,17 +105,38 @@ export type RawOsmNode = {
   lat: number
 }
 
+/** sidewalk:* side value → present? ('separate' = mapped as its own way, but it EXISTS). */
+function sidewalkSidePresent(v: string | undefined): boolean | undefined {
+  if (v === undefined) return undefined
+  if (v === 'yes' || v === 'separate' || v === 'both' || v === 'left' || v === 'right') return true
+  if (v === 'no' || v === 'none') return false
+  return undefined
+}
+
 function normalizeSidewalk(tags: OsmTags, highway: string): 'both' | 'left' | 'right' | 'none' {
   const sw = tags['sidewalk']
   const swBoth = tags['sidewalk:both']
   const swLeft = tags['sidewalk:left']
   const swRight = tags['sidewalk:right']
 
-  if (sw === 'none' || sw === 'no' || sw === 'separate') return 'none'
-  if (swBoth === 'separate' || swBoth === 'no' || swBoth === 'none') return 'none'
-  if (sw === 'both' || sw === 'yes' || swBoth === 'yes') return 'both'
-  if (sw === 'left' || swLeft === 'yes') return 'left'
-  if (sw === 'right' || swRight === 'yes') return 'right'
+  if (sw === 'none' || sw === 'no') return 'none'
+  if (sw === 'both' || sw === 'yes' || sw === 'separate') return 'both'
+  if (sw === 'left') return 'left'
+  if (sw === 'right') return 'right'
+  const both = sidewalkSidePresent(swBoth)
+  if (both === true) return 'both'
+  if (both === false) return 'none'
+
+  const left = sidewalkSidePresent(swLeft)
+  const right = sidewalkSidePresent(swRight)
+  if (left !== undefined && right !== undefined) {
+    if (left && right) return 'both'
+    if (left) return 'left'
+    if (right) return 'right'
+    return 'none'
+  }
+  if (left === true) return 'left'
+  if (right === true) return 'right'
 
   // Default: motorways, trunks, and link ramps have no pedestrian sidewalks
   if (highway === 'motorway' || highway === 'trunk' || highway.endsWith('_link')) {
@@ -141,17 +162,84 @@ function normalizeCycleway(tags: OsmTags): 'lane' | 'track' | 'shared_lane' | 'b
   return undefined
 }
 
-function normalizeParkingLane(tags: OsmTags): 'both' | 'right' | 'left' | 'none' | undefined {
-  const pk = tags['parking:lane']
-  const pkBoth = tags['parking:lane:both']
-  const pkRight = tags['parking:lane:right']
-  const pkLeft = tags['parking:lane:left']
+/** Current street-parking schema (parking:left/right/both=*) → parking present on that side? */
+function parkingSidePresent(v: string | undefined): boolean | undefined {
+  if (v === undefined) return undefined
+  switch (v) {
+    case 'lane':
+    case 'street_side':
+    case 'on_kerb':
+    case 'half_on_kerb':
+    case 'shoulder':
+    case 'yes':
+      return true
+    case 'no':
+    case 'separate':
+    case 'no_parking':
+    case 'no_stopping':
+    case 'no_standing':
+    case 'missing':
+    case 'none':
+      return false
+    default:
+      return undefined
+  }
+}
 
+/** Deprecated parking:lane:* schema → parking present on that side? */
+function legacyParkingLanePresent(v: string | undefined): boolean | undefined {
+  if (v === undefined) return undefined
+  switch (v) {
+    case 'parallel':
+    case 'diagonal':
+    case 'perpendicular':
+    case 'marked':
+    case 'yes':
+      return true
+    case 'no':
+    case 'no_parking':
+    case 'no_stopping':
+    case 'no_standing':
+    case 'fire_lane':
+    case 'separate':
+    case 'none':
+      return false
+    default:
+      return undefined
+  }
+}
+
+function combineParkingSides(left: boolean | undefined, right: boolean | undefined): 'both' | 'right' | 'left' | 'none' | undefined {
+  if (left === undefined && right === undefined) return undefined
+  const l = left === true
+  const r = right === true
+  if (l && r) return 'both'
+  if (l) return 'left'
+  if (r) return 'right'
+  return 'none'
+}
+
+function normalizeParkingLane(tags: OsmTags): 'both' | 'right' | 'left' | 'none' | undefined {
+  // 1. Current schema: parking:both / parking:left / parking:right
+  //    (parking:*:orientation defaults to parallel; presence does not depend on it)
+  const both = parkingSidePresent(tags['parking:both'])
+  const left = parkingSidePresent(tags['parking:left']) ?? both
+  const right = parkingSidePresent(tags['parking:right']) ?? both
+  const current = combineParkingSides(left, right)
+  if (current !== undefined) return current
+
+  // 2. Deprecated schema fallback: parking:lane / parking:lane:both|left|right
+  const pk = tags['parking:lane']
   if (pk === 'none' || pk === 'no') return 'none'
-  if (pk === 'both' || (pkRight && pkLeft) || (pkBoth && pkBoth !== 'no')) return 'both'
-  if (pk === 'right' || (pkRight && pkRight !== 'no')) return 'right'
-  if (pk === 'left' || (pkLeft && pkLeft !== 'no')) return 'left'
-  if (pk && (pk === 'parallel' || pk === 'diagonal' || pk === 'perpendicular' || pk === 'yes')) return 'both'
+  if (pk === 'both') return 'both'
+  if (pk === 'right') return 'right'
+  if (pk === 'left') return 'left'
+  const lBoth = legacyParkingLanePresent(tags['parking:lane:both'])
+  const lLeft = legacyParkingLanePresent(tags['parking:lane:left']) ?? lBoth
+  const lRight = legacyParkingLanePresent(tags['parking:lane:right']) ?? lBoth
+  const legacy = combineParkingSides(lLeft, lRight)
+  if (legacy !== undefined) return legacy
+  if (pk === 'parallel' || pk === 'diagonal' || pk === 'perpendicular' || pk === 'yes') return 'both'
   return undefined
 }
 

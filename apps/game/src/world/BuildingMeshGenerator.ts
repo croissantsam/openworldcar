@@ -9,10 +9,14 @@
  *     courthouse, government/civic/public, warehouse/industrial/factory/hangar, farm/barn/stable,
  *     greenhouse, house/detached/semidetached/terrace/bungalow/hut/cabin/shed/kiosk,
  *     garage/garages/carport, monument, castle, manor, ruins, and open roofs.
- *   - Ground-floor illuminated storefront vitrines (boulangerie, café with awnings, pharmacie with green cross,
- *     fashion boutiques), grand Parisian carved double doors (portes cochères), domestic front doors,
- *     and industrial rolling shutter garage doors.
- *   - Authentic Haussmannian facades with French wrought-iron filigree balconies on 2nd and 5th floors.
+ *   - Window rows = real floors: the facade texture is generated per level count and one texture
+ *     height equals the wall height, so a 7-level block shows exactly 7 rows with a one-floor ground band.
+ *   - Neutral ground floor (plinth, taller windows, entrance door); real shops are drawn on top by
+ *     the storefront generator from OSM POIs — no fake boutiques.
+ *   - Untyped / residential buildings pick a hash-stable palette from a world-neutral pool; glass
+ *     curtain walls only for office/commercial > 30 m or building:material=glass.
+ *   - Stone facades with wrought-iron balconies on the 2nd and 5th floors counted from the ground.
+ *   - Courtyards (multipolygon inner rings) are extruded as holes with their own inner facades.
  *   - Comprehensive roof shapes from Section 8:
  *     * flat: with 3D perimeter parapet walls (acrotères), elevator penthouses, HVAC chillers & communication masts.
  *     * mansard: classic Parisian 2-tier zinc/slate with 3D dormer windows (lucarnes) and terracotta chimney stacks (mitrons).
@@ -30,6 +34,7 @@
 import * as THREE from 'three'
 import RAPIER from '@dimforge/rapier3d-compat'
 import type { Building, BuildingType, RoofShape } from '@world-drive/shared'
+import type { WorldPosition } from '@world-drive/math'
 
 // ── Facade color palettes & architectural styles ─────────────────────────────
 export type ArchitecturalStyle =
@@ -45,6 +50,7 @@ export type ArchitecturalStyle =
   | 'garage'
   | 'greenhouse'
   | 'ruins'
+  | 'render'
 
 interface Palette {
   facade: number
@@ -52,34 +58,30 @@ interface Palette {
   roof: number
   style: ArchitecturalStyle
   isGlass: boolean
-  hasBoutiques?: boolean
 }
 
+/**
+ * Global neutral pool for untyped / residential buildings (building=yes|apartments|residential…).
+ * Deliberately NOT keyed on region: every entry is plausible anywhere in the world, and the
+ * pick is hash-stable per building id. Real facade colour/material tags override it.
+ */
 const PALETTES: Palette[] = [
-  // Haussmannian Paris limestone (classic urban boulevard)
-  { facade: 0xd6cebe, frame: 0xbaa490, roof: 0x48525e, style: 'haussmann', isGlass: false, hasBoutiques: true },
-  { facade: 0xc8c0b0, frame: 0xaa9e8a, roof: 0x3e4752, style: 'haussmann', isGlass: false, hasBoutiques: true },
-  { facade: 0xded8cc, frame: 0xc4bcae, roof: 0x4e5864, style: 'haussmann', isGlass: false, hasBoutiques: true },
-
-  // Modern glass office towers
-  { facade: 0x1e2e42, frame: 0x2e4258, roof: 0x141e2a, style: 'glass_curtain', isGlass: true },
-  { facade: 0x243545, frame: 0x36485b, roof: 0x182430, style: 'glass_curtain', isGlass: true },
-
-  // Brick & Terracotta residential / commercial
-  { facade: 0x6e3c30, frame: 0x542d24, roof: 0x282320, style: 'brick', isGlass: false, hasBoutiques: true },
-  { facade: 0x7c4434, frame: 0x5a3224, roof: 0x221c18, style: 'brick', isGlass: false },
-
-  // Warm sandstone & limestone civic
-  { facade: 0xb5ad9e, frame: 0x989082, roof: 0x42403c, style: 'civic_classical', isGlass: false },
-
-  // Dark slate contemporary
-  { facade: 0x383e48, frame: 0x2a2f38, roof: 0x20242b, style: 'commercial_boutique', isGlass: false, hasBoutiques: true },
+  { facade: 0xd6cebe, frame: 0xbaa490, roof: 0x48525e, style: 'haussmann', isGlass: false }, // limestone cream
+  { facade: 0xe0d6c4, frame: 0xc4b8a4, roof: 0x4e5864, style: 'haussmann', isGlass: false }, // pale stone
+  { facade: 0xcfc1a8, frame: 0xb0a088, roof: 0x5a4a3c, style: 'render',    isGlass: false }, // warm beige render
+  { facade: 0xd8d8d4, frame: 0xb4b4b0, roof: 0x50545a, style: 'render',    isGlass: false }, // light grey render
+  { facade: 0xe6e2da, frame: 0xc0bcb4, roof: 0x5c5650, style: 'render',    isGlass: false }, // white render
+  { facade: 0x9a5a44, frame: 0x74402e, roof: 0x3a2e28, style: 'brick',     isGlass: false }, // red brick
+  { facade: 0xb8845a, frame: 0x8e6440, roof: 0x4a3828, style: 'brick',     isGlass: false }, // buff brick
+  { facade: 0xd9c08a, frame: 0xb89c68, roof: 0x6a4e3c, style: 'render',    isGlass: false }, // pale ochre
 ]
+
+/** The only glass facade: office/commercial above 30 m or building:material=glass. */
+const GLASS_PALETTE: Palette = { facade: 0x243545, frame: 0x36485b, roof: 0x182430, style: 'glass_curtain', isGlass: true }
 
 // Type-specific palette overrides
 const TYPE_PALETTES: Partial<Record<BuildingType, Palette>> = {
   // Residential
-  apartments:         { facade: 0xd8d0c0, frame: 0xbcab94, roof: 0x46505c, style: 'haussmann', isGlass: false, hasBoutiques: true },
   house:              { facade: 0x8b5e3c, frame: 0x6a4530, roof: 0x6a3020, style: 'residential_house', isGlass: false },
   detached:           { facade: 0x9e7255, frame: 0x7a5840, roof: 0x624030, style: 'residential_house', isGlass: false },
   semidetached_house: { facade: 0x8b6545, frame: 0x6e5036, roof: 0x5a3825, style: 'residential_house', isGlass: false },
@@ -88,16 +90,16 @@ const TYPE_PALETTES: Partial<Record<BuildingType, Palette>> = {
   hut:                { facade: 0x6a4e32, frame: 0x4e3820, roof: 0x382c18, style: 'residential_house', isGlass: false },
   cabin:              { facade: 0x6a4e32, frame: 0x4e3820, roof: 0x382c18, style: 'residential_house', isGlass: false },
   shed:               { facade: 0x756858, frame: 0x554a3a, roof: 0x443a2c, style: 'garage', isGlass: false },
-  kiosk:              { facade: 0x2e4258, frame: 0x1e2e42, roof: 0x182430, style: 'commercial_boutique', isGlass: false, hasBoutiques: true },
+  kiosk:              { facade: 0x2e4258, frame: 0x1e2e42, roof: 0x182430, style: 'commercial_boutique', isGlass: false },
 
   // Commercial / Retail / Offices
-  office:             { facade: 0x243545, frame: 0x36485b, roof: 0x182430, style: 'glass_curtain', isGlass: true },
-  commercial:         { facade: 0x2b3846, frame: 0x3c4c5c, roof: 0x1d2732, style: 'commercial_boutique', isGlass: true, hasBoutiques: true },
-  retail:             { facade: 0xd2cbbe, frame: 0x485260, roof: 0x343a44, style: 'commercial_boutique', isGlass: false, hasBoutiques: true },
-  supermarket:        { facade: 0x354b6e, frame: 0x223652, roof: 0x1a2434, style: 'commercial_boutique', isGlass: false, hasBoutiques: true },
-  hotel:              { facade: 0xc4bcad, frame: 0x9e9484, roof: 0x42403e, style: 'haussmann', isGlass: false, hasBoutiques: true },
-  restaurant:         { facade: 0x2c3540, frame: 0x384552, roof: 0x222a32, style: 'commercial_boutique', isGlass: false, hasBoutiques: true },
-  bank:               { facade: 0xdedcd4, frame: 0xaaa69a, roof: 0x3e4248, style: 'civic_classical', isGlass: false, hasBoutiques: true },
+  office:             { facade: 0xc9c5bd, frame: 0x8a8680, roof: 0x3a3e46, style: 'render', isGlass: false },
+  commercial:         { facade: 0xbdb7ac, frame: 0x7e7872, roof: 0x363a42, style: 'commercial_boutique', isGlass: false },
+  retail:             { facade: 0xd2cbbe, frame: 0x485260, roof: 0x343a44, style: 'commercial_boutique', isGlass: false },
+  supermarket:        { facade: 0x354b6e, frame: 0x223652, roof: 0x1a2434, style: 'commercial_boutique', isGlass: false },
+  hotel:              { facade: 0xc4bcad, frame: 0x9e9484, roof: 0x42403e, style: 'haussmann', isGlass: false },
+  restaurant:         { facade: 0x2c3540, frame: 0x384552, roof: 0x222a32, style: 'commercial_boutique', isGlass: false },
+  bank:               { facade: 0xdedcd4, frame: 0xaaa69a, roof: 0x3e4248, style: 'civic_classical', isGlass: false },
 
   // Industrial / Logistics / Garages
   warehouse:          { facade: 0x7a7e88, frame: 0x5a5e68, roof: 0x3a3e48, style: 'industrial', isGlass: false },
@@ -192,12 +194,21 @@ const ROOF_MATERIAL_COLORS: Record<string, number> = {
 }
 
 // ── Window texture cache ─────────────────────────────────────────────────────
+// One texture per (palette, level count): the canvas holds exactly `rows` floors, the
+// ground floor being the bottom row, so the UV scale can map one repeat to the wall height.
 const textureCache = new Map<string, THREE.CanvasTexture>()
 
-function makeWindowTexture(palette: Palette, paletteKey: string): THREE.CanvasTexture {
-  if (textureCache.has(paletteKey)) return textureCache.get(paletteKey)!
+/** Distinct level variants: taller buildings repeat the texture every MAX_TEXTURE_ROWS floors. */
+const MAX_TEXTURE_ROWS = 24
+const ROW_PX = 64
 
-  const W = 512, H = 512
+function makeWindowTexture(palette: Palette, cacheKey: string, rows: number): THREE.CanvasTexture {
+  const cached = textureCache.get(cacheKey)
+  if (cached) return cached
+
+  const floors = Math.max(1, Math.min(MAX_TEXTURE_ROWS, Math.round(rows)))
+  const W = 512
+  const H = floors * ROW_PX
   const canvas = document.createElement('canvas')
   canvas.width = W
   canvas.height = H
@@ -214,7 +225,6 @@ function makeWindowTexture(palette: Palette, paletteKey: string): THREE.CanvasTe
 
   // 2. Surface material grain & subtle bonding
   if (style === 'brick') {
-    // Brick mortar lines & color variations
     ctx.strokeStyle = 'rgba(230, 220, 210, 0.25)'
     ctx.lineWidth = 1
     const brickH = 8
@@ -227,62 +237,64 @@ function makeWindowTexture(palette: Palette, paletteKey: string): THREE.CanvasTe
       }
     }
   } else if (style === 'industrial') {
-    // Corrugated metal vertical ribs
     for (let x = 0; x < W; x += 6) {
       ctx.fillStyle = (x % 12 === 0) ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.08)'
       ctx.fillRect(x, 0, 2, H)
     }
   } else if (style === 'agricultural') {
-    // Horizontal weathered wooden planks
     ctx.strokeStyle = 'rgba(0,0,0,0.2)'
     ctx.lineWidth = 2
     for (let y = 0; y < H; y += 16) {
       ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke()
     }
-  } else {
-    // Subtle natural limestone fleck & grain
+  } else if (style !== 'glass_curtain') {
+    // Subtle natural stone / render fleck
     ctx.fillStyle = 'rgba(0,0,0,0.03)'
-    for (let i = 0; i < 400; i++) {
+    const flecks = 50 * floors
+    for (let i = 0; i < flecks; i++) {
       ctx.fillRect(Math.random() * W, Math.random() * H, 2, 2)
     }
   }
 
-  // 3. Number of floors & windows
-  const floors = style === 'residential_house' ? 4 : (style === 'industrial' ? 4 : 8)
-  const floorH = H / floors
+  // 3. Floors & windows: row 0 is the top floor, the last row is the ground floor
+  const floorH = ROW_PX
   const cols = style === 'residential_house' ? 6 : 8
   const colW = W / cols
+  const hasCornice = style === 'haussmann' || style === 'civic_classical'
+  const hasStringcourse = style === 'render' || style === 'commercial_boutique' || style === 'brick'
 
   for (let f = 0; f < floors; f++) {
     const y = f * floorH
     const isGroundFloor = f === floors - 1
+    const floorFromGround = floors - 1 - f
 
-    // Horizontal floor dividing stone cornice / stringcourse band
-    if (style === 'haussmann' || style === 'civic_classical') {
+    // Horizontal floor dividing band
+    if (hasCornice) {
       ctx.fillStyle = 'rgba(0,0,0,0.22)'
       ctx.fillRect(0, y, W, 3)
       ctx.fillStyle = 'rgba(255,255,255,0.18)'
       ctx.fillRect(0, y + 3, W, 2)
+    } else if (hasStringcourse && f > 0) {
+      ctx.fillStyle = 'rgba(0,0,0,0.10)'
+      ctx.fillRect(0, y, W, 2)
     }
 
-    // Rusticated stone plinth (bossages) on ground floor for Haussmann buildings
-    if (isGroundFloor && style === 'haussmann') {
-      ctx.fillStyle = 'rgba(0,0,0,0.12)'
-      for (let gy = y; gy < H; gy += 14) {
-        ctx.fillRect(0, gy, W, 2)
+    // Ground-floor plinth (soubassement): darker base band + rustication for stone facades
+    if (isGroundFloor && style !== 'industrial' && style !== 'garage' && style !== 'glass_curtain' && style !== 'religious' && style !== 'greenhouse') {
+      ctx.fillStyle = 'rgba(0,0,0,0.16)'
+      ctx.fillRect(0, y + floorH - 6, W, 6)
+      if (style === 'haussmann' || style === 'civic_classical') {
+        ctx.fillStyle = 'rgba(0,0,0,0.12)'
+        for (let gy = y + 2; gy < H; gy += 14) ctx.fillRect(0, gy, W, 2)
       }
     }
 
-    // French wrought-iron balcony railings on 2nd and 5th floors (Haussmann)
-    const hasBalcony = style === 'haussmann' && (f === 1 || f === 4)
+    // Wrought-iron balcony railings on the 2nd and 5th floors counted from the ground
+    const hasBalcony = style === 'haussmann' && floors >= 4 && (floorFromGround === 2 || floorFromGround === 5)
     if (hasBalcony) {
-      ctx.fillStyle = '#1c1f24' // Dark wrought iron railing
+      ctx.fillStyle = '#1c1f24'
       ctx.fillRect(0, y + floorH - 10, W, 8)
-      // Railing filigree bars & scrolls
-      for (let bx = 0; bx < W; bx += 8) {
-        ctx.fillRect(bx, y + floorH - 12, 2, 10)
-      }
-      // Top brass handrail
+      for (let bx = 0; bx < W; bx += 8) ctx.fillRect(bx, y + floorH - 12, 2, 10)
       ctx.fillStyle = 'rgba(255, 215, 0, 0.4)'
       ctx.fillRect(0, y + floorH - 12, W, 2)
     }
@@ -294,90 +306,47 @@ function makeWindowTexture(palette: Palette, paletteKey: string): THREE.CanvasTe
       const ww = colW - 16
       const wh = floorH - 18
 
-      if (isGroundFloor && palette.hasBoutiques) {
-        // ── Street-level boutique / bistro storefront ────────────────────────
-        const boutiqueTypes = [
-          { type: 'bakery', awning: '#b85d38', glow: '#ffe099', name: 'Boulangerie' },
-          { type: 'bistro', awning: '#1e4828', glow: '#ffdfa0', name: 'Café' },
-          { type: 'pharmacy', awning: '#18382c', glow: '#eaffea', name: 'Pharmacie' },
-          { type: 'boutique', awning: '#1a2e54', glow: '#fff2d6', name: 'Mode' },
-          { type: 'bistro2', awning: '#8b1e1e', glow: '#ffd699', name: 'Bistrot' },
-        ]
-        const b = boutiqueTypes[(c + f * 2) % boutiqueTypes.length]!
-
-        // Striped / solid store awning (store banne)
-        ctx.fillStyle = b.awning
-        ctx.fillRect(wx - 2, wy, ww + 4, 10)
-        // Awning fringe & stripes
-        ctx.fillStyle = 'rgba(255,255,255,0.3)'
-        for (let ax = wx - 2; ax < wx + ww + 4; ax += 8) {
-          ctx.fillRect(ax, wy, 4, 10)
-        }
-
-        // Large illuminated storefront display vitrine
-        ctx.fillStyle = b.glow
-        ctx.fillRect(wx, wy + 10, ww, wh - 10)
-
-        // If pharmacy: glowing green cross
-        if (b.type === 'pharmacy') {
-          ctx.fillStyle = '#00c853'
-          const cx = wx + ww / 2
-          const cy = wy + 10 + (wh - 10) / 2
-          ctx.fillRect(cx - 3, cy - 8, 6, 16)
-          ctx.fillRect(cx - 8, cy - 3, 16, 6)
-        }
-
-        // Store window frame
-        ctx.strokeStyle = '#221c16'
-        ctx.lineWidth = 2
-        ctx.strokeRect(wx, wy + 10, ww, wh - 10)
-
-      } else if (isGroundFloor && (style === 'haussmann' || style === 'residential_house')) {
-        // ── Grand carved wooden carriage door (porte cochère) or front door ──
-        const isCenterDoor = c === Math.floor(cols / 2)
-        if (isCenterDoor) {
-          // Dark carved oak double door
-          ctx.fillStyle = '#2d1e16'
-          ctx.fillRect(wx, wy, ww, wh)
-          // Transom window (imposte vitrée)
-          ctx.fillStyle = 'rgba(255, 230, 160, 0.85)'
-          ctx.fillRect(wx + 4, wy + 2, ww - 8, 8)
-          // Door panel moldings
-          ctx.strokeStyle = '#180e08'
-          ctx.lineWidth = 2
-          ctx.strokeRect(wx + 3, wy + 12, ww / 2 - 4, wh - 14)
-          ctx.strokeRect(wx + ww / 2 + 1, wy + 12, ww / 2 - 4, wh - 14)
-          // Brass knocker & handle
-          ctx.fillStyle = '#d4af37'
-          ctx.fillRect(wx + ww / 2 - 2, wy + wh * 0.55, 4, 6)
-        } else {
-          // Ground floor residential window with security grilles
-          ctx.fillStyle = 'rgba(0,0,0,0.3)'
-          ctx.fillRect(wx - 2, wy - 2, ww + 4, wh + 4)
-          ctx.fillStyle = 'rgba(240, 220, 160, 0.75)'
-          ctx.fillRect(wx, wy, ww, wh)
-          // Iron window grille bars
-          ctx.fillStyle = '#222'
-          for (let gx = wx + 4; gx < wx + ww; gx += 6) {
-            ctx.fillRect(gx, wy, 1.5, wh)
-          }
-        }
-
-      } else if (isGroundFloor && (style === 'industrial' || style === 'garage')) {
+      if (isGroundFloor && (style === 'industrial' || style === 'garage')) {
         // ── Industrial segmented roll-up garage door ─────────────────────────
         ctx.fillStyle = '#4a5058'
         ctx.fillRect(wx, wy, ww, wh)
-        // Horizontal roll-up slats
         ctx.fillStyle = 'rgba(0,0,0,0.2)'
-        for (let sy = wy; sy < wy + wh; sy += 6) {
-          ctx.fillRect(wx, sy, ww, 1.5)
-        }
-        // Safety yellow/black hazard stripe along top header
+        for (let sy = wy; sy < wy + wh; sy += 6) ctx.fillRect(wx, sy, ww, 1.5)
         ctx.fillStyle = '#f1c40f'
         ctx.fillRect(wx, wy, ww, 4)
         ctx.fillStyle = '#1e1e1e'
-        for (let hx = wx; hx < wx + ww; hx += 8) {
-          ctx.fillRect(hx, wy, 4, 4)
+        for (let hx = wx; hx < wx + ww; hx += 8) ctx.fillRect(hx, wy, 4, 4)
+
+      } else if (isGroundFloor && style !== 'glass_curtain' && style !== 'religious' && style !== 'greenhouse') {
+        // ── Neutral ground floor: entrance door in the middle bay, taller windows elsewhere ──
+        // (real shops are drawn on top of this band by the storefront generator)
+        const gwy = y + 6
+        const gwh = floorH - 14
+        const isCenterDoor = c === Math.floor(cols / 2)
+        if (isCenterDoor) {
+          ctx.fillStyle = '#2d1e16'
+          ctx.fillRect(wx, gwy, ww, gwh)
+          ctx.fillStyle = 'rgba(255, 230, 160, 0.85)'
+          ctx.fillRect(wx + 4, gwy + 2, ww - 8, 8)
+          ctx.strokeStyle = '#180e08'
+          ctx.lineWidth = 2
+          ctx.strokeRect(wx + 3, gwy + 12, ww / 2 - 4, gwh - 14)
+          ctx.strokeRect(wx + ww / 2 + 1, gwy + 12, ww / 2 - 4, gwh - 14)
+          ctx.fillStyle = '#d4af37'
+          ctx.fillRect(wx + ww / 2 - 2, gwy + gwh * 0.55, 4, 6)
+        } else {
+          ctx.fillStyle = 'rgba(0,0,0,0.3)'
+          ctx.fillRect(wx - 2, gwy - 2, ww + 4, gwh + 4)
+          const lit = ((c * 5 + floors) % 3) !== 0
+          ctx.fillStyle = lit ? 'rgba(240, 220, 160, 0.75)' : 'rgba(40, 52, 68, 0.85)'
+          ctx.fillRect(wx, gwy, ww, gwh)
+          if (style === 'residential_house' || style === 'haussmann') {
+            ctx.fillStyle = '#222'
+            for (let gx = wx + 4; gx < wx + ww; gx += 6) ctx.fillRect(gx, gwy, 1.5, gwh)
+          } else {
+            ctx.fillStyle = 'rgba(28, 24, 20, 0.50)'
+            ctx.fillRect(wx + ww / 2 - 1, gwy, 2, gwh)
+          }
         }
 
       } else if (style === 'glass_curtain') {
@@ -387,20 +356,14 @@ function makeWindowTexture(palette: Palette, paletteKey: string): THREE.CanvasTe
         skyGrad.addColorStop(1, 'rgba(20, 48, 76, 0.95)')
         ctx.fillStyle = skyGrad
         ctx.fillRect(wx, wy, ww, wh)
-
-        // Sun glint streak
         ctx.fillStyle = 'rgba(255, 255, 255, 0.18)'
         ctx.fillRect(wx, wy, ww * 0.35, wh)
-
-        // Office ceiling lighting grid visible inside (varied office lighting)
         const isOfficeLit = ((c * 5 + f * 11) % 4) !== 0
         if (isOfficeLit) {
           ctx.fillStyle = 'rgba(255, 245, 205, 0.35)'
           ctx.fillRect(wx + 2, wy + 2, ww - 4, 3)
           ctx.fillRect(wx + 2, wy + 8, ww - 4, 3)
         }
-
-        // Structural mullions
         ctx.strokeStyle = '#141e28'
         ctx.lineWidth = 2
         ctx.strokeRect(wx, wy, ww, wh)
@@ -409,39 +372,26 @@ function makeWindowTexture(palette: Palette, paletteKey: string): THREE.CanvasTe
         // ── Gothic / Romanesque lancet arched window with stained glass ──────
         ctx.fillStyle = 'rgba(0,0,0,0.45)'
         ctx.fillRect(wx, wy, ww, wh)
-
-        // Warm stained glass colors (amber, crimson, sapphire)
         const lit = ((c * 3 + f * 7) % 3) !== 0
         ctx.fillStyle = lit ? 'rgba(255, 200, 100, 0.85)' : 'rgba(180, 60, 40, 0.70)'
         ctx.fillRect(wx + 2, wy + 4, ww - 4, wh - 6)
-
-        // Stone tracery arch dividers
         ctx.fillStyle = '#3a3832'
         ctx.fillRect(wx + ww / 2 - 1, wy, 2, wh)
 
       } else {
-        // ── Classic European window with stone lintel, sill, and frame ───────
-        // Dark outer frame recess
+        // ── Classic window with lintel, sill, and frame ──────────────────────
         ctx.fillStyle = 'rgba(0,0,0,0.32)'
         ctx.fillRect(wx - 2, wy - 2, ww + 4, wh + 4)
-
-        // Window glass (warm evening illumination or cool day reflection)
         const isWindowLit = ((c * 7 + f * 13) % 5) > 1
         ctx.fillStyle = isWindowLit ? 'rgba(255, 230, 155, 0.92)' : 'rgba(38, 52, 70, 0.88)'
         ctx.fillRect(wx, wy, ww, wh)
-
-        // Window pane dividers (muntins / croisillons)
         ctx.fillStyle = 'rgba(28, 24, 20, 0.50)'
-        ctx.fillRect(wx + ww / 2 - 1, wy, 2, wh)       // Vertical
-        ctx.fillRect(wx, wy + wh * 0.45 - 1, ww, 2)    // Horizontal
-
-        // Upper carved stone pediment / lintel
+        ctx.fillRect(wx + ww / 2 - 1, wy, 2, wh)
+        ctx.fillRect(wx, wy + wh * 0.45 - 1, ww, 2)
         ctx.fillStyle = 'rgba(0,0,0,0.20)'
         ctx.fillRect(wx - 3, wy - 4, ww + 6, 2)
         ctx.fillStyle = 'rgba(255,255,255,0.15)'
         ctx.fillRect(wx - 3, wy - 2, ww + 6, 1)
-
-        // Lower protruding stone sill (appui de fenêtre)
         ctx.fillStyle = 'rgba(0,0,0,0.25)'
         ctx.fillRect(wx - 3, wy + wh + 1, ww + 6, 3)
       }
@@ -451,7 +401,8 @@ function makeWindowTexture(palette: Palette, paletteKey: string): THREE.CanvasTe
   const tex = new THREE.CanvasTexture(canvas)
   tex.wrapS = THREE.RepeatWrapping
   tex.wrapT = THREE.RepeatWrapping
-  textureCache.set(paletteKey, tex)
+  tex.anisotropy = 4
+  textureCache.set(cacheKey, tex)
   return tex
 }
 
@@ -459,25 +410,22 @@ function makeWindowTexture(palette: Palette, paletteKey: string): THREE.CanvasTe
 const matCache = new Map<string, THREE.MeshStandardMaterial>()
 const roofMatCache = new Map<string, THREE.MeshStandardMaterial>()
 
-function getFacadeMat(pal: Palette, key: string, colourOverride?: string): THREE.MeshStandardMaterial {
-  const cacheKey = `${key}_${colourOverride ?? ''}`
+function getFacadeMat(pal: Palette, key: string, rows: number, colourOverride?: string): THREE.MeshStandardMaterial {
+  const cacheKey = `${key}_L${rows}_${colourOverride ?? ''}`
   if (matCache.has(cacheKey)) return matCache.get(cacheKey)!
 
-  let mat: THREE.MeshStandardMaterial
+  // A building:colour / building:material tint keeps the window rows: tint the base palette.
+  let effective = pal
   if (colourOverride) {
-    mat = new THREE.MeshStandardMaterial({
-      color: new THREE.Color(colourOverride),
-      roughness: pal.isGlass ? 0.35 : 0.84,
-      metalness: pal.isGlass ? 0.65 : 0.08,
-    })
-  } else {
-    const tex = makeWindowTexture(pal, key)
-    mat = new THREE.MeshStandardMaterial({
-      map: tex,
-      roughness: pal.isGlass ? 0.35 : 0.84,
-      metalness: pal.isGlass ? 0.65 : 0.08,
-    })
+    const hex = new THREE.Color(colourOverride).getHex()
+    effective = { ...pal, facade: hex, frame: (hex >> 1) & 0x7f7f7f }
   }
+  const tex = makeWindowTexture(effective, cacheKey, rows)
+  const mat = new THREE.MeshStandardMaterial({
+    map: tex,
+    roughness: pal.isGlass ? 0.35 : 0.84,
+    metalness: pal.isGlass ? 0.65 : 0.08,
+  })
   matCache.set(cacheKey, mat)
   return mat
 }
@@ -521,6 +469,7 @@ function buildFlatRoofWithDetails(
   baseHeight: number,
   roofMat: THREE.MeshStandardMaterial,
   facadeMat: THREE.MeshStandardMaterial,
+  skipEquipment = false,
 ): THREE.Group {
   const group = new THREE.Group()
 
@@ -602,7 +551,7 @@ function buildFlatRoofWithDetails(
   group.add(parapetMesh)
 
   // 3. Rooftop equipment (elevator penthouse, HVAC chillers, communication mast)
-  if (spanX > 10 && spanY > 10) {
+  if (!skipEquipment && spanX > 10 && spanY > 10) {
     const equipMat = new THREE.MeshStandardMaterial({ color: 0x50545a, roughness: 0.85, metalness: 0.25 })
 
     // Elevator / stair penthouse housing
@@ -1190,20 +1139,48 @@ export class BuildingMeshGenerator {
     const fp2d = fp.map(p => new THREE.Vector2(p.x, p.z))
     const bType = building.buildingType
 
-    // Select palette: type-specific override takes priority, then hash
-    const typePal = bType ? TYPE_PALETTES[bType] : undefined
-    const paletteIdx = hashId(building.id) % PALETTES.length
-    const pal = typePal ?? PALETTES[paletteIdx]!
-    const matKey = typePal ? bType! : `${paletteIdx}`
+    // Select palette (global rules only, nothing region-specific):
+    //  - building:material=glass, or office/commercial taller than 30 m → glass curtain wall
+    //  - other typed buildings → their type palette
+    //  - untyped / residential (yes, apartments, …) → hash-stable pick from the neutral pool
+    const materialLower = building.material?.toLowerCase()
+    const isUntyped = !bType || bType === 'yes' || bType === 'apartments'
+    const typePal = !isUntyped && bType ? TYPE_PALETTES[bType] : undefined
+    let pal: Palette
+    let matKey: string
+    if (materialLower === 'glass' || ((bType === 'office' || bType === 'commercial') && building.height > 30)) {
+      pal = GLASS_PALETTE
+      matKey = 'glass'
+    } else if (typePal) {
+      pal = typePal
+      matKey = bType!
+    } else {
+      const paletteIdx = hashId(building.id) % PALETTES.length
+      pal = PALETTES[paletteIdx]!
+      matKey = `pool${paletteIdx}`
+    }
 
-    // Override facade color if building:colour or building:material is present
+    // Tint facade if building:colour or building:material is present (window rows are kept)
     let facadeColorOverride = building.colour
-    if (!facadeColorOverride && building.material && MATERIAL_COLORS[building.material.toLowerCase()]) {
-      const col = MATERIAL_COLORS[building.material.toLowerCase()]!
+    if (!facadeColorOverride && materialLower && materialLower !== 'glass' && MATERIAL_COLORS[materialLower]) {
+      const col = MATERIAL_COLORS[materialLower]!
       facadeColorOverride = `#${col.toString(16).padStart(6, '0')}`
     }
 
-    const facadeMat = getFacadeMat(pal, matKey, facadeColorOverride)
+    // Real floor count → window rows. One texture height = the whole wall height.
+    const bottomY = building.minHeight ?? 0
+    const wallHeight = Math.max(1.5, building.height - bottomY)
+    let levels = Math.round(building.levels)
+    if (!(levels >= 1)) levels = 1
+    let floorH = wallHeight / levels
+    if (floorH < 2.3 || floorH > 6.5) {
+      // levels tag inconsistent with height: derive from height instead
+      levels = Math.max(1, Math.round(wallHeight / 3.3))
+      floorH = wallHeight / levels
+    }
+    const rows = Math.min(levels, MAX_TEXTURE_ROWS)
+
+    const facadeMat = getFacadeMat(pal, matKey, rows, facadeColorOverride)
     const roofMat = getRoofMat(pal, matKey, building.roofColour, building.roofMaterial)
 
     const group = new THREE.Group()
@@ -1222,8 +1199,19 @@ export class BuildingMeshGenerator {
     for (let i = 1; i < fp.length; i++) shape.lineTo(fp[i]!.x, -fp[i]!.z)
     shape.closePath()
 
-    const bottomY = building.minHeight ?? 0
-    const wallHeight = Math.max(1.5, building.height - bottomY)
+    // Courtyards (multipolygon inner rings) become holes: inner facades are extruded too.
+    let hasHoles = false
+    if (building.holes) {
+      for (const ring of building.holes) {
+        if (ring.length < 3) continue
+        const path = new THREE.Path()
+        path.moveTo(ring[0]!.x, -ring[0]!.z)
+        for (let i = 1; i < ring.length; i++) path.lineTo(ring[i]!.x, -ring[i]!.z)
+        path.closePath()
+        shape.holes.push(path)
+        hasHoles = true
+      }
+    }
 
     const fullGeo = new THREE.ExtrudeGeometry(shape, {
       depth: wallHeight,
@@ -1257,9 +1245,12 @@ export class BuildingMeshGenerator {
     const uvAttr = wallGeo.attributes['uv'] as THREE.BufferAttribute
     if (uvAttr) {
       const uScale = 0.05
-      const vScale = 0.035
+      // One texture repeat = `rows` floors, so every window row is a real floor and the
+      // ground-floor band is exactly one floor tall.
+      // ExtrudeGeometry side walls carry v = 1 - depth, so (1 - v) is the height above the wall base.
+      const vScale = 1 / (rows * floorH)
       for (let i = 0; i < uvAttr.count; i++) {
-        uvAttr.setXY(i, uvAttr.getX(i) * uScale, uvAttr.getY(i) * vScale)
+        uvAttr.setXY(i, uvAttr.getX(i) * uScale, (1 - uvAttr.getY(i)) * vScale)
       }
       uvAttr.needsUpdate = true
     }
@@ -1274,7 +1265,10 @@ export class BuildingMeshGenerator {
     let roofShape = building.roofShape ?? 'flat'
 
     // Heuristics based on building type, architectural style, and height:
-    if (roofShape === 'flat' && (bType === 'apartments' || pal.style === 'haussmann') && building.height >= 12) {
+    if (hasHoles) {
+      // Pitched roof builders work on the outer ring only; a courtyard block keeps a flat roof with the hole.
+      roofShape = 'flat'
+    } else if (roofShape === 'flat' && (bType === 'apartments' || pal.style === 'haussmann') && building.height >= 12) {
       roofShape = 'mansard'
     } else if (roofShape === 'flat' && (bType === 'house' || bType === 'detached' || bType === 'terrace' || bType === 'bungalow' || bType === 'barn') && building.height < 12) {
       roofShape = 'gabled'
@@ -1311,7 +1305,7 @@ export class BuildingMeshGenerator {
       group.add(dome)
     } else {
       // Flat roof with 3D parapet border (acrotère) & rooftop HVAC/lift penthouse/antennae
-      const flat = buildFlatRoofWithDetails(shape, fp2d, roofBaseH, roofMat, facadeMat)
+      const flat = buildFlatRoofWithDetails(shape, fp2d, roofBaseH, roofMat, facadeMat, hasHoles)
       group.add(flat)
     }
 
@@ -1369,26 +1363,32 @@ export class BuildingMeshGenerator {
     const fp = building.footprint
     if (fp.length < 3) return null
 
-    const n = fp.length
     const verts: number[] = []
     const indices: number[] = []
     const bottomY = building.minHeight ?? 0
 
-    for (let i = 0; i < n; i++) {
-      const p = fp[i]!
-      verts.push(p.x, bottomY, p.z)
-      verts.push(p.x, building.height, p.z)
-    }
+    // Vertical wall quads along the outer ring and along every courtyard ring
+    // (so a car inside a courtyard cannot drive through the inner facades).
+    const rings: WorldPosition[][] = [fp]
+    if (building.holes) for (const h of building.holes) if (h.length >= 3) rings.push(h)
 
-    for (let i = 0; i < n; i++) {
-      const next = (i + 1) % n
-      const b0 = i * 2
-      const t0 = i * 2 + 1
-      const b1 = next * 2
-      const t1 = next * 2 + 1
-
-      indices.push(b0, b1, t0)
-      indices.push(b1, t1, t0)
+    for (const ring of rings) {
+      const n = ring.length
+      const base = verts.length / 3
+      for (let i = 0; i < n; i++) {
+        const p = ring[i]!
+        verts.push(p.x, bottomY, p.z)
+        verts.push(p.x, building.height, p.z)
+      }
+      for (let i = 0; i < n; i++) {
+        const next = (i + 1) % n
+        const b0 = base + i * 2
+        const t0 = base + i * 2 + 1
+        const b1 = base + next * 2
+        const t1 = base + next * 2 + 1
+        indices.push(b0, b1, t0)
+        indices.push(b1, t1, t0)
+      }
     }
 
     return RAPIER.ColliderDesc.trimesh(

@@ -324,7 +324,7 @@ export class ChunkManager {
         if (n >= COLLIDERS_PER_SLICE) { n = 0; yield }
       }
       for (const park of features.parks ?? []) {
-        for (const desc of ParkMeshGenerator.createColliderDescs(park, allRoads)) add(desc)
+        for (const desc of ParkMeshGenerator.createColliderDescs(park, allRoads, features.pointsOfInterest ?? [])) add(desc)
         if (n >= COLLIDERS_PER_SLICE) { n = 0; yield }
       }
       for (const road of features.roads) {
@@ -934,15 +934,32 @@ function needsFullRebuild(existing: WorldChunk, delta: WorldChunk): boolean {
   return false
 }
 
-/** Dispose the GPU-backed geometries of a chunk group (shared slab geometry excluded). */
+/**
+ * Dispose the GPU-backed resources of a chunk group. Shared module-level
+ * geometries/materials (templates, slab, instanced archetypes) are left alone;
+ * per-chunk resources are freed: merged geometries, InstancedMesh instance
+ * buffers, and the per-chunk signage canvas texture.
+ */
 function disposeGroup(group: THREE.Group | undefined): void {
   if (!group) return
   group.traverse((obj) => {
-    if (obj instanceof THREE.Mesh && !obj.userData['skipMerge']) {
-      obj.geometry.dispose()
-      if (Array.isArray(obj.material)) {
-        obj.material.forEach((m) => m.dispose())
+    if (!(obj instanceof THREE.Mesh)) return
+    if (obj.userData['skipMerge']) {
+      if ((obj as THREE.InstancedMesh).isInstancedMesh) {
+        ;(obj as THREE.InstancedMesh).dispose() // instanceMatrix/instanceColor only
       }
+      if (obj.name === 'storefront_signage' && !Array.isArray(obj.material)) {
+        const mat = obj.material as THREE.MeshStandardMaterial
+        mat.map?.dispose()
+        mat.emissiveMap?.dispose()
+        mat.dispose()
+        obj.geometry.dispose()
+      }
+      return
+    }
+    obj.geometry.dispose()
+    if (Array.isArray(obj.material)) {
+      obj.material.forEach((m) => m.dispose())
     }
   })
 }

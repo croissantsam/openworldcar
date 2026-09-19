@@ -13,7 +13,7 @@
 
 import * as THREE from 'three'
 import RAPIER from '@dimforge/rapier3d-compat'
-import type { Park, ParkType, Road } from '@world-drive/shared'
+import type { Park, ParkType, PointOfInterest, Road } from '@world-drive/shared'
 
 // ── Procedural Textures ───────────────────────────────────────────────────
 
@@ -193,7 +193,7 @@ function tagTemplateGroup(group: THREE.Group): THREE.Group {
  * Archetype 1: Parisian Plane Tree / Horse Chestnut (Platane / Marronnier)
  * Majestic spreading crown with multiple organic leafy tiers and branching boughs.
  */
-function getPlataneTemplate(): THREE.Group {
+export function getPlataneTemplate(): THREE.Group {
   if (_plataneTemplate) return _plataneTemplate
   const group = new THREE.Group()
 
@@ -242,7 +242,7 @@ function getPlataneTemplate(): THREE.Group {
  * Archetype 2: Linden / Oak Tree (Tilleul noble / Chêne)
  * Stately upright trunk with tall, layered oval canopy.
  */
-function getLindenTemplate(): THREE.Group {
+export function getLindenTemplate(): THREE.Group {
   if (_lindenTemplate) return _lindenTemplate
   const group = new THREE.Group()
 
@@ -279,7 +279,7 @@ function getLindenTemplate(): THREE.Group {
  * Archetype 3: Ornamental Park Tree / Birch / Flowering (Arbre d'ornement)
  * Graceful slender trunk with delicate spreading canopy.
  */
-function getOrnamentalTemplate(): THREE.Group {
+export function getOrnamentalTemplate(): THREE.Group {
   if (_ornamentalTemplate) return _ornamentalTemplate
   const group = new THREE.Group()
 
@@ -314,7 +314,7 @@ function getOrnamentalTemplate(): THREE.Group {
 // ── Parisian Park Furniture (Banc Davioud) ─────────────────────────────────
 
 let _benchTemplate: THREE.Group | null = null
-function getBenchTemplate(): THREE.Group {
+export function getBenchTemplate(): THREE.Group {
   if (_benchTemplate) return _benchTemplate
   const group = new THREE.Group()
 
@@ -448,6 +448,38 @@ function isPointInRoadObstacles(px: number, pz: number, obs: RoadObstacleSeg[], 
   return false
 }
 
+// ── Real (OSM natural=tree) POI suppression ────────────────────────────────
+// Random park trees are dropped within 4 m of a real surveyed tree so the
+// StreetFurnitureGenerator's instanced tree is the only one at that spot.
+
+const REAL_TREE_CLEARANCE = 4
+
+function collectRealTrees(
+  pois: PointOfInterest[] | undefined,
+  minX: number, maxX: number, minZ: number, maxZ: number,
+): Float64Array {
+  if (!pois || pois.length === 0) return new Float64Array(0)
+  const out: number[] = []
+  for (const p of pois) {
+    if (p.kind !== 'tree') continue
+    const x = p.position.x, z = p.position.z
+    if (x < minX - REAL_TREE_CLEARANCE || x > maxX + REAL_TREE_CLEARANCE) continue
+    if (z < minZ - REAL_TREE_CLEARANCE || z > maxZ + REAL_TREE_CLEARANCE) continue
+    out.push(x, z)
+  }
+  return Float64Array.from(out)
+}
+
+function nearRealTree(x: number, z: number, trees: Float64Array): boolean {
+  const r2 = REAL_TREE_CLEARANCE * REAL_TREE_CLEARANCE
+  for (let i = 0; i < trees.length; i += 2) {
+    const dx = trees[i]! - x
+    const dz = trees[i + 1]! - z
+    if (dx * dx + dz * dz < r2) return true
+  }
+  return false
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // ParkMeshGenerator Class
 // ─────────────────────────────────────────────────────────────────────────────
@@ -457,7 +489,7 @@ export class ParkMeshGenerator {
    * Generate a 3D park group with rich procedural lawn, realistic tree archetypes,
    * benches, flowerbeds, and walking paths (without any blocking fences or barriers).
    */
-  static generate(park: Park, roads?: Road[]): THREE.Group | null {
+  static generate(park: Park, roads?: Road[], pois?: PointOfInterest[]): THREE.Group | null {
     const pts = park.polygon
     if (pts.length < 3) return null
 
@@ -630,6 +662,7 @@ export class ParkMeshGenerator {
       if (approxArea >= 50) {
         // Density tuned for visual lushness & 60 FPS performance
         const numCandidates = Math.min(30, Math.floor(approxArea / 160) + 3)
+        const realTrees = collectRealTrees(pois, minX, maxX, minZ, maxZ)
 
         const archetypes = [
           getPlataneTemplate(),    // Marronnier / Platane parisien
@@ -653,7 +686,8 @@ export class ParkMeshGenerator {
 
           if (
             isPointInPolygon(candidateX, candidateZ, pts) &&
-            !isPointInRoadObstacles(candidateX, candidateZ, roadObs, 1.6)
+            !isPointInRoadObstacles(candidateX, candidateZ, roadObs, 1.6) &&
+            !nearRealTree(candidateX, candidateZ, realTrees)
           ) {
             // Pick archetype based on random roll
             const archIdx = Math.floor(pseudoRandom() * archetypes.length)
@@ -726,7 +760,7 @@ export class ParkMeshGenerator {
    * Perimeter fences and barrier colliders are completely omitted,
    * allowing cars to drive seamlessly onto park grass.
    */
-  static createColliderDescs(park: Park, roads?: Road[]): RAPIER.ColliderDesc[] {
+  static createColliderDescs(park: Park, roads?: Road[], pois?: PointOfInterest[]): RAPIER.ColliderDesc[] {
     const pts = park.polygon
     if (pts.length < 3) return []
 
@@ -750,6 +784,7 @@ export class ParkMeshGenerator {
     const treeTypes: ParkType[] = ['park', 'garden', 'grass', 'forest', 'recreation', 'scrub', 'cemetery']
     if (treeTypes.includes(park.type) && approxArea >= 50) {
       const numCandidates = Math.min(30, Math.floor(approxArea / 160) + 3)
+      const realTrees = collectRealTrees(pois, minX, maxX, minZ, maxZ)
       let seed = 0
       for (let i = 0; i < park.id.length; i++) seed = (seed * 31 + park.id.charCodeAt(i)) >>> 0
 
@@ -765,7 +800,8 @@ export class ParkMeshGenerator {
 
         if (
           isPointInPolygon(candidateX, candidateZ, pts) &&
-          !isPointInRoadObstacles(candidateX, candidateZ, roadObs, 1.6)
+          !isPointInRoadObstacles(candidateX, candidateZ, roadObs, 1.6) &&
+          !nearRealTree(candidateX, candidateZ, realTrees)
         ) {
           // Tree trunk solid cylinder collider (radius 0.32m, half-height 1.6m centered at y = 1.6m)
           colliders.push(

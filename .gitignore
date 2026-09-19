@@ -6,3 +6,4 @@ data/development/*.chunk.json
 data/development/*.pbf
 .env
 .env.local
+apps/game/.cache/

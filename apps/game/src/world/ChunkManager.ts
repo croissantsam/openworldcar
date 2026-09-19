@@ -32,6 +32,7 @@ import { BuildingMeshGenerator } from './BuildingMeshGenerator.js'
 import { ParkMeshGenerator } from './ParkMeshGenerator.js'
 import { RoadMeshGenerator } from './RoadMeshGenerator.js'
 import { clipRoadToChunk } from './ChunkBounds.js'
+import { StreetFurnitureGenerator } from './StreetFurnitureGenerator.js'
 
 /** Number of chunks loaded in each direction from the player (5x5 grid = 2.5km across). */
 const LOAD_RADIUS = 2
@@ -323,16 +324,26 @@ export class ChunkManager {
         if (n >= COLLIDERS_PER_SLICE) { n = 0; yield }
       }
       for (const park of features.parks ?? []) {
-        for (const desc of ParkMeshGenerator.createColliderDescs(park, allRoads)) add(desc)
+        for (const desc of ParkMeshGenerator.createColliderDescs(park, allRoads, features.pointsOfInterest ?? [])) add(desc)
         if (n >= COLLIDERS_PER_SLICE) { n = 0; yield }
       }
       for (const road of features.roads) {
-        // Clip road to chunk bounds for colliders too
-        const clippedRoad = clipRoadToChunk(road, managed.id)
-        if (clippedRoad) {
-          for (const desc of RoadMeshGenerator.createColliderDescs(clippedRoad as Road, allRoads)) add(desc)
+        // Ground roads: clip the collider to the chunk so a way crossing several
+        // chunks is not duplicated. Bridges/tunnels keep their full profile: a
+        // clipped one would put its ramp at the chunk border (the visual is not clipped).
+        const elevated = road.bridge || road.tunnel || (road.elevationMode !== undefined && road.elevationMode !== 'ground')
+        const colliderRoad = elevated ? road : clipRoadToChunk(road, managed.id)
+        if (colliderRoad) {
+          for (const desc of RoadMeshGenerator.createColliderDescs(colliderRoad as Road, allRoads)) add(desc)
         }
         if (n >= COLLIDERS_PER_SLICE) { n = 0; yield }
+      }
+      const pois = features.pointsOfInterest ?? []
+      if (pois.length > 0) {
+        for (const desc of StreetFurnitureGenerator.createColliderDescs(pois, allRoads)) {
+          add(desc)
+          if (n >= COLLIDERS_PER_SLICE) { n = 0; yield }
+        }
       }
     }
 
@@ -926,15 +937,36 @@ function needsFullRebuild(existing: WorldChunk, delta: WorldChunk): boolean {
   return false
 }
 
-/** Dispose the GPU-backed geometries of a chunk group (shared slab geometry excluded). */
+/**
+ * Dispose the GPU-backed resources of a chunk group. Shared module-level
+ * geometries/materials (templates, slab, instanced archetypes) are left alone;
+ * per-chunk resources are freed: merged geometries, InstancedMesh instance
+ * buffers, and the per-chunk signage canvas texture.
+ */
 function disposeGroup(group: THREE.Group | undefined): void {
   if (!group) return
   group.traverse((obj) => {
-    if (obj instanceof THREE.Mesh && !obj.userData['skipMerge']) {
-      obj.geometry.dispose()
-      if (Array.isArray(obj.material)) {
-        obj.material.forEach((m) => m.dispose())
+    if (!(obj instanceof THREE.Mesh)) return
+    if (obj.userData['skipMerge']) {
+      if ((obj as THREE.InstancedMesh).isInstancedMesh) {
+        ;(obj as THREE.InstancedMesh).dispose() // instanceMatrix/instanceColor only
       }
+      if (obj.name === 'storefront_signage' && !Array.isArray(obj.material)) {
+        const mat = obj.material as THREE.MeshStandardMaterial
+        mat.map?.dispose()
+        mat.emissiveMap?.dispose()
+        mat.dispose()
+        obj.geometry.dispose()
+      }
+      // Per-chunk storefront buffers (their materials are shared: keep them)
+      if (obj.name === 'storefront_vitrines' || obj.name === 'storefront_joinery') {
+        obj.geometry.dispose()
+      }
+      return
+    }
+    obj.geometry.dispose()
+    if (Array.isArray(obj.material)) {
+      obj.material.forEach((m) => m.dispose())
     }
   })
 }

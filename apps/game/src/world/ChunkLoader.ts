@@ -20,10 +20,22 @@ import { RoadMeshGenerator } from './RoadMeshGenerator.js'
 import { BuildingMeshGenerator } from './BuildingMeshGenerator.js'
 import { WaterwayMeshGenerator } from './WaterwayMeshGenerator.js'
 import { ParkMeshGenerator } from './ParkMeshGenerator.js'
+import { StreetFurnitureGenerator } from './StreetFurnitureGenerator.js'
+import { StorefrontGenerator } from './StorefrontGenerator.js'
 import { ChunkCache } from './ChunkCache.js'
 import { optimizeChunkGroup, optimizeChunkGroupIncremental } from './ChunkOptimizer.js'
 import { deduplicateBuildings } from '@world-drive/world-data'
-import { clipRoadToChunk } from './ChunkBounds.js'
+
+/**
+ * Upstream deduplication compares outer rings only: a courtyard block (holes)
+ * would "overlap" the buildings standing inside its courtyard. Courtyard blocks
+ * are therefore kept as they are and the rule applies to the others.
+ */
+function dedupeBuildings(buildings: WorldChunk['buildings']): WorldChunk['buildings'] {
+  const courtyards = buildings.filter((b) => (b.holes?.length ?? 0) > 0)
+  if (courtyards.length === 0) return deduplicateBuildings(buildings)
+  return [...deduplicateBuildings(buildings.filter((b) => (b.holes?.length ?? 0) === 0)), ...courtyards]
+}
 
 export type LoadedChunk = {
   id: ChunkId
@@ -73,7 +85,7 @@ export function unionWorldChunk(base: WorldChunk, extra: WorldChunk): WorldChunk
   }
   appendMissing(out.roads, extra.roads)
   appendMissing(out.buildings, extra.buildings)
-  out.buildings = deduplicateBuildings(out.buildings)
+  out.buildings = dedupeBuildings(out.buildings)
   appendMissing(out.pointsOfInterest, extra.pointsOfInterest)
   appendMissing(out.waterways, extra.waterways)
   appendMissing(out.parks, extra.parks)
@@ -148,7 +160,10 @@ const URBAN_SLAB_MATERIAL = new THREE.MeshStandardMaterial({
   color: 0x7c7872, // Warm Parisian stone pavement foundation
   roughness: 0.88,
   metalness: 0.04,
-  stencilWrite: false,
+  // Stencil TEST only (three.js enables the test through stencilWrite; mask 0 = no writes):
+  // tunnel trench masks (ref 1, drawn first) cut the slab so descending ramps stay visible.
+  stencilWrite: true,
+  stencilWriteMask: 0,
   stencilRef: 1,
   stencilFunc: THREE.NotEqualStencilFunc,
 })
@@ -224,6 +239,11 @@ export class ChunkLoader {
       if (!resp.ok) {
         throw new Error(`HTTP ${resp.status} ${resp.statusText}`)
       }
+      // Dev servers answer unknown paths with index.html (200): not a chunk.
+      const ctype = resp.headers.get('content-type') ?? ''
+      if (!ctype.includes('json')) {
+        return 'pending'
+      }
       const data: WorldChunk = await resp.json()
       this.cache.set(id, data)
       return data
@@ -265,24 +285,38 @@ export class ChunkLoader {
       const mesh = WaterwayMeshGenerator.generate(waterway)
       if (mesh) group.add(mesh)
     }
+    const chunkPois = chunk.pointsOfInterest ?? []
     for (const park of chunk.parks ?? []) {
       yield estimateParkMs(park)
-      const parkGroup = ParkMeshGenerator.generate(park, allRoads as Road[])
+      const parkGroup = ParkMeshGenerator.generate(park, allRoads as Road[], chunkPois)
       if (parkGroup) group.add(parkGroup)
     }
+    const pois = chunk.pointsOfInterest ?? []
+    const hasRealLamps = pois.some((p) => p.kind === 'street_lamp')
     for (const road of chunk.roads) {
       yield estimateRoadMs(road)
-      const clippedRoad = clipRoadToChunk(road, chunk.id)
-      if (clippedRoad) {
-        const roadGroup = RoadMeshGenerator.generate(clippedRoad as Road, allRoads as Road[])
-        if (roadGroup) group.add(roadGroup)
-      }
+      // The generator builds only this cell's portions of the way (junction-aware
+      // cuts at the cell border), so the full way is passed rather than a clipped one.
+      const roadGroup = RoadMeshGenerator.generate(road, allRoads as Road[], { syntheticLamps: !hasRealLamps, cell: { x: chunk.id.x, z: chunk.id.z } })
+      if (roadGroup) group.add(roadGroup)
     }
-    const uniqueBuildings = deduplicateBuildings(chunk.buildings)
+    const uniqueBuildings = dedupeBuildings(chunk.buildings)
     for (const building of uniqueBuildings) {
       yield 0.2 + 0.03 * building.footprint.length
       const buildingGroup = BuildingMeshGenerator.generate(building)
       if (buildingGroup) group.add(buildingGroup)
+    }
+
+    // Street-level reality from tagged nodes (instanced; cheap per chunk)
+    if (pois.length > 0) {
+      // Measured: ~0.05 ms per POI (instancing) and ~0.07 ms per POI for the
+      // signage atlas (canvas text); announced so heavy chunks run in idle slices.
+      yield 2 + pois.length * 0.05
+      const furniture = StreetFurnitureGenerator.generate(pois, allRoads as Road[], chunk.buildings)
+      if (furniture) group.add(furniture)
+      yield 2 + pois.length * 0.07
+      const storefronts = StorefrontGenerator.generate(pois, chunk.buildings, allRoads as Road[])
+      if (storefronts) group.add(storefronts)
     }
 
     return yield* optimizeChunkGroupIncremental(group)
@@ -380,13 +414,10 @@ export class ChunkLoader {
     }
 
     // 3. Roads with markings and sidewalks
-    // Clip roads to chunk bounds to prevent overlapping at chunk boundaries
+    // Each way is built once per cell it crosses (portions), never doubled at chunk borders
     for (const road of chunk.roads) {
-      const clippedRoad = clipRoadToChunk(road, chunk.id)
-      if (clippedRoad) {
-        const roadGroup = RoadMeshGenerator.generate(clippedRoad as Road, chunk.roads)
-        if (roadGroup) group.add(roadGroup)
-      }
+      const roadGroup = RoadMeshGenerator.generate(road, chunk.roads, { cell: { x: chunk.id.x, z: chunk.id.z } })
+      if (roadGroup) group.add(roadGroup)
     }
 
     // 4. Buildings with window textures

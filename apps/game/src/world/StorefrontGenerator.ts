@@ -12,12 +12,17 @@
  * Output: ONE Group holding at most three meshes, each one draw call:
  *   - atlas mesh   : fascia boards + house-number plaques + street plaques,
  *                    one canvas atlas texture (≤ 2048²) → one material
- *   - vitrine mesh : dark tinted glass, category tint via vertex colours
- *   - awning mesh  : cheap sloped quads for cafés / restaurants / bakeries
+ *   - vitrine mesh : interior-mapped glass (StorefrontInterior shader): a
+ *                    virtual room per shop, chosen by category, seen through
+ *                    tinted glass with fresnel reflections; door glass too
+ *   - joinery mesh : real geometry, vertex-coloured — window frame, mullions,
+ *                    stallriser + sill, glazed door with handle, cornice above
+ *                    the fascia, awnings for food categories
  */
 
 import * as THREE from 'three'
 import type { PointOfInterest, Road, Building } from '@world-drive/shared'
+import { getVitrineMaterial, interiorRowFor } from './StorefrontInterior.js'
 
 // ─── Tunables ────────────────────────────────────────────────────────────────
 
@@ -103,35 +108,54 @@ type StorefrontItem = {
 
 // ─── Shared materials (module-level, reused across chunks) ───────────────────
 
-let glassMat: THREE.MeshStandardMaterial | null = null
-let awningMat: THREE.MeshStandardMaterial | null = null
+let joineryMat: THREE.MeshStandardMaterial | null = null
 
-function getGlassMat(): THREE.MeshStandardMaterial {
-  if (!glassMat) {
-    glassMat = new THREE.MeshStandardMaterial({
+/** Frames, mullions, stallrisers, doors, cornices and awnings: one vertex-coloured material. */
+function getJoineryMat(): THREE.MeshStandardMaterial {
+  if (!joineryMat) {
+    joineryMat = new THREE.MeshStandardMaterial({
       color: 0xffffff,
       vertexColors: true,
-      roughness: 0.18,
-      metalness: 0.55,
-      emissive: 0xffffff,
-      emissiveIntensity: 0.22,
-      side: THREE.FrontSide,
+      roughness: 0.55,
+      metalness: 0.08,
+      side: THREE.DoubleSide, // awning undersides are seen from the street
     })
   }
-  return glassMat
+  return joineryMat
 }
 
-function getAwningMat(): THREE.MeshStandardMaterial {
-  if (!awningMat) {
-    awningMat = new THREE.MeshStandardMaterial({
-      color: 0xffffff,
-      vertexColors: true,
-      roughness: 0.85,
-      metalness: 0,
-      side: THREE.DoubleSide,
-    })
-  }
-  return awningMat
+// Joinery layout (metres)
+const POST_W = 0.06 // outer frame posts / door post
+const POST_D = 0.08 // how far the frame protrudes from the wall
+const MULLION_W = 0.05
+const MULLION_D = 0.06
+const RISER_H = 0.4 // stallriser under the glass
+const RISER_D = 0.07
+const SILL_H = 0.04
+const SILL_D = 0.09
+const RAIL_Y0 = 2.94 // top rail of the frame, up to the fascia
+const DOOR_W = 1.0 // door incl. its own frame
+const DOOR_D = 0.05
+const DOOR_KICK_H = 0.9
+const DOOR_RAIL_Y = 2.3
+const CORNICE_H = 0.07
+const CORNICE_D = 0.12
+const MIN_DOOR_FRONT = 2.4 // narrower storefronts get no door
+
+const SILL_COLOR = 0xd6d0c2
+const HANDLE_COLOR = 0xd0d2d6
+const CORNICE_COLOR = 0x26262a
+
+function hexColor(css: string): number {
+  return parseInt(css.slice(1), 16) || 0x2b2b2e
+}
+
+/** mix(color, black, k) as 0xRRGGBB */
+function darken(color: number, k: number): number {
+  const r = Math.round(((color >> 16) & 255) * (1 - k))
+  const g = Math.round(((color >> 8) & 255) * (1 - k))
+  const b = Math.round((color & 255) * (1 - k))
+  return (r << 16) | (g << 8) | b
 }
 
 // ─── Small geometry helpers ──────────────────────────────────────────────────
@@ -501,6 +525,126 @@ class QuadBuffer {
   }
 }
 
+// ─── Storefront frame: room-local coordinates ────────────────────────────────
+//
+// A storefront is laid out in a local frame: origin = the left end of the frame
+// as seen from the street, x along `r` (rightward for the viewer), y = world
+// height, d along the outward normal `n` (in front of the wall).
+
+type Frame = { ox: number; oz: number; rx: number; rz: number; nx: number; nz: number }
+
+/** Interior-mapped glass panes (custom attributes → skipMerge). */
+class GlassBuffer {
+  private pos: number[] = []
+  private nor: number[] = []
+  private uv: number[] = []
+  private tan: number[] = []
+  private room: number[] = []
+  private idx: number[] = []
+  private n = 0
+
+  /**
+   * One pane of a room. Room = width W (frame-local x 0..W), depth D, atlas row,
+   * flags (bit 0 = mirrored). The pane covers xa..xb × y0..y1, `off` in front of the wall.
+   */
+  addPane(f: Frame, W: number, D: number, row: number, flags: number, xa: number, xb: number, y0: number, y1: number, off: number): void {
+    const b = this.n
+    const c: [number, number][] = [[xa, y0], [xb, y0], [xb, y1], [xa, y1]]
+    for (const [x, y] of c) {
+      this.pos.push(f.ox + f.rx * x + f.nx * off, y, f.oz + f.rz * x + f.nz * off)
+      this.nor.push(f.nx, 0, f.nz)
+      this.uv.push(x / W, (y - y0) / (y1 - y0))
+      this.tan.push(f.rx, 0, f.rz)
+      this.room.push(W, D, row, flags)
+    }
+    this.idx.push(b, b + 1, b + 2, b, b + 2, b + 3)
+    this.n += 4
+  }
+
+  get count(): number {
+    return this.n
+  }
+
+  toGeometry(): THREE.BufferGeometry {
+    const g = new THREE.BufferGeometry()
+    g.setAttribute('position', new THREE.Float32BufferAttribute(this.pos, 3))
+    g.setAttribute('normal', new THREE.Float32BufferAttribute(this.nor, 3))
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(this.uv, 2))
+    g.setAttribute('aTangent', new THREE.Float32BufferAttribute(this.tan, 3))
+    g.setAttribute('aRoom', new THREE.Float32BufferAttribute(this.room, 4))
+    g.setIndex(this.idx)
+    g.computeBoundingSphere()
+    return g
+  }
+}
+
+/** Vertex-coloured boxes (frames, doors, sills…) and awnings. */
+class JoineryBuffer {
+  private pos: number[] = []
+  private nor: number[] = []
+  private col: number[] = []
+  private idx: number[] = []
+  private n = 0
+
+  private quad(p: number[], nx: number, ny: number, nz: number, color: number): void {
+    const b = this.n
+    const r = ((color >> 16) & 255) / 255, g = ((color >> 8) & 255) / 255, bl = (color & 255) / 255
+    for (let i = 0; i < 4; i++) {
+      this.pos.push(p[i * 3]!, p[i * 3 + 1]!, p[i * 3 + 2]!)
+      this.nor.push(nx, ny, nz)
+      this.col.push(r, g, bl)
+    }
+    this.idx.push(b, b + 1, b + 2, b, b + 2, b + 3)
+    this.n += 4
+  }
+
+  /**
+   * Box in the storefront frame: x xa..xb, y y0..y1, depth d0..d1 along the
+   * normal. The back face (against the wall) is omitted. CCW windings derived
+   * for r = (nz, −nx): r × n = −y, r × y = n.
+   */
+  addBox(f: Frame, xa: number, xb: number, y0: number, y1: number, d0: number, d1: number, color: number): void {
+    const P = (x: number, y: number, d: number): [number, number, number] => [f.ox + f.rx * x + f.nx * d, y, f.oz + f.rz * x + f.nz * d]
+    const { nx, nz, rx, rz } = f
+    // front (+n)
+    this.quad([...P(xa, y0, d1), ...P(xb, y0, d1), ...P(xb, y1, d1), ...P(xa, y1, d1)], nx, 0, nz, color)
+    // right (+r): on-screen right is −n
+    this.quad([...P(xb, y0, d1), ...P(xb, y0, d0), ...P(xb, y1, d0), ...P(xb, y1, d1)], rx, 0, rz, color)
+    // left (−r): on-screen right is +n
+    this.quad([...P(xa, y0, d0), ...P(xa, y0, d1), ...P(xa, y1, d1), ...P(xa, y1, d0)], -rx, 0, -rz, color)
+    // top (+y)
+    this.quad([...P(xa, y1, d1), ...P(xb, y1, d1), ...P(xb, y1, d0), ...P(xa, y1, d0)], 0, 1, 0, color)
+    // bottom (−y)
+    this.quad([...P(xa, y0, d0), ...P(xb, y0, d0), ...P(xb, y0, d1), ...P(xa, y0, d1)], 0, -1, 0, color)
+  }
+
+  /** Sloped awning attached along the wall at yTop, projecting `depth` out and dropping to yLow (DoubleSide material). */
+  addAwning(f: Frame, xa: number, xb: number, yTop: number, yLow: number, depth: number, color: number): void {
+    const P = (x: number, y: number, d: number): [number, number, number] => [f.ox + f.rx * x + f.nx * d, y, f.oz + f.rz * x + f.nz * d]
+    const len = Math.hypot(depth, yTop - yLow)
+    const uy = depth / len
+    const un = (yTop - yLow) / len
+    // top face: winding (p0, p3, p2, p1) → normal up-ish, tilted outward
+    this.quad([...P(xa, yTop, 0), ...P(xa, yLow, depth), ...P(xb, yLow, depth), ...P(xb, yTop, 0)], f.nx * un, uy, f.nz * un, color)
+    // valance: short vertical flap at the outer edge
+    this.quad([...P(xa, yLow - 0.18, depth), ...P(xb, yLow - 0.18, depth), ...P(xb, yLow, depth), ...P(xa, yLow, depth)], f.nx, 0, f.nz, darken(color, 0.12))
+  }
+
+  get count(): number {
+    return this.n
+  }
+
+  toGeometry(): THREE.BufferGeometry {
+    const g = new THREE.BufferGeometry()
+    g.setAttribute('position', new THREE.Float32BufferAttribute(this.pos, 3))
+    g.setAttribute('normal', new THREE.Float32BufferAttribute(this.nor, 3))
+    g.setAttribute('color', new THREE.Float32BufferAttribute(this.col, 3))
+    g.setIndex(this.idx)
+    g.computeBoundingSphere()
+    return g
+  }
+}
+
 // ─── Generator ───────────────────────────────────────────────────────────────
 
 export class StorefrontGenerator {
@@ -691,8 +835,8 @@ export class StorefrontGenerator {
 
     // ── 2. Storefront geometry ─────────────────────────────────────────────
     const atlasQ = new QuadBuffer()
-    const glassQ = new QuadBuffer()
-    const awningQ = new QuadBuffer()
+    const glassQ = new GlassBuffer()
+    const joinQ = new JoineryBuffer()
     let storefrontCount = 0
     const occupied = new Map<Edge, { t0: number; t1: number }[]>()
 
@@ -729,15 +873,67 @@ export class StorefrontGenerator {
         const wx = edge.ax + edge.tx * c
         const wz = edge.az + edge.tz * c
         const { nx, nz, tx, tz } = edge
-        // vitrine
-        glassQ.addWallQuad(wx + nx * WALL_OFFSET, wz + nz * WALL_OFFSET, tx, tz, nx, nz, w - 0.3, VITRINE_Y0, VITRINE_Y1, null, it.style.tint)
-        // fascia with the real name
+        // fascia with the real name (unchanged)
         const cell = layout.get('sign', it.label, it.style)
         atlasQ.addWallQuad(wx + nx * WALL_OFFSET, wz + nz * WALL_OFFSET, tx, tz, nx, nz, w, FASCIA_Y0, FASCIA_Y1, cell, null)
-        // awning for cafés / restaurants / bakeries
-        if (it.style.awning !== undefined && AWNING_CATS.has(it.category)) {
-          awningQ.addAwning(wx + nx * WALL_OFFSET, wz + nz * WALL_OFFSET, tx, tz, nx, nz, w - 0.2, VITRINE_Y1, 2.55, 1.1, it.style.awning)
+
+        // ── shopfront frame: rightward vector for a viewer on the street
+        const Wf = w - 0.3
+        const rx = nz, rz = -nx
+        const f: Frame = { ox: wx - rx * Wf / 2, oz: wz - rz * Wf / 2, rx, rz, nx, nz }
+        const h = hashStr(`${it.label}|${it.category}|${Math.round(wx)}|${Math.round(wz)}`)
+        const doorLeft = (h & 1) === 0
+        const mirror = (h >> 1) & 1
+        const D = 3.5 + ((h >> 2) % 16) / 10 // room depth 3.5–5.0 m
+        const row = interiorRowFor(it.category)
+        const bg = hexColor(it.style.bg)
+        const frameCol = darken(bg, 0.55)
+        const riserCol = darken(bg, 0.3)
+        const hasDoor = Wf >= MIN_DOOR_FRONT + DOOR_W
+        let vx0 = POST_W, vx1 = Wf - POST_W
+        let dx0 = 0, dx1 = 0
+        if (hasDoor) {
+          if (doorLeft) { dx0 = POST_W; dx1 = POST_W + DOOR_W; vx0 = dx1 + POST_W }
+          else { dx1 = Wf - POST_W; dx0 = dx1 - DOOR_W; vx1 = dx0 - POST_W }
         }
+        const glassY0 = RISER_H + SILL_H
+        // outer posts + top rail (closes the gap to the fascia)
+        joinQ.addBox(f, 0, POST_W, 0, FASCIA_Y0, 0, POST_D, frameCol)
+        joinQ.addBox(f, Wf - POST_W, Wf, 0, FASCIA_Y0, 0, POST_D, frameCol)
+        joinQ.addBox(f, POST_W, Wf - POST_W, RAIL_Y0, FASCIA_Y0, 0, POST_D, frameCol)
+        // stallriser + stone sill under the vitrine
+        joinQ.addBox(f, vx0, vx1, 0, RISER_H, 0, RISER_D, riserCol)
+        joinQ.addBox(f, vx0 - 0.01, vx1 + 0.01, RISER_H, glassY0, 0, SILL_D, SILL_COLOR)
+        // mullions
+        const vw = vx1 - vx0
+        const mullions = vw > 5 ? 2 : vw > 2.4 ? 1 : 0
+        for (let k = 1; k <= mullions; k++) {
+          const mx = vx0 + (vw * k) / (mullions + 1)
+          joinQ.addBox(f, mx - MULLION_W / 2, mx + MULLION_W / 2, glassY0, RAIL_Y0, 0, MULLION_D, frameCol)
+        }
+        // vitrine glass: one interior-mapped pane (edges tucked into the frame)
+        glassQ.addPane(f, Wf, D, row, mirror, vx0 - 0.02, vx1 + 0.02, glassY0 - 0.02, RAIL_Y0 + 0.02, WALL_OFFSET)
+        // glazed door: post, stiles, kick panel, mid rail, handle, two glass panels
+        if (hasDoor) {
+          if (doorLeft) joinQ.addBox(f, dx1, dx1 + POST_W, 0, RAIL_Y0, 0, POST_D, frameCol)
+          else joinQ.addBox(f, dx0 - POST_W, dx0, 0, RAIL_Y0, 0, POST_D, frameCol)
+          const la = dx0 + 0.02, lb = dx1 - 0.02 // leaf
+          joinQ.addBox(f, la, la + 0.05, 0, RAIL_Y0, 0, DOOR_D, frameCol)
+          joinQ.addBox(f, lb - 0.05, lb, 0, RAIL_Y0, 0, DOOR_D, frameCol)
+          joinQ.addBox(f, la, lb, 0, DOOR_KICK_H, 0, DOOR_D, riserCol)
+          joinQ.addBox(f, la, lb, DOOR_RAIL_Y, DOOR_RAIL_Y + 0.08, 0, DOOR_D, frameCol)
+          const hx = doorLeft ? lb - 0.12 : la + 0.12
+          joinQ.addBox(f, hx - 0.015, hx + 0.015, 1.0, 1.3, DOOR_D, DOOR_D + 0.05, HANDLE_COLOR)
+          glassQ.addPane(f, Wf, D, row, mirror, la + 0.04, lb - 0.04, DOOR_KICK_H - 0.01, DOOR_RAIL_Y + 0.01, WALL_OFFSET)
+          glassQ.addPane(f, Wf, D, row, mirror, la + 0.04, lb - 0.04, DOOR_RAIL_Y + 0.07, RAIL_Y0 + 0.02, WALL_OFFSET)
+        }
+        // cornice above the fascia
+        joinQ.addBox(f, -0.15, Wf + 0.15, FASCIA_Y1, FASCIA_Y1 + CORNICE_H, 0, CORNICE_D, CORNICE_COLOR)
+        // awning for cafés / restaurants / bakeries (below the fascia, never hides it)
+        if (it.style.awning !== undefined && AWNING_CATS.has(it.category)) {
+          joinQ.addAwning(f, 0.05, Wf - 0.05, RAIL_Y0 + 0.04, 2.55, 1.1, it.style.awning)
+        }
+        console.debug(`[Storefront] ${it.label} ${it.category} at (${wx.toFixed(1)},${wz.toFixed(1)}) facing (${nx.toFixed(2)},${nz.toFixed(2)})`)
         storefrontCount++
       }
     }
@@ -879,18 +1075,22 @@ export class StorefrontGenerator {
       }
     }
     if (glassQ.count > 0) {
-      const mesh = new THREE.Mesh(glassQ.toGeometry(true), getGlassMat())
-      mesh.name = 'storefront_vitrines'
-      mesh.userData['skipMerge'] = true
-      mesh.receiveShadow = true
-      mesh.renderOrder = 2
-      group.add(mesh)
+      const mat = getVitrineMaterial()
+      if (mat) {
+        const mesh = new THREE.Mesh(glassQ.toGeometry(), mat)
+        mesh.name = 'storefront_vitrines'
+        mesh.userData['skipMerge'] = true
+        mesh.receiveShadow = false
+        mesh.renderOrder = 2
+        group.add(mesh)
+      }
     }
-    if (awningQ.count > 0) {
-      const mesh = new THREE.Mesh(awningQ.toGeometry(true), getAwningMat())
-      mesh.name = 'storefront_awnings'
+    if (joinQ.count > 0) {
+      const mesh = new THREE.Mesh(joinQ.toGeometry(), getJoineryMat())
+      mesh.name = 'storefront_joinery'
       mesh.userData['skipMerge'] = true
       mesh.castShadow = true
+      mesh.receiveShadow = true
       mesh.renderOrder = 2
       group.add(mesh)
     }

@@ -955,6 +955,10 @@ function disposeGroup(group: THREE.Group | undefined): void {
         mat.dispose()
         obj.geometry.dispose()
       }
+      // Per-chunk storefront buffers (their materials are shared: keep them)
+      if (obj.name === 'storefront_vitrines' || obj.name === 'storefront_joinery') {
+        obj.geometry.dispose()
+      }
       return
     }
     obj.geometry.dispose()

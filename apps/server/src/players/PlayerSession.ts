@@ -34,8 +34,17 @@ export class PlayerSession {
   lastInput: PlayerInput | null = null
   lastProcessedSeq = 0
   hasClientState = false
+  /** Set on the first `join`, so a repeated one cannot re-roll combat state. */
+  hasJoined = false
   connectedAt: number
   invincibleUntil: number
+  /**
+   * Protection against *gunfire*, kept separate from `invincibleUntil` (which is
+   * collision protection and is refreshed by `player_respawn`, a message the
+   * client also sends when merely swapping vehicle). Only the server grants it:
+   * on join, and for a few seconds after being shot down.
+   */
+  combatProtectedUntil: number
 
   /** Timestamps (ms) of the hits this player landed, for rate limiting. */
   private hitTimes: number[] = []
@@ -47,6 +56,7 @@ export class PlayerSession {
     this.ws = ws
     this.connectedAt = Date.now()
     this.invincibleUntil = Date.now() + 30_000
+    this.combatProtectedUntil = Date.now() + 30_000
     this.state = {
       id,
       position: { x: 0, y: 1.5, z: 0 },
@@ -64,11 +74,29 @@ export class PlayerSession {
     return Date.now() < this.invincibleUntil
   }
 
-  /** Full health + no pending combat rate-limit state (join, respawn, destruction). */
-  resetCombat(): void {
-    this.state.health = MAX_HEALTH
+  /** Shield this player from gunfire for a while (join, and after being shot down). */
+  protectCombat(durationMs = 30_000): void {
+    this.combatProtectedUntil = Date.now() + durationMs
+  }
+
+  isCombatProtected(): boolean {
+    return Date.now() < this.combatProtectedUntil
+  }
+
+  /**
+   * Forget this player's *shooter* rate-limit state. Health is untouched: a client
+   * must never be able to heal itself by sending a message (`player_respawn` is
+   * sent on an ordinary vehicle swap, so healing there is a free full repair).
+   */
+  clearHitState(): void {
     this.hitTimes.length = 0
     this.lastHitPerTarget.clear()
+  }
+
+  /** Full health + no pending rate-limit state. Server-side only: join, destruction. */
+  resetCombat(): void {
+    this.state.health = MAX_HEALTH
+    this.clearHitState()
   }
 
   /**

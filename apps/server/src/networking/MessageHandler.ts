@@ -56,8 +56,11 @@ export class MessageHandler {
         )
         break
       case 'player_respawn':
+        // Collision protection only. This message is also sent when the player
+        // merely swaps vehicle, so it must not heal and must not shield from
+        // gunfire — otherwise leaving the plane is a free full repair.
         session.resetInvincibility(30_000)
-        session.resetCombat()
+        session.clearHitState()
         break
       case 'player_hit':
         this._handleHit(session, msg.targetId, msg.damage, msg.point)
@@ -84,7 +87,7 @@ export class MessageHandler {
 
     const target = this.server.getSession(targetId)
     if (!target) return
-    if (target.isInvincible()) return
+    if (target.isCombatProtected()) return
     if (target.state.health <= 0) return
 
     if (typeof rawDamage !== 'number' || !Number.isFinite(rawDamage)) return
@@ -119,12 +122,18 @@ export class MessageHandler {
       target.resetCombat()
       target.state.health = MAX_HEALTH
       target.resetInvincibility(5_000)
+      target.protectCombat(5_000)
       console.log(`[Server] ${targetId} destroyed by ${shooter.id}`)
     }
   }
 
   private _handleJoin(session: PlayerSession, _clientId: string): void {
-    session.resetCombat()
+    // Once per connection: a repeated `join` must not be a free heal + fresh shield.
+    if (!session.hasJoined) {
+      session.hasJoined = true
+      session.resetCombat()
+      session.protectCombat(30_000)
+    }
     const welcome: ServerMessage = {
       type: 'welcome',
       playerId: session.id,

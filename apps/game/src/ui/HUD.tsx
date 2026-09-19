@@ -277,9 +277,18 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
     return () => {
       clearInterval(id)
       window.removeEventListener('keydown', onKey)
+      // Clear the timers AND the flags they would have cleared: this effect
+      // re-runs whenever the travel modal opens, and a frozen overlay would
+      // otherwise stay on screen forever.
       if (hitTimer.current !== null) window.clearTimeout(hitTimer.current)
       if (damageTimer.current !== null) window.clearTimeout(damageTimer.current)
       if (destroyedTimer.current !== null) window.clearTimeout(destroyedTimer.current)
+      hitTimer.current = null
+      damageTimer.current = null
+      destroyedTimer.current = null
+      setHitMarker(false)
+      setDamageFlash(false)
+      setDestroyed(false)
       engine.onGunHit = undefined
       engine.onDamageTaken = undefined
       engine.onPlayerDestroyed = undefined

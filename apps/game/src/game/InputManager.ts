@@ -148,21 +148,32 @@ export class InputManager {
     this.mouseFire = false
   }
 
-  /** A click on a HUD control (button, link, field) must not fire the guns. */
-  private static overUI(target: EventTarget | null): boolean {
+  /**
+   * Only a click on the 3D view itself fires. Allow-listing the canvas rather
+   * than blocking known controls: the HUD is mostly plain divs (minimap, modal
+   * backdrops, search results, panels), and any of them would otherwise shoot.
+   */
+  private static overViewport(target: EventTarget | null): boolean {
     const el = target as Element | null
-    if (!el || typeof el.closest !== 'function') return false
-    return el.closest('button, input, textarea, select, a, [role="button"]') !== null
+    return !!el && (el as Element).tagName === 'CANVAS'
   }
 
   private readonly onMouseDown = (e: MouseEvent) => {
     if (e.button !== 0) return
-    if (InputManager.overUI(e.target)) return
+    if (!InputManager.overViewport(e.target)) return
     this.mouseFire = true
   }
 
   private readonly onMouseUp = (e: MouseEvent) => {
     if (e.button === 0) this.mouseFire = false
+  }
+
+  /**
+   * The button can be released outside the window, where no mouseup reaches us.
+   * `buttons` is authoritative on the next move, so the guns never stay stuck on.
+   */
+  private readonly onMouseMove = (e: MouseEvent) => {
+    if (this.mouseFire && e.buttons === 0) this.mouseFire = false
   }
 
   constructor() {
@@ -171,6 +182,7 @@ export class InputManager {
     window.addEventListener('blur', this.onBlur)
     window.addEventListener('mousedown', this.onMouseDown)
     window.addEventListener('mouseup', this.onMouseUp)
+    window.addEventListener('mousemove', this.onMouseMove)
   }
 
   /**
@@ -332,6 +344,7 @@ export class InputManager {
     window.removeEventListener('blur', this.onBlur)
     window.removeEventListener('mousedown', this.onMouseDown)
     window.removeEventListener('mouseup', this.onMouseUp)
+    window.removeEventListener('mousemove', this.onMouseMove)
     this.keys.clear()
     this.mouseFire = false
     this.virtualFire = false

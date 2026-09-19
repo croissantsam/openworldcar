@@ -113,7 +113,9 @@ export class CombatSystem {
     if (this.disposed || !targetId) return
     if (!Number.isFinite(damage) || damage <= 0) return
     if (targetId === this.client.localPlayerId) return
-    if (this.remotes.isPlayerInvincible(targetId)) return
+    // Deliberately no local "is the target protected?" test: that would compare a
+    // server timestamp against this machine's clock, and a skewed clock would
+    // silently swallow every shot. The server holds the shield and arbitrates.
 
     const now = Date.now()
     const last = this.lastHitPerTarget.get(targetId)
@@ -135,15 +137,6 @@ export class CombatSystem {
     if (this._damageFlash > 0) {
       this._damageFlash = Math.max(0, this._damageFlash - dt * 1.6)
     }
-  }
-
-  /** Respawn / fast travel: full health and spawn protection again. */
-  reset(): void {
-    this._health = MAX_HEALTH
-    this._invincibleUntil = Date.now() + SPAWN_INVINCIBLE_MS
-    this._damageFlash = 0
-    this.hitTimes.length = 0
-    this.lastHitPerTarget.clear()
   }
 
   dispose(): void {

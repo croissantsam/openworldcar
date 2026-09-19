@@ -22,8 +22,11 @@ import type { WorldPosition } from '@world-drive/math'
 import type { Road, PlayerSnapshot } from '@world-drive/shared'
 import { v4 as uuidv4 } from 'uuid'
 
-/** Resolve WS server URL. Override with VITE_WS_URL env var. */
+/** Resolve WS server URL. Override with the VITE_WS_URL env var (local server / tests). */
 function resolveWsUrl(): string {
+  const env = (import.meta as unknown as { env?: Record<string, string | undefined> }).env
+  const override = env?.['VITE_WS_URL']
+  if (typeof override === 'string' && override.length > 0) return override
   return 'wss://openspeed.onrender.com'
 }
 
@@ -49,6 +52,12 @@ export class GameClient {
 
   /** Callback when server broadcasts player snapshots */
   onSnapshot?: (players: PlayerSnapshot[], localPlayerId: string) => void
+
+  /** The server applied damage to us (authoritative health). */
+  onDamage?: (e: { from: string; damage: number; health: number; point: WorldPosition }) => void
+
+  /** Our vehicle was destroyed by `by` (the server already reset us). */
+  onDestroyed?: (by: string) => void
 
   constructor() {
     this._connect()
@@ -115,6 +124,17 @@ export class GameClient {
         case 'player_left':
           this._playerCount = Math.max(1, this._playerCount - 1)
           break
+        case 'damage_taken':
+          this.onDamage?.({
+            from: msg.from,
+            damage: msg.damage,
+            health: msg.health,
+            point: msg.point,
+          })
+          break
+        case 'destroyed':
+          this.onDestroyed?.(msg.by)
+          break
         default:
           break
       }
@@ -143,6 +163,20 @@ export class GameClient {
       serializeMessage({
         type: 'player_respawn',
       }),
+    )
+  }
+
+  /** Report to the server that our gun hit `targetId`. The server validates and applies it. */
+  sendHit(targetId: string, damage: number, point: WorldPosition): void {
+    if (this.ws?.readyState !== WebSocket.OPEN) return
+    if (!targetId || targetId === this.playerId) return
+    this.ws.send(
+      serializeMessage({
+        type: 'player_hit',
+        targetId,
+        damage,
+        point: { x: point.x, y: point.y, z: point.z },
+      } satisfies ClientMessage),
     )
   }
 

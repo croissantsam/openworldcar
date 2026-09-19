@@ -62,6 +62,8 @@ export type FlightInput = {
   yaw: number
   /** Wheel brakes on the ground. */
   brake: boolean
+  /** Machine-gun trigger held (F / left click / bumper / touch button). */
+  fire: boolean
   /** Optional absolute throttle 0..1 (touch auto-throttle); overrides up/down when defined. */
   throttleSet?: number
 }
@@ -1224,6 +1226,11 @@ const PROP_IDLE_RPM = 900
 const PROP_MAX_RPM = 2600
 const PROP_DISC_ANGLE = 0.6 // rad per frame above which blades are drawn as a disc
 
+/** Cowling gun muzzles in the plane frame (forward = +Z, origin between the main wheels). */
+const GUN_OFFSET_X = 0.45
+const GUN_OFFSET_Y = 1.28
+const GUN_OFFSET_Z = 2.0
+
 function createPropDiscTexture(): THREE.Texture | null {
   if (typeof document === 'undefined') return null
   const c = document.createElement('canvas')
@@ -1457,6 +1464,30 @@ export class PlayerPlane {
 
   getMesh(): THREE.Group {
     return this.root
+  }
+
+  /**
+   * World positions of the two cowling machine guns, from the *rendered*
+   * (interpolated) pose so the tracers leave the nose exactly where it is
+   * drawn. Allocation-free: fills `a` (left gun) and `b` (right gun).
+   *
+   * Local frame: forward = +Z, origin between the main wheels at ground level.
+   * The guns sit on the engine cowling, ±0.45 m either side of the fuselage
+   * centre line (its half-width there is ≈ 0.49 m), 1.28 m up (just above the
+   * AIRPLANE_FUSELAGE_Y = 1.22 centre line) and 2.0 m forward — i.e. behind
+   * the propeller hub (AIRPLANE_PROPELLER_POSITION → +3.13 m in this frame),
+   * so they fire through the disc like the synchronised guns they imitate.
+   */
+  getMuzzles(a: THREE.Vector3, b: THREE.Vector3): void {
+    const q = this.root.quaternion
+    const p = this.root.position
+    a.set(-GUN_OFFSET_X, GUN_OFFSET_Y, GUN_OFFSET_Z).applyQuaternion(q).add(p)
+    b.set(GUN_OFFSET_X, GUN_OFFSET_Y, GUN_OFFSET_Z).applyQuaternion(q).add(p)
+  }
+
+  /** Allocation-free nose axis of the rendered pose (normalised). */
+  readForward(out: THREE.Vector3): THREE.Vector3 {
+    return out.set(0, 0, 1).applyQuaternion(this.root.quaternion)
   }
 
   /**

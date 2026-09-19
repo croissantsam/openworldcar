@@ -107,6 +107,7 @@ export class GameServer {
           velocity: s.state.velocity,
           tick: this.tick,
           invincibleUntil: s.invincibleUntil,
+          health: s.state.health,
           // Only sent for planes: absent = car, as older clients expect
           ...(s.state.vehicle === 'plane' ? { vehicle: 'plane' as const } : {}),
         }
@@ -123,6 +124,10 @@ export class GameServer {
 
       session.send(serializeMessage(snapshot))
     }
+  }
+
+  getSession(id: string): PlayerSession | undefined {
+    return this.sessions.get(id)
   }
 
   get connectedPlayerCount(): number {

@@ -7,7 +7,29 @@ import * as THREE from 'three'
 import RAPIER from '@dimforge/rapier3d-compat'
 import type { PlayerSnapshot } from '@world-drive/shared'
 import { InterpolationBuffer } from '../networking/InterpolationBuffer.js'
-import { createTwoSeatAirplane, AIRPLANE_MAIN_WHEEL_Z } from './AirplaneModel.js'
+import {
+  createTwoSeatAirplane,
+  AIRPLANE_MAIN_WHEEL_Z,
+  AIRPLANE_WINGTIP_X,
+  AIRPLANE_LENGTH,
+  AIRPLANE_FUSELAGE_Y,
+} from './AirplaneModel.js'
+import type { WorldPosition } from '@world-drive/math'
+
+const MAX_HEALTH = 100
+/** Health below which a remote vehicle trails smoke. */
+const SMOKE_HEALTH = 40
+/** How long a destroyed vehicle stays hidden (explosion + respawn). */
+const DESTROYED_HIDE_MS = 1_200
+/**
+ * Membership bit of the gun hitboxes. Their interaction filter is 0, so they never
+ * produce contacts (nor wheel-ray hits): they exist purely as ray-cast targets for
+ * PlaneGun, which casts without filter groups.
+ */
+const HITBOX_GROUPS = (0x0008 << 16) | 0x0000
+
+const MAX_SMOKE_PUFFS = 12
+const SMOKE_INTERVAL = 0.085
 
 type RemoteVehicle = 'car' | 'plane'
 type AirplaneVisual = ReturnType<typeof createTwoSeatAirplane>
@@ -91,6 +113,71 @@ function createNametagSprite(title: string, borderColor: string): {
   return { sprite, canvas, texture: tex }
 }
 
+let smokeTexture: THREE.CanvasTexture | null = null
+function getSmokeTexture(): THREE.CanvasTexture | null {
+  if (smokeTexture) return smokeTexture
+  if (typeof document === 'undefined') return null
+  const c = document.createElement('canvas')
+  c.width = 64
+  c.height = 64
+  const ctx = c.getContext('2d')
+  if (!ctx) return null
+  const g = ctx.createRadialGradient(32, 32, 2, 32, 32, 30)
+  g.addColorStop(0, 'rgba(40, 40, 44, 0.85)')
+  g.addColorStop(0.45, 'rgba(70, 70, 76, 0.45)')
+  g.addColorStop(1, 'rgba(90, 90, 96, 0)')
+  ctx.fillStyle = g
+  ctx.fillRect(0, 0, 64, 64)
+  smokeTexture = new THREE.CanvasTexture(c)
+  return smokeTexture
+}
+
+function renderHealthBarToCanvas(canvas: HTMLCanvasElement, health: number): void {
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return
+  const w = canvas.width
+  const h = canvas.height
+  ctx.clearRect(0, 0, w, h)
+  const ratio = Math.max(0, Math.min(1, health / MAX_HEALTH))
+
+  ctx.fillStyle = 'rgba(8, 10, 14, 0.85)'
+  ctx.beginPath()
+  ctx.roundRect(2, 2, w - 4, h - 4, 6)
+  ctx.fill()
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)'
+  ctx.lineWidth = 2
+  ctx.stroke()
+
+  const fillW = Math.max(0, (w - 10) * ratio)
+  ctx.fillStyle = ratio > 0.6 ? '#3ddc84' : ratio > 0.3 ? '#ffcc00' : '#ff3b30'
+  if (fillW > 0) {
+    ctx.beginPath()
+    ctx.roundRect(5, 5, fillW, h - 10, 4)
+    ctx.fill()
+  }
+}
+
+function createHealthBarSprite(): {
+  sprite: THREE.Sprite
+  canvas: HTMLCanvasElement
+  texture: THREE.CanvasTexture
+} | null {
+  if (typeof document === 'undefined') return null
+  const canvas = document.createElement('canvas')
+  canvas.width = 128
+  canvas.height = 20
+  renderHealthBarToCanvas(canvas, MAX_HEALTH)
+  const texture = new THREE.CanvasTexture(canvas)
+  const mat = new THREE.SpriteMaterial({ map: texture, depthTest: false, transparent: true })
+  const sprite = new THREE.Sprite(mat)
+  sprite.scale.set(1.5, 0.23, 1)
+  sprite.renderOrder = 998
+  sprite.visible = false
+  return { sprite, canvas, texture }
+}
+
+type SmokePuff = { sprite: THREE.Sprite; life: number; maxLife: number }
+
 type RemotePlayer = {
   id: string
   mesh: THREE.Group
@@ -104,6 +191,15 @@ type RemotePlayer = {
   lastSpeed: number
   body: RAPIER.RigidBody | null
   collider: RAPIER.Collider | null
+  /** Always-on ray-cast target for the guns (no physical interaction). */
+  hitCollider: RAPIER.Collider | null
+  health: number
+  healthBar: { sprite: THREE.Sprite; canvas: HTMLCanvasElement; texture: THREE.CanvasTexture } | null
+  lastHealthDrawn: number
+  /** Hidden (destroyed) until this timestamp (ms, Date.now()). 0 = visible. */
+  hiddenUntil: number
+  smokePuffs: SmokePuff[]
+  smokeTimer: number
   buffer: InterpolationBuffer
   lastSeen: number
   invincibleUntil: number
@@ -120,6 +216,11 @@ export class RemotePlayerManager {
   private players = new Map<string, RemotePlayer>()
   private isLocalInvincible = false
   private localPos: { x: number; y: number; z: number } | null = null
+  /** Rapier collider handle → remote player id (chassis + gun hitbox). */
+  private colliderToPlayer = new Map<number, string>()
+
+  /** A remote player was just destroyed (health dropped to 0 then reset by the server). */
+  onPlayerDestroyed?: (id: string, position: WorldPosition) => void
 
   constructor(scene: THREE.Scene, world?: RAPIER.World | undefined) {
     this.scene = scene
@@ -150,6 +251,17 @@ export class RemotePlayerManager {
         this.players.set(snap.id, player)
       } else if (snap.invincibleUntil !== undefined) {
         player.invincibleUntil = snap.invincibleUntil
+      }
+
+      // ── Health (absent = full health: older servers) ────────────────────
+      if (snap.health !== undefined && Number.isFinite(snap.health)) {
+        const next = Math.max(0, Math.min(MAX_HEALTH, snap.health))
+        const prev = player.health
+        // Destroyed: health hit 0, or jumped back to full after a heavy drop
+        // (the server resets a destroyed player to MAX_HEALTH immediately).
+        const destroyed = next <= 0 || (prev <= SMOKE_HEALTH && next >= MAX_HEALTH && next > prev)
+        player.health = next
+        if (destroyed) this._onDestroyed(player)
       }
 
       // Absent = car (older clients / servers)
@@ -227,6 +339,12 @@ export class RemotePlayerManager {
       if (player.collider) {
         player.collider.setEnabled(canCollide)
       }
+      // The gun hitbox stays on whatever the physical collider does — except
+      // while the vehicle is hidden after a destruction.
+      player.hitCollider?.setEnabled(player.hiddenUntil <= nowMs)
+
+      // ── Health bar / smoke / destruction hide ───────────────────────────
+      this._updateDamageVisuals(player, dt, nowMs)
 
       // ── Nametag Badge Update ────────────────────────────────────────────
       if (remoteInvincible) {
@@ -259,11 +377,55 @@ export class RemotePlayerManager {
       this.scene.remove(player.mesh)
       player.planeVisual?.model.dispose()
       player.planeVisual = null
+      this._disposeDamageVisuals(player)
+      if (player.collider) this.colliderToPlayer.delete(player.collider.handle)
+      if (player.hitCollider) this.colliderToPlayer.delete(player.hitCollider.handle)
+      player.hitCollider = null
       if (player.body && this.world) {
         this.world.removeRigidBody(player.body)
       }
       this.players.delete(id)
     }
+  }
+
+  /** Free the smoke sprites and the health-bar texture of one player. */
+  private _disposeDamageVisuals(player: RemotePlayer): void {
+    for (const puff of player.smokePuffs) {
+      this.scene.remove(puff.sprite)
+      ;(puff.sprite.material as THREE.SpriteMaterial).dispose()
+    }
+    player.smokePuffs.length = 0
+    if (player.healthBar) {
+      player.healthBar.sprite.removeFromParent()
+      ;(player.healthBar.sprite.material as THREE.SpriteMaterial).dispose()
+      player.healthBar.texture.dispose()
+      player.healthBar = null
+    }
+  }
+
+  /** Which remote player owns this Rapier collider handle, if any (gun ray hits). */
+  getPlayerIdForCollider(handle: number): string | null {
+    return this.colliderToPlayer.get(handle) ?? null
+  }
+
+  /** Position of a remote player (for explosions), or null. */
+  getPlayerPosition(id: string): WorldPosition | null {
+    const player = this.players.get(id)
+    if (!player) return null
+    const p = player.mesh.position
+    return { x: p.x, y: p.y, z: p.z }
+  }
+
+  /** Current health of a remote player (MAX_HEALTH when unknown). */
+  getPlayerHealth(id: string): number {
+    return this.players.get(id)?.health ?? MAX_HEALTH
+  }
+
+  /** True while that player is spawn-protected (no damage can be dealt to them). */
+  isPlayerInvincible(id: string): boolean {
+    const player = this.players.get(id)
+    if (!player) return false
+    return Date.now() < player.invincibleUntil || player.hiddenUntil > Date.now()
   }
 
   /** Show the player's car or plane (the plane model is built once, then cached). */
@@ -293,6 +455,123 @@ export class RemotePlayerManager {
       player.collider?.setEnabled(false)
       player.colliderWasEnabled = false
     }
+    if (player.healthBar) {
+      player.healthBar.sprite.position.y = (flying ? PLANE_NAMETAG_Y : CAR_NAMETAG_Y) - 0.42
+    }
+    this._rebuildHitCollider(player)
+  }
+
+  /**
+   * (Re)build the gun hitbox: a solid collider sized for the current vehicle,
+   * with an interaction filter of 0 so it never collides with anything — it only
+   * answers ray casts (PlaneGun) so bullets can identify the player they hit.
+   */
+  private _rebuildHitCollider(player: RemotePlayer): void {
+    if (!this.world || !player.body) return
+    if (player.hitCollider) {
+      this.colliderToPlayer.delete(player.hitCollider.handle)
+      this.world.removeCollider(player.hitCollider, false)
+      player.hitCollider = null
+    }
+    const desc =
+      player.vehicle === 'plane'
+        ? RAPIER.ColliderDesc.cuboid(AIRPLANE_WINGTIP_X + 0.1, 1.35, AIRPLANE_LENGTH / 2)
+            .setTranslation(0, AIRPLANE_FUSELAGE_Y, 0)
+        : RAPIER.ColliderDesc.cuboid(CAR_W / 2 + 0.05, CAR_H / 2 + 0.1, CAR_L / 2 + 0.05)
+            .setTranslation(0, CAR_H / 2, 0)
+    desc.setCollisionGroups(HITBOX_GROUPS).setSolverGroups(HITBOX_GROUPS)
+    const col = this.world.createCollider(desc, player.body)
+    player.hitCollider = col
+    this.colliderToPlayer.set(col.handle, player.id)
+  }
+
+  /** Health bar under the nametag, smoke trail, and post-destruction hiding. */
+  private _updateDamageVisuals(player: RemotePlayer, dt: number, nowMs: number): void {
+    // Destroyed: hide the vehicle for a short while
+    const hidden = player.hiddenUntil > nowMs
+    const flying = player.vehicle === 'plane' && player.planeVisual !== null
+    player.carVisual.visible = !hidden && !flying
+    if (player.planeVisual) player.planeVisual.container.visible = !hidden && flying
+
+    // Health bar (only below full health, and never while hidden)
+    if (player.healthBar) {
+      const show = !hidden && player.health < MAX_HEALTH
+      player.healthBar.sprite.visible = show
+      const rounded = Math.round(player.health)
+      if (show && rounded !== player.lastHealthDrawn) {
+        player.lastHealthDrawn = rounded
+        renderHealthBarToCanvas(player.healthBar.canvas, rounded)
+        player.healthBar.texture.needsUpdate = true
+      }
+    }
+
+    // Smoke trail below 40 HP
+    const smoking = !hidden && player.health < SMOKE_HEALTH
+    if (smoking) {
+      player.smokeTimer -= dt
+      if (player.smokeTimer <= 0) {
+        player.smokeTimer = SMOKE_INTERVAL
+        this._emitSmoke(player)
+      }
+    }
+    if (player.smokePuffs.length > 0) {
+      for (const puff of player.smokePuffs) {
+        if (puff.life <= 0) continue
+        puff.life -= dt
+        if (puff.life <= 0) {
+          puff.sprite.visible = false
+          continue
+        }
+        const t = 1 - puff.life / puff.maxLife
+        puff.sprite.position.y += dt * 1.6
+        const scale = 0.9 + t * 3.2
+        puff.sprite.scale.set(scale, scale, 1)
+        const mat = puff.sprite.material as THREE.SpriteMaterial
+        mat.opacity = (1 - t) * 0.6
+      }
+    }
+  }
+
+  private _emitSmoke(player: RemotePlayer): void {
+    const tex = getSmokeTexture()
+    if (!tex) return
+    let puff = player.smokePuffs.find((p) => p.life <= 0)
+    if (!puff) {
+      if (player.smokePuffs.length >= MAX_SMOKE_PUFFS) return
+      const mat = new THREE.SpriteMaterial({
+        map: tex,
+        transparent: true,
+        depthWrite: false,
+        opacity: 0.6,
+      })
+      const sprite = new THREE.Sprite(mat)
+      sprite.renderOrder = 900
+      this.scene.add(sprite)
+      puff = { sprite, life: 0, maxLife: 1.1 }
+      player.smokePuffs.push(puff)
+    }
+    puff.maxLife = 0.9 + Math.random() * 0.5
+    puff.life = puff.maxLife
+    puff.sprite.visible = true
+    puff.sprite.scale.set(0.9, 0.9, 1)
+    const p = player.mesh.position
+    const y = player.vehicle === 'plane' ? AIRPLANE_FUSELAGE_Y : CAR_H * 0.6
+    puff.sprite.position.set(
+      p.x + (Math.random() - 0.5) * 0.4,
+      p.y + y + (Math.random() - 0.5) * 0.3,
+      p.z + (Math.random() - 0.5) * 0.4,
+    )
+  }
+
+  private _onDestroyed(player: RemotePlayer): void {
+    player.hiddenUntil = Date.now() + DESTROYED_HIDE_MS
+    player.health = MAX_HEALTH
+    player.lastHealthDrawn = -1
+    player.collider?.setEnabled(false)
+    player.colliderWasEnabled = false
+    player.hitCollider?.setEnabled(false)
+    const p = player.mesh.position
+    this.onPlayerDestroyed?.(player.id, { x: p.x, y: p.y, z: p.z })
   }
 
   private _createRemotePlayer(id: string, snap: PlayerSnapshot): RemotePlayer {
@@ -379,6 +658,13 @@ export class RemotePlayerManager {
     nametag.position.y = CAR_NAMETAG_Y
     root.add(nametag)
 
+    // Health bar, just under the nametag (hidden while at full health)
+    const healthBar = createHealthBarSprite()
+    if (healthBar) {
+      healthBar.sprite.position.y = CAR_NAMETAG_Y - 0.42
+      root.add(healthBar.sprite)
+    }
+
     root.position.set(snap.position.x, snap.position.y, snap.position.z)
     this.scene.add(root)
 
@@ -400,6 +686,7 @@ export class RemotePlayerManager {
         .setFriction(0.35)
         .setRestitution(0.3)
       collider = this.world.createCollider(chassisDesc, body)
+      this.colliderToPlayer.set(collider.handle, id)
     }
 
     const buffer = new InterpolationBuffer()
@@ -417,6 +704,15 @@ export class RemotePlayerManager {
       lastSpeed: 0,
       body,
       collider,
+      hitCollider: null,
+      health: snap.health !== undefined && Number.isFinite(snap.health)
+        ? Math.max(0, Math.min(MAX_HEALTH, snap.health))
+        : MAX_HEALTH,
+      healthBar,
+      lastHealthDrawn: MAX_HEALTH,
+      hiddenUntil: 0,
+      smokePuffs: [],
+      smokeTimer: 0,
       buffer,
       lastSeen: performance.now(),
       invincibleUntil,
@@ -426,6 +722,7 @@ export class RemotePlayerManager {
       lastTagText: shortTag,
       colliderWasEnabled: true,
     }
+    this._rebuildHitCollider(player)
     if (snap.vehicle === 'plane') this._setVehicle(player, 'plane')
     return player
   }
@@ -443,11 +740,15 @@ export class RemotePlayerManager {
       this.scene.remove(player.mesh)
       player.planeVisual?.model.dispose()
       player.planeVisual = null
+      this._disposeDamageVisuals(player)
+      player.hitCollider = null
       if (player.body && this.world) {
         this.world.removeRigidBody(player.body)
       }
     }
     this.players.clear()
+    this.colliderToPlayer.clear()
+    delete this.onPlayerDestroyed
   }
 }
 

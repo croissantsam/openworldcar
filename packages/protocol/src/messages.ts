@@ -32,6 +32,13 @@ export type ClientMessage =
   | { type: 'ping'; timestamp: number }
   | { type: 'request_chunk'; chunkId: ChunkId }
   | { type: 'player_respawn' }
+  | {
+      /** The local player's gun hit another player. The server validates and applies it. */
+      type: 'player_hit'
+      targetId: string
+      damage: number
+      point: WorldPosition
+    }
   | { type: 'leave' }
 
 // ─── Server → Client ─────────────────────────────────────────────────────────
@@ -69,6 +76,19 @@ export type ServerMessage =
   | {
       type: 'player_left'
       playerId: string
+    }
+  | {
+      /** The server applied damage to us. `health` is the authoritative value after the hit. */
+      type: 'damage_taken'
+      from: string
+      damage: number
+      health: number
+      point: WorldPosition
+    }
+  | {
+      /** Our health reached 0. The server already reset us to full health + invincibility. */
+      type: 'destroyed'
+      by: string
     }
   | {
       type: 'error'

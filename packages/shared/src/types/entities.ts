@@ -14,6 +14,8 @@ export type PlayerSnapshot = {
   invincibleUntil?: number
   /** Vehicle the player is driving. Absent = 'car' (older servers / clients). */
   vehicle?: 'car' | 'plane'
+  /** Current health [0, 100]. Absent = full health (older servers). */
+  health?: number
 }
 
 // ─── NPC ─────────────────────────────────────────────────────────────────────

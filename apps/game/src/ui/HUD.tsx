@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { worldToGeo } from '@world-drive/math'
-import type { GameEngine } from '../game/GameEngine.js'
+import type { GameEngine, VehicleMode } from '../game/GameEngine.js'
 import type { StreetInfo } from '../world/ChunkManager.js'
 import { getDistrictLabel, type WorldDestination } from '../world/destinations.js'
 import { Minimap } from './Minimap.js'
@@ -15,14 +15,53 @@ interface HUDProps {
 
 const KMH = 3.6
 
+/** Flight instruments shown in plane mode (rounded for display). */
+type FlightReadout = {
+  kmh: number
+  altitude: number
+  verticalSpeed: number
+  throttle: number
+  onGround: boolean
+  stall: boolean
+  crashed: boolean
+}
+
+const FLIGHT_READOUT_EMPTY: FlightReadout = {
+  kmh: 0,
+  altitude: 0,
+  verticalSpeed: 0,
+  throttle: 0,
+  onGround: true,
+  stall: false,
+  crashed: false,
+}
+
+function sameReadout(a: FlightReadout, b: FlightReadout): boolean {
+  return (
+    a.kmh === b.kmh &&
+    a.altitude === b.altitude &&
+    a.verticalSpeed === b.verticalSpeed &&
+    a.throttle === b.throttle &&
+    a.onGround === b.onGround &&
+    a.stall === b.stall &&
+    a.crashed === b.crashed
+  )
+}
+
+function finiteOr(v: number, fallback: number): number {
+  return Number.isFinite(v) ? v : fallback
+}
+
 export const HUD: React.FC<HUDProps> = ({ engine }) => {
   const [speed, setSpeed] = useState(0)
   const [gear, setGear] = useState('D')
+  const [vehicleMode, setVehicleMode] = useState<VehicleMode>(() => engine.vehicleMode)
+  const [flight, setFlight] = useState<FlightReadout>(FLIGHT_READOUT_EMPTY)
   const [street, setStreet] = useState<StreetInfo | null>(() => engine.getCurrentStreet())
   const [currentDest, setCurrentDest] = useState<WorldDestination>(() => engine.currentDestination)
   const currentDestRef = useRef<WorldDestination>(engine.currentDestination)
   const [district, setDistrict] = useState<string>(() =>
-    getDistrictLabel(worldToGeo(engine.playerCar.getPosition()), engine.currentDestination)
+    getDistrictLabel(worldToGeo(engine.getPlayerPosition()), engine.currentDestination)
   )
   const [travelOpen, setTravelOpen] = useState(false)
   const [searchBarOpen, setSearchBarOpen] = useState(false)
@@ -82,7 +121,7 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
     engine.onDestinationChanged = (newDest) => {
       setCurrentDest(newDest)
       currentDestRef.current = newDest
-      const pos = engine.playerCar.getPosition()
+      const pos = engine.getPlayerPosition()
       const currentGeo = worldToGeo(pos)
       setDistrict(getDistrictLabel(currentGeo, newDest))
     }
@@ -93,6 +132,10 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
 
     engine.chunkManager.onGeneratingStatusChange = (gen) => {
       setIsGenerating(gen)
+    }
+
+    engine.onVehicleModeChanged = (mode) => {
+      setVehicleMode(mode)
     }
 
     const onKey = (e: KeyboardEvent) => {
@@ -121,19 +164,34 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
     window.addEventListener('keydown', onKey)
 
     const id = setInterval(() => {
-      const fwd = engine.playerCar.getForwardSpeed()
-      const absSpeed = Math.abs(fwd)
-      setSpeed(Math.round(absSpeed * KMH))
-      if (fwd < -0.3) {
-        setGear('R')
-      } else if (absSpeed < 0.2) {
-        setGear('P')
+      setVehicleMode(engine.vehicleMode)
+      const fs = engine.getFlightState()
+      if (fs) {
+        const next: FlightReadout = {
+          kmh: Math.round(Math.max(0, finiteOr(fs.airspeed, 0)) * KMH),
+          altitude: Math.round(Math.max(0, finiteOr(fs.altitudeAGL, 0))),
+          verticalSpeed: Math.round(finiteOr(fs.verticalSpeed, 0) * 10) / 10,
+          throttle: Math.round(Math.min(1, Math.max(0, finiteOr(fs.throttle, 0))) * 100),
+          onGround: fs.onGround,
+          stall: fs.stall,
+          crashed: fs.crashed,
+        }
+        setFlight((prev) => (sameReadout(prev, next) ? prev : next))
       } else {
-        setGear('D')
+        const fwd = engine.playerCar.getForwardSpeed()
+        const absSpeed = Math.abs(fwd)
+        setSpeed(Math.round(absSpeed * KMH))
+        if (fwd < -0.3) {
+          setGear('R')
+        } else if (absSpeed < 0.2) {
+          setGear('P')
+        } else {
+          setGear('D')
+        }
       }
 
       // Query current street and dynamic district from active chunks
-      const pos = engine.playerCar.getPosition()
+      const pos = engine.getPlayerPosition()
       const currentGeo = worldToGeo(pos)
       setDistrict(getDistrictLabel(currentGeo, currentDestRef.current))
 
@@ -170,9 +228,250 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
     }, 750)
   }
 
+  const isPlane = vehicleMode === 'plane'
+
+  const toggleVehicle = () => {
+    engine.togglePlane()
+    setVehicleMode(engine.vehicleMode)
+  }
+
+  const vsColor =
+    flight.verticalSpeed > 0.4 ? '#34d399' : flight.verticalSpeed < -0.4 ? '#fbbf24' : '#e2e8f0'
+
   return (
     <>
+      {/* Flight instruments (plane mode) — same glass language as the speedometer */}
+      {isPlane && (
+        <div
+          style={{
+            position: 'absolute',
+            bottom: touchMode ? 'max(110px, env(safe-area-inset-bottom, 110px))' : 28,
+            right: touchMode ? 'max(24px, env(safe-area-inset-right, 24px))' : 32,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: touchMode ? 4 : 6,
+            background: 'rgba(10, 16, 28, 0.72)',
+            backdropFilter: 'blur(10px)',
+            WebkitBackdropFilter: 'blur(10px)',
+            border: flight.stall || flight.crashed
+              ? '1px solid rgba(239, 68, 68, 0.75)'
+              : '1px solid rgba(0, 212, 255, 0.3)',
+            borderRadius: 14,
+            padding: touchMode ? '5px 10px' : '8px 14px',
+            pointerEvents: 'none',
+            userSelect: 'none',
+            zIndex: 35,
+            boxShadow: flight.stall || flight.crashed
+              ? '0 4px 16px rgba(0, 0, 0, 0.4), 0 0 16px rgba(239, 68, 68, 0.35)'
+              : '0 4px 16px rgba(0, 0, 0, 0.4)',
+            transition: 'border-color 0.2s ease, box-shadow 0.2s ease',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: touchMode ? 10 : 16 }}>
+            {/* Airspeed */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+              <span style={flightLabelStyle}>VITESSE</span>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+                <span
+                  style={{
+                    fontFamily: "'Orbitron', sans-serif",
+                    fontSize: touchMode ? 24 : 32,
+                    fontWeight: 900,
+                    color: flight.stall ? '#f87171' : '#fff',
+                    lineHeight: 1,
+                    textShadow: flight.stall ? '0 0 12px rgba(239, 68, 68, 0.6)' : '0 0 12px rgba(0, 212, 255, 0.5)',
+                    minWidth: touchMode ? 44 : 58,
+                    textAlign: 'right',
+                  }}
+                >
+                  {flight.kmh}
+                </span>
+                <span style={flightUnitStyle}>KM/H</span>
+              </div>
+            </div>
+            {/* Altitude above ground */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+              <span style={flightLabelStyle}>ALTITUDE</span>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+                <span
+                  style={{
+                    fontFamily: "'Orbitron', sans-serif",
+                    fontSize: touchMode ? 17 : 22,
+                    fontWeight: 800,
+                    color: '#fff',
+                    lineHeight: 1,
+                    minWidth: touchMode ? 34 : 44,
+                    textAlign: 'right',
+                  }}
+                >
+                  {flight.altitude}
+                </span>
+                <span style={flightUnitStyle}>M</span>
+              </div>
+            </div>
+            {/* Vertical speed */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+              <span style={flightLabelStyle}>VARIO</span>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+                <span
+                  style={{
+                    fontFamily: "'Orbitron', sans-serif",
+                    fontSize: touchMode ? 13 : 16,
+                    fontWeight: 800,
+                    color: vsColor,
+                    lineHeight: 1,
+                    minWidth: touchMode ? 40 : 50,
+                    textAlign: 'right',
+                  }}
+                >
+                  {flight.verticalSpeed > 0.4 ? '▲' : flight.verticalSpeed < -0.4 ? '▼' : '•'}
+                  {Math.abs(flight.verticalSpeed).toFixed(1)}
+                </span>
+                <span style={flightUnitStyle}>M/S</span>
+              </div>
+            </div>
+          </div>
+          {/* Throttle */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ ...flightLabelStyle, minWidth: 24 }}>GAZ</span>
+            <div
+              style={{
+                flex: 1,
+                height: touchMode ? 5 : 6,
+                borderRadius: 3,
+                background: 'rgba(255, 255, 255, 0.12)',
+                overflow: 'hidden',
+              }}
+            >
+              <div
+                style={{
+                  width: `${flight.throttle}%`,
+                  height: '100%',
+                  borderRadius: 3,
+                  background: 'linear-gradient(90deg, #00b4d8, #00f2fe)',
+                  boxShadow: '0 0 8px rgba(0, 242, 254, 0.6)',
+                  transition: 'width 0.1s linear',
+                }}
+              />
+            </div>
+            <span
+              style={{
+                fontFamily: "'Orbitron', sans-serif",
+                fontSize: touchMode ? 9 : 10,
+                fontWeight: 800,
+                color: '#e2e8f0',
+                minWidth: 30,
+                textAlign: 'right',
+              }}
+            >
+              {flight.throttle}%
+            </span>
+            <span
+              style={{
+                fontFamily: "'Orbitron', sans-serif",
+                fontSize: touchMode ? 8 : 9,
+                fontWeight: 800,
+                letterSpacing: 1,
+                color: flight.onGround ? '#fbbf24' : '#34d399',
+              }}
+            >
+              {flight.onGround ? 'SOL' : 'VOL'}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Stall warning */}
+      {isPlane && flight.stall && !flight.crashed && (
+        <div
+          style={{
+            ...alertBannerStyle,
+            top: touchMode ? '24%' : '22%',
+            animation: 'hudFlash 0.55s ease-in-out infinite alternate',
+          }}
+        >
+          <span style={{ fontSize: touchMode ? 14 : 18 }}>⚠️</span>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <span
+              style={{
+                fontFamily: "'Orbitron', sans-serif",
+                fontSize: touchMode ? 14 : 18,
+                fontWeight: 900,
+                letterSpacing: 3,
+                color: '#fecaca',
+              }}
+            >
+              DÉCROCHAGE
+            </span>
+            <span style={{ fontFamily: "'Inter', sans-serif", fontSize: touchMode ? 9 : 11, color: 'rgba(255,255,255,0.8)' }}>
+              {touchMode ? 'Poussez le joystick ▲ pour reprendre de la vitesse' : 'Piquez (↑) et remettez les gaz (Z / W)'}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Crash */}
+      {isPlane && flight.crashed && (
+        <div
+          style={{
+            ...alertBannerStyle,
+            top: '34%',
+            padding: touchMode ? '8px 18px' : '12px 28px',
+            animation: 'hudFlash 0.4s ease-in-out infinite alternate',
+          }}
+        >
+          <span style={{ fontSize: touchMode ? 20 : 28 }}>💥</span>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <span
+              style={{
+                fontFamily: "'Orbitron', sans-serif",
+                fontSize: touchMode ? 22 : 30,
+                fontWeight: 900,
+                letterSpacing: 6,
+                color: '#fecaca',
+              }}
+            >
+              CRASH
+            </span>
+            <span style={{ fontFamily: "'Inter', sans-serif", fontSize: touchMode ? 9 : 11, color: 'rgba(255,255,255,0.85)' }}>
+              {touchMode ? 'Touchez 🚗 Voiture pour repartir' : 'P : reprendre la voiture · Maj+P : redécoller en vol'}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Take-off tip while sitting on the ground */}
+      {isPlane && flight.onGround && !flight.crashed && flight.kmh < 40 && (
+        <div
+          style={{
+            position: 'absolute',
+            bottom: touchMode ? 'max(182px, env(safe-area-inset-bottom, 182px))' : 118,
+            right: touchMode ? 'max(24px, env(safe-area-inset-right, 24px))' : 32,
+            maxWidth: touchMode ? '46vw' : 360,
+            background: 'rgba(10, 16, 28, 0.72)',
+            backdropFilter: 'blur(10px)',
+            WebkitBackdropFilter: 'blur(10px)',
+            border: '1px solid rgba(0, 212, 255, 0.3)',
+            borderRadius: 14,
+            padding: touchMode ? '4px 12px' : '6px 16px',
+            fontFamily: "'Inter', sans-serif",
+            fontSize: touchMode ? 10 : 12,
+            color: 'rgba(255,255,255,0.88)',
+            lineHeight: 1.4,
+            pointerEvents: 'none',
+            userSelect: 'none',
+            zIndex: 30,
+          }}
+        >
+          ✈️{' '}
+          {touchMode
+            ? 'Gaz automatiques : roulez tout droit, puis tirez le joystick ▼ pour décoller'
+            : 'Plein gaz (Z / W) sur une grande ligne droite, puis tirez (↓) pour décoller'}
+        </div>
+      )}
+
       {/* Speedometer - Minimalist, modern glass badge directly above the FREIN button */}
+      {!isPlane && (
       <div
         style={{
           position: 'absolute',
@@ -229,6 +528,7 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
           </span>
         </div>
       </div>
+      )}
 
       {/* Controls hint - ONLY shown in desktop keyboard mode, offset to right of minimap */}
       {!touchMode && (
@@ -250,13 +550,30 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
             border: '1px solid rgba(255,255,255,0.08)',
           }}
         >
-          <div><strong style={{ color: '#00d4ff' }}>W / Z / ↑</strong> — Accélérer</div>
-          <div><strong style={{ color: '#00d4ff' }}>S / ↓</strong> — Frein / Marche arrière</div>
-          <div><strong style={{ color: '#00d4ff' }}>A / Q / ←</strong> — Tourner à gauche</div>
-          <div><strong style={{ color: '#00d4ff' }}>D / →</strong> — Tourner à droite</div>
-          <div><strong style={{ color: '#00d4ff' }}>ESPACE</strong> — Frein à main</div>
-          <div><strong style={{ color: '#00d4ff' }}>M</strong> — Carte GPS</div>
-          <div><strong style={{ color: '#38bdf8' }}>T</strong> — 🌍 Voyager dans le monde</div>
+          {isPlane ? (
+            <>
+              <div><strong style={{ color: '#00d4ff' }}>Z / W</strong> — Gaz +</div>
+              <div><strong style={{ color: '#00d4ff' }}>S</strong> — Gaz −</div>
+              <div><strong style={{ color: '#00d4ff' }}>↓</strong> — Cabrer (monter)</div>
+              <div><strong style={{ color: '#00d4ff' }}>↑</strong> — Piquer (descendre)</div>
+              <div><strong style={{ color: '#00d4ff' }}>← / → ou Q / D</strong> — Roulis (virer)</div>
+              <div><strong style={{ color: '#00d4ff' }}>ESPACE</strong> — Freins (au sol)</div>
+              <div><strong style={{ color: '#38bdf8' }}>P</strong> — 🚗 Reprendre la voiture</div>
+              <div><strong style={{ color: '#38bdf8' }}>MAJ + P</strong> — Redécoller en vol</div>
+              <div><strong style={{ color: '#00d4ff' }}>M</strong> — Carte GPS</div>
+            </>
+          ) : (
+            <>
+              <div><strong style={{ color: '#00d4ff' }}>W / Z / ↑</strong> — Accélérer</div>
+              <div><strong style={{ color: '#00d4ff' }}>S / ↓</strong> — Frein / Marche arrière</div>
+              <div><strong style={{ color: '#00d4ff' }}>A / Q / ←</strong> — Tourner à gauche</div>
+              <div><strong style={{ color: '#00d4ff' }}>D / →</strong> — Tourner à droite</div>
+              <div><strong style={{ color: '#00d4ff' }}>ESPACE</strong> — Frein à main</div>
+              <div><strong style={{ color: '#00d4ff' }}>M</strong> — Carte GPS</div>
+              <div><strong style={{ color: '#38bdf8' }}>P</strong> — ✈️ Prendre l’avion</div>
+              <div><strong style={{ color: '#38bdf8' }}>T</strong> — 🌍 Voyager dans le monde</div>
+            </>
+          )}
         </div>
       )}
 
@@ -422,6 +739,54 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
           </div>
         )}
       </div>
+
+      {/* Car / plane toggle, next to the menu button */}
+      <button
+        onClick={(e) => {
+          e.currentTarget.blur()
+          toggleVehicle()
+        }}
+        onMouseDown={(e) => e.preventDefault()}
+        tabIndex={-1}
+        style={{
+          position: 'absolute',
+          top: isMobileLandscape ? 'max(8px, env(safe-area-inset-top, 8px))' : 16,
+          right: isMobileLandscape ? 'calc(max(14px, env(safe-area-inset-right, 14px)) + 42px)' : 68,
+          height: isMobileLandscape ? 34 : 40,
+          padding: isMobileLandscape ? '0 10px' : '0 14px',
+          borderRadius: 10,
+          background: isPlane ? 'rgba(10, 16, 28, 0.75)' : 'rgba(0, 60, 90, 0.78)',
+          backdropFilter: 'blur(10px)',
+          WebkitBackdropFilter: 'blur(10px)',
+          border: isPlane ? '1px solid rgba(251, 191, 36, 0.55)' : '1px solid rgba(0, 212, 255, 0.6)',
+          color: isPlane ? '#fbbf24' : '#7dd3fc',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 6,
+          cursor: 'pointer',
+          zIndex: 60,
+          boxShadow: isPlane
+            ? '0 4px 16px rgba(0, 0, 0, 0.4), 0 0 12px rgba(251, 191, 36, 0.2)'
+            : '0 4px 16px rgba(0, 0, 0, 0.4), 0 0 12px rgba(0, 212, 255, 0.25)',
+          touchAction: 'manipulation',
+          userSelect: 'none',
+          WebkitUserSelect: 'none',
+        }}
+        title={isPlane ? 'Reprendre la voiture (P)' : 'Prendre l’avion (P) — Maj+P : directement en vol'}
+      >
+        <span style={{ fontSize: isMobileLandscape ? 15 : 17, lineHeight: 1 }}>{isPlane ? '🚗' : '✈️'}</span>
+        <span
+          style={{
+            fontFamily: "'Orbitron', sans-serif",
+            fontSize: isMobileLandscape ? 9 : 11,
+            fontWeight: 800,
+            letterSpacing: 1.2,
+          }}
+        >
+          {isPlane ? 'VOITURE' : 'AVION'}
+        </span>
+      </button>
 
       {/* Sleek Top-Right Menu Button */}
       <button
@@ -696,8 +1061,8 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
         </div>
       )}
 
-      {/* 30s Spawn Invincibility Banner */}
-      {invincibilitySec > 0 && (
+      {/* 30s Spawn Invincibility Banner (the car's — hidden while flying) */}
+      {invincibilitySec > 0 && !isPlane && (
         <div
           style={{
             position: 'absolute',
@@ -899,7 +1264,7 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
       />
 
       {/* Mobile Touch Controls Overlay (Joystick + Brake) */}
-      <TouchControls engine={engine} visible={touchMode} />
+      <TouchControls engine={engine} visible={touchMode} vehicleMode={vehicleMode} />
 
       {/* Mobile Orientation Prompt (when in portrait mode) */}
       <OrientationPrompt />
@@ -962,7 +1327,47 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
           70% { transform: scale(2.0); opacity: 0; }
           100% { transform: scale(2.0); opacity: 0; }
         }
+        @keyframes hudFlash {
+          0% { opacity: 1; }
+          100% { opacity: 0.55; }
+        }
       `}</style>
     </>
   )
+}
+
+const flightLabelStyle: React.CSSProperties = {
+  fontFamily: "'Inter', sans-serif",
+  fontSize: 8,
+  fontWeight: 700,
+  color: '#00d4ff',
+  letterSpacing: 1.2,
+}
+
+const flightUnitStyle: React.CSSProperties = {
+  fontFamily: "'Inter', sans-serif",
+  fontSize: 8,
+  fontWeight: 700,
+  color: 'rgba(148, 163, 184, 0.9)',
+  letterSpacing: 1,
+}
+
+const alertBannerStyle: React.CSSProperties = {
+  position: 'absolute',
+  left: '50%',
+  transform: 'translateX(-50%)',
+  display: 'flex',
+  alignItems: 'center',
+  gap: 12,
+  background: 'rgba(40, 8, 8, 0.86)',
+  border: '1px solid rgba(239, 68, 68, 0.85)',
+  borderRadius: 16,
+  padding: '8px 20px',
+  boxShadow: '0 8px 30px rgba(0,0,0,0.6), 0 0 24px rgba(239, 68, 68, 0.45)',
+  backdropFilter: 'blur(12px)',
+  WebkitBackdropFilter: 'blur(12px)',
+  pointerEvents: 'none',
+  userSelect: 'none',
+  zIndex: 40,
+  whiteSpace: 'nowrap',
 }

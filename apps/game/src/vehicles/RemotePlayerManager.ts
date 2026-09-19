@@ -1,12 +1,25 @@
 /**
- * RemotePlayerManager — manages 3D visual cars, nametags, interpolation,
- * and Rapier physical colliders for other multiplayer players.
+ * RemotePlayerManager — manages 3D visual cars (or planes), nametags,
+ * interpolation, and Rapier physical colliders for other multiplayer players.
  */
 
 import * as THREE from 'three'
 import RAPIER from '@dimforge/rapier3d-compat'
 import type { PlayerSnapshot } from '@world-drive/shared'
 import { InterpolationBuffer } from '../networking/InterpolationBuffer.js'
+import { createTwoSeatAirplane, AIRPLANE_MAIN_WHEEL_Z } from './AirplaneModel.js'
+
+type RemoteVehicle = 'car' | 'plane'
+type AirplaneVisual = ReturnType<typeof createTwoSeatAirplane>
+
+/**
+ * The airplane model has its nose toward -Z and its main wheels at
+ * z = AIRPLANE_MAIN_WHEEL_Z, on the ground at y = 0. A remote plane's position
+ * is the point between its main wheels, on the ground, with forward = +Z (as
+ * PlayerPlane): turn the model by π and shift it so the main wheels sit on the origin.
+ */
+const CAR_NAMETAG_Y = 2.2
+const PLANE_NAMETAG_Y = 3.6
 
 // Visual dimensions matching PlayerCar
 const CAR_W = 2.0
@@ -81,6 +94,14 @@ function createNametagSprite(title: string, borderColor: string): {
 type RemotePlayer = {
   id: string
   mesh: THREE.Group
+  /** Car body meshes (hidden while the player flies). */
+  carVisual: THREE.Group
+  /** Plane model, created the first time this player flies. */
+  planeVisual: { container: THREE.Group; model: AirplaneVisual } | null
+  vehicle: RemoteVehicle
+  nametag: THREE.Sprite
+  /** Last reported speed (m/s), for the propeller. */
+  lastSpeed: number
   body: RAPIER.RigidBody | null
   collider: RAPIER.Collider | null
   buffer: InterpolationBuffer
@@ -131,6 +152,13 @@ export class RemotePlayerManager {
         player.invincibleUntil = snap.invincibleUntil
       }
 
+      // Absent = car (older clients / servers)
+      const vehicle: RemoteVehicle = snap.vehicle === 'plane' ? 'plane' : 'car'
+      if (vehicle !== player.vehicle) this._setVehicle(player, vehicle)
+      const v = snap.velocity
+      const speed = v ? Math.hypot(v.x, v.y, v.z) : 0
+      player.lastSpeed = Number.isFinite(speed) ? speed : 0
+
       player.buffer.addSnapshot(snap)
       player.lastSeen = now
     }
@@ -139,7 +167,7 @@ export class RemotePlayerManager {
   /**
    * Called every frame in the render loop.
    */
-  update(_dt: number): void {
+  update(dt: number): void {
     const now = performance.now()
     const nowMs = Date.now()
 
@@ -171,12 +199,19 @@ export class RemotePlayerManager {
         }
       }
 
+      // ── Plane propeller ─────────────────────────────────────────────────
+      if (player.vehicle === 'plane' && player.planeVisual) {
+        const rpm = 520 + Math.min(70, player.lastSpeed) * 13
+        player.planeVisual.model.update(Math.min(0.1, Math.max(0, dt)), rpm)
+      }
+
       // ── Invincibility & Collision Filtering ─────────────────────────────
       const remoteInvincible = nowMs < player.invincibleUntil
       const eitherInvincible = this.isLocalInvincible || remoteInvincible
 
       // Anti-stuck safety check: keep disabled if overlapping until safely separated
-      let canCollide = !eitherInvincible
+      // (a flying player has no car collider at all)
+      let canCollide = !eitherInvincible && player.vehicle === 'car'
       if (canCollide && !player.colliderWasEnabled && this.localPos) {
         const dx = player.mesh.position.x - this.localPos.x
         const dz = player.mesh.position.z - this.localPos.z
@@ -222,6 +257,8 @@ export class RemotePlayerManager {
     const player = this.players.get(id)
     if (player) {
       this.scene.remove(player.mesh)
+      player.planeVisual?.model.dispose()
+      player.planeVisual = null
       if (player.body && this.world) {
         this.world.removeRigidBody(player.body)
       }
@@ -229,9 +266,42 @@ export class RemotePlayerManager {
     }
   }
 
+  /** Show the player's car or plane (the plane model is built once, then cached). */
+  private _setVehicle(player: RemotePlayer, vehicle: RemoteVehicle): void {
+    player.vehicle = vehicle
+    if (vehicle === 'plane' && !player.planeVisual) {
+      try {
+        const model = createTwoSeatAirplane()
+        model.setColor(player.paletteHex)
+        const container = new THREE.Group()
+        container.name = `remote_plane_${player.id}`
+        container.rotation.y = Math.PI
+        container.position.z = AIRPLANE_MAIN_WHEEL_Z
+        container.add(model.group)
+        player.mesh.add(container)
+        player.planeVisual = { container, model }
+      } catch (err) {
+        console.warn('[RemotePlayerManager] Could not build the plane model:', err)
+      }
+    }
+    const flying = vehicle === 'plane' && player.planeVisual !== null
+    player.carVisual.visible = !flying
+    if (player.planeVisual) player.planeVisual.container.visible = flying
+    player.nametag.position.y = flying ? PLANE_NAMETAG_Y : CAR_NAMETAG_Y
+    // No car collider while flying
+    if (vehicle === 'plane') {
+      player.collider?.setEnabled(false)
+      player.colliderWasEnabled = false
+    }
+  }
+
   private _createRemotePlayer(id: string, snap: PlayerSnapshot): RemotePlayer {
+    const root = new THREE.Group()
+    root.name = `remote_player_${id}`
+    // Car meshes live in their own group so they can be swapped for a plane
     const group = new THREE.Group()
-    group.name = `remote_player_${id}`
+    group.name = `remote_car_${id}`
+    root.add(group)
 
     const palIdx = hashId(id) % RIVAL_PALETTES.length
     const palette = RIVAL_PALETTES[palIdx]!
@@ -306,10 +376,11 @@ export class RemotePlayerManager {
     // 6. Floating Rival Nametag Badge
     const shortTag = `RIVAL #${id.slice(0, 4).toUpperCase()}`
     const { sprite: nametag, canvas: nametagCanvas, texture: nametagTexture } = createNametagSprite(shortTag, palette.hex)
-    group.add(nametag)
+    nametag.position.y = CAR_NAMETAG_Y
+    root.add(nametag)
 
-    group.position.set(snap.position.x, snap.position.y, snap.position.z)
-    this.scene.add(group)
+    root.position.set(snap.position.x, snap.position.y, snap.position.z)
+    this.scene.add(root)
 
     // 7. Rapier Kinematic Rigid Body with Chassis Collider
     let body: RAPIER.RigidBody | null = null
@@ -336,9 +407,14 @@ export class RemotePlayerManager {
 
     const invincibleUntil = snap.invincibleUntil ?? (Date.now() + 30_000)
 
-    return {
+    const player: RemotePlayer = {
       id,
-      mesh: group,
+      mesh: root,
+      carVisual: group,
+      planeVisual: null,
+      vehicle: 'car',
+      nametag,
+      lastSpeed: 0,
       body,
       collider,
       buffer,
@@ -350,6 +426,8 @@ export class RemotePlayerManager {
       lastTagText: shortTag,
       colliderWasEnabled: true,
     }
+    if (snap.vehicle === 'plane') this._setVehicle(player, 'plane')
+    return player
   }
 
   getPlayerPositions(): Array<{ id: string; x: number; z: number }> {
@@ -363,6 +441,8 @@ export class RemotePlayerManager {
   dispose(): void {
     for (const [, player] of this.players) {
       this.scene.remove(player.mesh)
+      player.planeVisual?.model.dispose()
+      player.planeVisual = null
       if (player.body && this.world) {
         this.world.removeRigidBody(player.body)
       }

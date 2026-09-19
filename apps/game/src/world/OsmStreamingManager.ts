@@ -6,7 +6,7 @@
  * Seamlessly injects fetched chunks into ChunkManager without restarting the world.
  */
 
-import type { GeoPosition } from '@world-drive/math'
+import { geoToWorld, worldToGeo, type GeoPosition } from '@world-drive/math'
 import type { ChunkMap } from '@world-drive/world-data'
 import { fetchOsmChunksForArea } from './LiveOsmFetcher.js'
 
@@ -42,6 +42,17 @@ const REFETCH_THRESHOLD = FETCH_RADIUS * 0.5
 /** Cooldown (ms) before retrying after a failed OSM download. */
 const FAILURE_COOLDOWN_MS = 45_000
 
+/**
+ * Above this speed (m/s — a plane, or a car flat out) the manager streams
+ * AHEAD of the player: coverage is judged, and the next area fetched, at the
+ * point the player will reach in LOOKAHEAD_S seconds.
+ */
+const FAST_SPEED = 25
+const LOOKAHEAD_S = 5
+const MAX_LOOKAHEAD_M = 400
+/** Minimum delay between two fetch starts while moving fast. */
+const MIN_FAST_FETCH_INTERVAL_MS = 3_000
+
 export type OsmStreamingCallback = (chunks: ChunkMap) => void
 
 export class OsmStreamingManager {
@@ -60,17 +71,22 @@ export class OsmStreamingManager {
   /** When the last fetch failed (API error / bandwidth limit); retried after a cooldown. */
   private lastFailureAt = 0
 
+  /** When the last fetch started (performance.now()). */
+  private lastFetchStartAt = -Infinity
+
   /** Called with new chunk data when a fetch completes successfully. */
   onChunksReady: OsmStreamingCallback | null = null
 
   /**
-   * Called every frame with the player's current GPS position.
-   * Internally throttled — safe to call from the game loop.
+   * Called every frame with the player's current GPS position and, optionally,
+   * the player's world velocity (m/s). Internally throttled — safe to call
+   * from the game loop.
    */
-  update(playerGeo: GeoPosition): void {
+  update(playerGeo: GeoPosition, velocity?: { x: number; z: number }): void {
     if (this.isFetching) return
+    const now = performance.now()
     // After a failed download (e.g. OSM 509 bandwidth limit) wait before retrying
-    if (this.lastFailureAt > 0 && performance.now() - this.lastFailureAt < FAILURE_COOLDOWN_MS) return
+    if (this.lastFailureAt > 0 && now - this.lastFailureAt < FAILURE_COOLDOWN_MS) return
 
     // Throttle: only re-evaluate if player moved >= 10m since last check
     if (this.lastUpdatePos) {
@@ -79,14 +95,26 @@ export class OsmStreamingManager {
     }
     this.lastUpdatePos = playerGeo
 
-    // Check if the player is still well within a fetched zone
+    // Fast (flying): look ahead along the velocity so the data is there
+    // before the player is
+    const speed = velocity ? Math.hypot(velocity.x, velocity.z) : 0
+    const fast = velocity !== undefined && Number.isFinite(speed) && speed > FAST_SPEED
+    let probe = playerGeo
+    if (fast) {
+      if (now - this.lastFetchStartAt < MIN_FAST_FETCH_INTERVAL_MS) return
+      const k = Math.min(LOOKAHEAD_S * speed, MAX_LOOKAHEAD_M) / speed
+      const here = geoToWorld(playerGeo)
+      probe = worldToGeo({ x: here.x + velocity.x * k, y: 0, z: here.z + velocity.z * k })
+    }
+
+    // Check if the point is still well within a fetched zone
     const alreadyCovered = this.fetchedCenters.some(
-      (center) => geoDistanceMeters(center, playerGeo) < REFETCH_THRESHOLD,
+      (center) => geoDistanceMeters(center, probe) < REFETCH_THRESHOLD,
     )
     if (alreadyCovered) return
 
-    // Player is approaching uncovered territory — fetch now
-    this._startFetch(playerGeo)
+    // Approaching uncovered territory — fetch now
+    this._startFetch(probe)
   }
 
   /**
@@ -99,6 +127,7 @@ export class OsmStreamingManager {
 
   private _startFetch(center: GeoPosition): void {
     this.isFetching = true
+    this.lastFetchStartAt = performance.now()
     this.currentAbort = new AbortController()
     const { signal } = this.currentAbort
 
@@ -151,5 +180,6 @@ export class OsmStreamingManager {
     this.isFetching = false
     this.fetchedCenters = []
     this.lastUpdatePos = null
+    this.lastFetchStartAt = -Infinity
   }
 }

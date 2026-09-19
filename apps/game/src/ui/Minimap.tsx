@@ -98,8 +98,9 @@ export function Minimap({
       const centerX = width / 2
       const centerY = height / 2
 
-      const playerPos = engine.playerCar.getPosition()
-      const forward = engine.playerCar.getForwardVector()
+      // Active vehicle (car or plane)
+      const playerPos = engine.getPlayerPosition()
+      const forward = engine.getPlayerHeadingVector()
       // forward.x is East (+X) / West (-X)
       // forward.z is South (+Z) / North (-Z)
       // 2D canvas angle: +X is right (East), +Y is down (South), -Y is up (North)
@@ -517,15 +518,37 @@ export function Minimap({
       ctx.closePath()
       ctx.fill()
 
-      // Car triangle beacon
       ctx.shadowColor = '#00d4ff'
       ctx.shadowBlur = 10
       ctx.fillStyle = '#00f0ff'
       ctx.beginPath()
-      ctx.moveTo(0, -9) // Nose
-      ctx.lineTo(6, 7)  // Right rear
-      ctx.lineTo(0, 4)  // Tail inset
-      ctx.lineTo(-6, 7) // Left rear
+      if (engine.vehicleMode === 'plane') {
+        // Plane silhouette (nose up = heading)
+        ctx.moveTo(0, -10) // Nose
+        ctx.lineTo(1.7, -6)
+        ctx.lineTo(1.7, -2.2)
+        ctx.lineTo(10.5, 0.4) // Right wing tip
+        ctx.lineTo(10.5, 2.6)
+        ctx.lineTo(1.7, 2.2)
+        ctx.lineTo(1.2, 6.4)
+        ctx.lineTo(4.6, 8.4) // Right stabiliser
+        ctx.lineTo(4.6, 10)
+        ctx.lineTo(0, 9)
+        ctx.lineTo(-4.6, 10)
+        ctx.lineTo(-4.6, 8.4)
+        ctx.lineTo(-1.2, 6.4)
+        ctx.lineTo(-1.7, 2.2)
+        ctx.lineTo(-10.5, 2.6)
+        ctx.lineTo(-10.5, 0.4) // Left wing tip
+        ctx.lineTo(-1.7, -2.2)
+        ctx.lineTo(-1.7, -6)
+      } else {
+        // Car triangle beacon
+        ctx.moveTo(0, -9) // Nose
+        ctx.lineTo(6, 7)  // Right rear
+        ctx.lineTo(0, 4)  // Tail inset
+        ctx.lineTo(-6, 7) // Left rear
+      }
       ctx.closePath()
       ctx.fill()
 
@@ -623,7 +646,7 @@ export function Minimap({
       const currentZoom = expanded ? expandedZoomRef.current : radarZoomRef.current
       const scale = baseScale * currentZoom
 
-      const playerPos = engine.playerCar.getPosition()
+      const playerPos = engine.getPlayerPosition()
       const worldX = playerPos.x + (clickX - centerX) / scale
       const worldZ = playerPos.z + (clickY - centerY) / scale
 

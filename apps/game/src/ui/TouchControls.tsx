@@ -4,6 +4,8 @@ import type { GameEngine } from '../game/GameEngine.js'
 interface TouchControlsProps {
   engine: GameEngine
   visible?: boolean
+  /** Plane mode: the joystick flies (X = roll, Y = pitch), FREIN = brakes + idle throttle. */
+  vehicleMode?: 'car' | 'plane'
 }
 
 const MAX_RADIUS = 34 // Max pixel travel for the smaller joystick knob
@@ -12,7 +14,9 @@ const DEADZONE = 0.08
 export const TouchControls: React.FC<TouchControlsProps> = ({
   engine,
   visible = true,
+  vehicleMode = 'car',
 }) => {
+  const isPlane = vehicleMode === 'plane'
   // Joystick knob offset from base center
   const [knobPos, setKnobPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
   const [isJoystickActive, setIsJoystickActive] = useState(false)
@@ -45,6 +49,12 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
       }
     }
   }, [])
+
+  // The on-screen controls drive the plane's auto-throttle only while shown
+  useEffect(() => {
+    engine.input.setTouchControlsActive(visible)
+    return () => engine.input.setTouchControlsActive(false)
+  }, [engine, visible])
 
   useEffect(() => {
     updateBaseCenter()
@@ -93,6 +103,14 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
         steering,
         handbrake,
       })
+
+      // Flight: raw stick axes (X = roll, Y = pitch — pushed up = nose down)
+      let stickY = 0
+      if (Math.abs(normY) > DEADZONE) {
+        stickY = Math.sign(normY) * ((Math.abs(normY) - DEADZONE) / (1 - DEADZONE))
+        stickY = Math.min(1, Math.max(-1, stickY))
+      }
+      engine.input.setVirtualStick({ x: steering, y: stickY, brake: brakingNow })
     },
     [engine],
   )
@@ -292,7 +310,7 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
               position: 'absolute',
               top: 4,
               fontSize: 8,
-              color: isJoystickActive && knobPos.y < -12 ? '#00d4ff' : 'rgba(56, 189, 248, 0.35)',
+              color: isJoystickActive && knobPos.y < -12 ? (isPlane ? '#f87171' : '#00d4ff') : 'rgba(56, 189, 248, 0.35)',
               fontWeight: 900,
               transition: 'color 0.1s',
             }}
@@ -304,7 +322,7 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
               position: 'absolute',
               bottom: 4,
               fontSize: 8,
-              color: isJoystickActive && knobPos.y > 12 ? '#f87171' : 'rgba(56, 189, 248, 0.35)',
+              color: isJoystickActive && knobPos.y > 12 ? (isPlane ? '#00d4ff' : '#f87171') : 'rgba(56, 189, 248, 0.35)',
               fontWeight: 900,
               transition: 'color 0.1s',
             }}
@@ -392,6 +410,28 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
             />
           </div>
         </div>
+
+        {/* Plane mode: what the stick does */}
+        {isPlane && (
+          <div
+            style={{
+              position: 'absolute',
+              top: -16,
+              left: '50%',
+              transform: 'translateX(-50%)',
+              whiteSpace: 'nowrap',
+              fontFamily: "'Orbitron', sans-serif",
+              fontSize: 7,
+              fontWeight: 800,
+              letterSpacing: 1,
+              color: 'rgba(186, 230, 253, 0.85)',
+              textShadow: '0 1px 3px rgba(0,0,0,0.8)',
+              pointerEvents: 'none',
+            }}
+          >
+            ▲ PIQUER · ▼ CABRER
+          </div>
+        )}
       </div>
 
       {/* ── Right Thumb Zone: Sole Brake Button (FREIN) ──────────────────── */}
@@ -448,6 +488,20 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
           >
             FREIN
           </span>
+          {isPlane && (
+            <span
+              style={{
+                fontFamily: "'Orbitron', sans-serif",
+                fontSize: 7,
+                fontWeight: 800,
+                letterSpacing: 1,
+                marginTop: 1,
+                color: isBraking ? '#ffffff' : 'rgba(248, 113, 113, 0.8)',
+              }}
+            >
+              GAZ 0
+            </span>
+          )}
         </button>
       </div>
     </div>

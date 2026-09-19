@@ -13,6 +13,8 @@ export type PlayerState = {
   velocity: { x: number; y: number; z: number }
   steering?: number
   speed?: number
+  /** Vehicle reported by the client ('car' when absent). */
+  vehicle?: 'car' | 'plane'
 }
 
 export class PlayerSession {

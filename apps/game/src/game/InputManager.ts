@@ -1,9 +1,12 @@
 /**
- * InputManager — keyboard / gamepad input state.
+ * InputManager — keyboard / gamepad / touch input state.
  *
- * Provides a normalised PlayerInput snapshot every frame.
+ * Provides a normalised PlayerInput snapshot every frame (car), and a
+ * FlightInput snapshot (plane).
  * Does NOT send to the server; that's the networking layer's job.
  */
+
+import type { FlightInput } from '../vehicles/PlayerPlane.js'
 
 export type RawInput = {
   /** [0, 1] */
@@ -16,6 +19,31 @@ export type RawInput = {
   handbrake: boolean
 }
 
+/** Raw virtual joystick state written by the touch controls. */
+export type VirtualStick = {
+  /** [-1, 1] — negative = left */
+  x: number
+  /** [-1, 1] — negative = pushed UP (away from the player) */
+  y: number
+  /** FREIN button held */
+  brake: boolean
+}
+
+/** Touch auto-throttle while flying with the on-screen controls. */
+const TOUCH_AUTO_THROTTLE = 0.75
+const GAMEPAD_DEADZONE = 0.12
+
+function clamp(v: number, lo: number, hi: number): number {
+  return v < lo ? lo : v > hi ? hi : v
+}
+
+function deadzone(v: number | undefined): number {
+  if (v === undefined || !Number.isFinite(v)) return 0
+  const a = Math.abs(v)
+  if (a < GAMEPAD_DEADZONE) return 0
+  return Math.sign(v) * Math.min(1, (a - GAMEPAD_DEADZONE) / (1 - GAMEPAD_DEADZONE))
+}
+
 export class InputManager {
   private keys = new Set<string>()
   private disposed = false
@@ -25,6 +53,15 @@ export class InputManager {
     steering: 0,
     handbrake: false,
   }
+  private virtualStick: VirtualStick = { x: 0, y: 0, brake: false }
+  /** True while the on-screen touch controls are shown (they drive the auto-throttle). */
+  private touchControlsActive = false
+
+  /**
+   * Called on P (toggle car / plane) and Shift+P (take off: plane in the air).
+   * Set by the GameEngine.
+   */
+  onVehicleToggle: ((airborne: boolean) => void) | null = null
 
   /**
    * Set virtual touch/mobile inputs.
@@ -36,13 +73,29 @@ export class InputManager {
     if (partial.handbrake !== undefined) this.virtualInput.handbrake = partial.handbrake
   }
 
+  /** Raw joystick position + FREIN button from the touch controls (used in flight). */
+  setVirtualStick(partial: Partial<VirtualStick>): void {
+    if (partial.x !== undefined && Number.isFinite(partial.x)) this.virtualStick.x = clamp(partial.x, -1, 1)
+    if (partial.y !== undefined && Number.isFinite(partial.y)) this.virtualStick.y = clamp(partial.y, -1, 1)
+    if (partial.brake !== undefined) this.virtualStick.brake = partial.brake
+  }
+
+  /** Whether the on-screen touch controls are visible. */
+  setTouchControlsActive(active: boolean): void {
+    this.touchControlsActive = active
+    if (!active) {
+      this.virtualStick = { x: 0, y: 0, brake: false }
+    }
+  }
+
+  private isTyping(): boolean {
+    const el = document.activeElement
+    return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')
+  }
+
   private readonly onKeyDown = (e: KeyboardEvent) => {
     // Do not capture game control keys if typing in a text field
-    if (
-      document.activeElement &&
-      (document.activeElement.tagName === 'INPUT' ||
-        document.activeElement.tagName === 'TEXTAREA')
-    ) {
+    if (this.isTyping()) {
       return
     }
 
@@ -59,6 +112,17 @@ export class InputManager {
       e.code === 'ArrowRight'
     ) {
       e.preventDefault()
+    }
+
+    // P: car <-> plane. Shift+P: plane, directly in the air.
+    if (
+      !e.repeat &&
+      !e.ctrlKey &&
+      !e.metaKey &&
+      !e.altKey &&
+      (e.code === 'KeyP' || e.key === 'p' || e.key === 'P')
+    ) {
+      this.onVehicleToggle?.(e.shiftKey)
     }
   }
 
@@ -135,6 +199,91 @@ export class InputManager {
     }
   }
 
+  /**
+   * Flight controls (plane mode). Keyboard first, then gamepad, then touch.
+   *
+   * Keyboard: W/Z throttle up, S throttle down, ↓ pull (nose up), ↑ push
+   * (nose down), A/Q/← roll left, D/→ roll right, Space wheel brakes.
+   */
+  getFlightInput(): FlightInput {
+    const k = this.keys
+    const kThrottleUp = k.has('KeyW') || k.has('KeyZ') || k.has('w') || k.has('z')
+    const kThrottleDown = k.has('KeyS') || k.has('s')
+    const kNoseDown = k.has('ArrowUp') || k.has('arrowup')
+    const kNoseUp = k.has('ArrowDown') || k.has('arrowdown')
+    const kLeft =
+      k.has('KeyA') || k.has('KeyQ') || k.has('ArrowLeft') || k.has('a') || k.has('q') || k.has('arrowleft')
+    const kRight = k.has('KeyD') || k.has('ArrowRight') || k.has('d') || k.has('arrowright')
+    const kBrake = k.has('Space') || k.has(' ') || k.has('space')
+
+    const kPitch = (kNoseUp ? 1 : 0) - (kNoseDown ? 1 : 0)
+    const kRoll = (kRight ? 1 : 0) - (kLeft ? 1 : 0)
+
+    // ── Gamepad (standard mapping) ────────────────────────────────────────
+    let gpRoll = 0
+    let gpPitch = 0
+    let gpYaw = 0
+    let gpThrottleSet: number | undefined
+    let gpThrottleDown = false
+    let gpBrake = false
+    const pad = this.getGamepad()
+    if (pad) {
+      gpRoll = deadzone(pad.axes[0])
+      // Stick forward (axis < 0) = push = nose down
+      gpPitch = deadzone(pad.axes[1])
+      gpYaw = deadzone(pad.axes[2])
+      const rt = pad.buttons[7]
+      const lt = pad.buttons[6]
+      const rtValue = rt ? (rt.value > 0 ? rt.value : rt.pressed ? 1 : 0) : 0
+      if (rtValue > 0.05) gpThrottleSet = clamp(rtValue, 0, 1)
+      gpThrottleDown = !!lt && (lt.pressed || lt.value > 0.3)
+      gpBrake = !!pad.buttons[0]?.pressed
+    }
+
+    // ── Touch (virtual joystick + FREIN) ─────────────────────────────────
+    const touch = this.touchControlsActive
+    const vRoll = touch ? this.virtualStick.x : 0
+    // Joystick pushed up (y < 0) = nose down
+    const vPitch = touch ? this.virtualStick.y : 0
+    const vBrake = touch && this.virtualStick.brake
+
+    const pick = (a: number, b: number, c: number): number =>
+      clamp(a !== 0 ? a : b !== 0 ? b : c, -1, 1)
+
+    const input: FlightInput = {
+      throttleUp: kThrottleUp,
+      throttleDown: kThrottleDown || gpThrottleDown,
+      pitch: pick(kPitch, gpPitch, vPitch),
+      roll: pick(kRoll, gpRoll, vRoll),
+      yaw: clamp(gpYaw, -1, 1),
+      brake: kBrake || gpBrake || vBrake,
+    }
+
+    // Absolute throttle: only when no throttle key is held
+    if (!kThrottleUp && !kThrottleDown) {
+      if (gpThrottleSet !== undefined) {
+        input.throttleSet = gpThrottleSet
+      } else if (touch && !gpThrottleDown) {
+        input.throttleSet = vBrake ? 0 : TOUCH_AUTO_THROTTLE
+      }
+    }
+    return input
+  }
+
+  private getGamepad(): Gamepad | null {
+    if (typeof navigator === 'undefined' || typeof navigator.getGamepads !== 'function') return null
+    let pads: (Gamepad | null)[]
+    try {
+      pads = Array.from(navigator.getGamepads())
+    } catch {
+      return null
+    }
+    for (const p of pads) {
+      if (p && p.connected && p.axes.length >= 2) return p
+    }
+    return null
+  }
+
   isKeyDown(code: string): boolean {
     return this.keys.has(code)
   }
@@ -142,6 +291,7 @@ export class InputManager {
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
+    this.onVehicleToggle = null
     window.removeEventListener('keydown', this.onKeyDown)
     window.removeEventListener('keyup', this.onKeyUp)
     window.removeEventListener('blur', this.onBlur)

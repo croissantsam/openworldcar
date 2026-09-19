@@ -35,6 +35,7 @@ import * as THREE from 'three'
 import RAPIER from '@dimforge/rapier3d-compat'
 import type { Building, BuildingType, RoofShape } from '@world-drive/shared'
 import type { WorldPosition } from '@world-drive/math'
+import { heightToNormalTexture, H_FLAT, addLedges } from './FacadeRelief'
 
 // ── Facade color palettes & architectural styles ─────────────────────────────
 export type ArchitecturalStyle =
@@ -196,13 +197,27 @@ const ROOF_MATERIAL_COLORS: Record<string, number> = {
 // ── Window texture cache ─────────────────────────────────────────────────────
 // One texture per (palette, level count): the canvas holds exactly `rows` floors, the
 // ground floor being the bottom row, so the UV scale can map one repeat to the wall height.
-const textureCache = new Map<string, THREE.CanvasTexture>()
+interface FacadeTextures {
+  map: THREE.CanvasTexture
+  normalMap: THREE.CanvasTexture
+}
+const textureCache = new Map<string, FacadeTextures>()
 
 /** Distinct level variants: taller buildings repeat the texture every MAX_TEXTURE_ROWS floors. */
 const MAX_TEXTURE_ROWS = 24
 const ROW_PX = 64
 
-function makeWindowTexture(palette: Palette, cacheKey: string, rows: number): THREE.CanvasTexture {
+// Relief levels for the height map (H_FLAT = wall plane; ± ≈ 0.4 cm per unit at 64 px / floor)
+const H_RECESS = H_FLAT - 40      // window reveal ~15 cm back
+const H_DOOR = H_FLAT - 30
+const H_SILL = H_FLAT + 34        // sill / lintel protruding
+const H_BAND = H_FLAT + 26        // string course / floor band
+const H_PLINTH = H_FLAT + 14      // ground-floor plinth band
+const H_JOINT = H_FLAT - 22       // rustication joint
+const H_MULLION = H_FLAT + 16     // glass-curtain mullions
+const H_GLASS = H_FLAT - 10
+
+function makeWindowTexture(palette: Palette, cacheKey: string, rows: number): FacadeTextures {
   const cached = textureCache.get(cacheKey)
   if (cached) return cached
 
@@ -213,6 +228,27 @@ function makeWindowTexture(palette: Palette, cacheKey: string, rows: number): TH
   canvas.width = W
   canvas.height = H
   const ctx = canvas.getContext('2d')!
+
+  // Matching height map: drawn in lockstep with the colour canvas, turned into a normal map at the end.
+  const hcanvas = document.createElement('canvas')
+  hcanvas.width = W
+  hcanvas.height = H
+  const hctx = hcanvas.getContext('2d')!
+  hctx.fillStyle = `rgb(${H_FLAT},${H_FLAT},${H_FLAT})`
+  hctx.fillRect(0, 0, W, H)
+  const hfill = (x: number, y: number, w: number, h: number, level: number) => {
+    const l = Math.max(0, Math.min(255, Math.round(level)))
+    hctx.fillStyle = `rgb(${l},${l},${l})`
+    hctx.fillRect(x, y, w, h)
+  }
+  // Baked ambient occlusion: dark gradient fading downward (under lintels / balconies) or upward (wall base)
+  const aoBand = (y: number, h: number, alpha: number, fadeDown: boolean) => {
+    const g = ctx.createLinearGradient(0, y, 0, y + h)
+    g.addColorStop(0, `rgba(0,0,0,${fadeDown ? alpha : 0})`)
+    g.addColorStop(1, `rgba(0,0,0,${fadeDown ? 0 : alpha})`)
+    ctx.fillStyle = g
+    ctx.fillRect(0, y, W, h)
+  }
 
   const style = palette.style
 
@@ -274,29 +310,41 @@ function makeWindowTexture(palette: Palette, cacheKey: string, rows: number): TH
       ctx.fillRect(0, y, W, 3)
       ctx.fillStyle = 'rgba(255,255,255,0.18)'
       ctx.fillRect(0, y + 3, W, 2)
+      hfill(0, y, W, 5, H_BAND)
+      if (f > 0) aoBand(y + 5, 5, 0.18, true)
     } else if (hasStringcourse && f > 0) {
       ctx.fillStyle = 'rgba(0,0,0,0.10)'
       ctx.fillRect(0, y, W, 2)
+      hfill(0, y, W, 3, H_BAND)
+      aoBand(y + 3, 4, 0.12, true)
     }
 
     // Ground-floor plinth (soubassement): darker base band + rustication for stone facades
     if (isGroundFloor && style !== 'industrial' && style !== 'garage' && style !== 'glass_curtain' && style !== 'religious' && style !== 'greenhouse') {
       ctx.fillStyle = 'rgba(0,0,0,0.16)'
       ctx.fillRect(0, y + floorH - 6, W, 6)
+      hfill(0, y + floorH - 6, W, 6, H_PLINTH)
       if (style === 'haussmann' || style === 'civic_classical') {
         ctx.fillStyle = 'rgba(0,0,0,0.12)'
-        for (let gy = y + 2; gy < H; gy += 14) ctx.fillRect(0, gy, W, 2)
+        for (let gy = y + 2; gy < H; gy += 14) {
+          ctx.fillRect(0, gy, W, 2)
+          hfill(0, gy, W, 2, H_JOINT)
+        }
       }
     }
 
     // Wrought-iron balcony railings on the 2nd and 5th floors counted from the ground
     const hasBalcony = style === 'haussmann' && floors >= 4 && (floorFromGround === 2 || floorFromGround === 5)
     if (hasBalcony) {
+      // Bars reach the geometric handrail (0.86 m ≈ 16 px of a 64 px floor)
       ctx.fillStyle = '#1c1f24'
       ctx.fillRect(0, y + floorH - 10, W, 8)
-      for (let bx = 0; bx < W; bx += 8) ctx.fillRect(bx, y + floorH - 12, 2, 10)
+      for (let bx = 0; bx < W; bx += 8) ctx.fillRect(bx, y + floorH - 18, 2, 16)
       ctx.fillStyle = 'rgba(255, 215, 0, 0.4)'
-      ctx.fillRect(0, y + floorH - 12, W, 2)
+      ctx.fillRect(0, y + floorH - 18, W, 2)
+      hfill(0, y + floorH - 3, W, 3, H_SILL)
+      // Occlusion on the wall under the balcony slab (top of the floor below)
+      if (f + 1 < floors) aoBand(y + floorH, 7, 0.28, true)
     }
 
     for (let c = 0; c < cols; c++) {
@@ -310,6 +358,7 @@ function makeWindowTexture(palette: Palette, cacheKey: string, rows: number): TH
         // ── Industrial segmented roll-up garage door ─────────────────────────
         ctx.fillStyle = '#4a5058'
         ctx.fillRect(wx, wy, ww, wh)
+        hfill(wx, wy, ww, wh, H_DOOR)
         ctx.fillStyle = 'rgba(0,0,0,0.2)'
         for (let sy = wy; sy < wy + wh; sy += 6) ctx.fillRect(wx, sy, ww, 1.5)
         ctx.fillStyle = '#f1c40f'
@@ -323,6 +372,9 @@ function makeWindowTexture(palette: Palette, cacheKey: string, rows: number): TH
         const gwy = y + 6
         const gwh = floorH - 14
         const isCenterDoor = c === Math.floor(cols / 2)
+        // Recessed reveal + protruding lintel for the whole ground-floor bay
+        hfill(wx - 2, gwy - 2, ww + 4, gwh + 2, isCenterDoor ? H_DOOR : H_RECESS)
+        hfill(wx - 3, gwy - 5, ww + 6, 3, H_SILL)
         if (isCenterDoor) {
           ctx.fillStyle = '#2d1e16'
           ctx.fillRect(wx, gwy, ww, gwh)
@@ -367,11 +419,15 @@ function makeWindowTexture(palette: Palette, cacheKey: string, rows: number): TH
         ctx.strokeStyle = '#141e28'
         ctx.lineWidth = 2
         ctx.strokeRect(wx, wy, ww, wh)
+        hfill(wx - 3, wy - 3, ww + 6, wh + 6, H_MULLION)
+        hfill(wx + 1, wy + 1, ww - 2, wh - 2, H_GLASS)
 
       } else if (style === 'religious') {
         // ── Gothic / Romanesque lancet arched window with stained glass ──────
         ctx.fillStyle = 'rgba(0,0,0,0.45)'
         ctx.fillRect(wx, wy, ww, wh)
+        hfill(wx, wy, ww, wh, H_RECESS)
+        hfill(wx - 2, wy + wh, ww + 4, 3, H_SILL)
         const lit = ((c * 3 + f * 7) % 3) !== 0
         ctx.fillStyle = lit ? 'rgba(255, 200, 100, 0.85)' : 'rgba(180, 60, 40, 0.70)'
         ctx.fillRect(wx + 2, wy + 4, ww - 4, wh - 6)
@@ -394,16 +450,30 @@ function makeWindowTexture(palette: Palette, cacheKey: string, rows: number): TH
         ctx.fillRect(wx - 3, wy - 2, ww + 6, 1)
         ctx.fillStyle = 'rgba(0,0,0,0.25)'
         ctx.fillRect(wx - 3, wy + wh + 1, ww + 6, 3)
+        // Relief: recessed reveal, protruding lintel above and sill below; AO just under the lintel
+        hfill(wx - 2, wy - 2, ww + 4, wh + 4, H_RECESS)
+        hfill(wx - 3, wy - 5, ww + 6, 3, H_SILL)
+        hfill(wx - 3, wy + wh + 1, ww + 6, 3, H_SILL)
+        const lg = ctx.createLinearGradient(0, wy - 2, 0, wy + 4)
+        lg.addColorStop(0, 'rgba(0,0,0,0.30)')
+        lg.addColorStop(1, 'rgba(0,0,0,0)')
+        ctx.fillStyle = lg
+        ctx.fillRect(wx - 2, wy - 2, ww + 4, 6)
       }
     }
   }
+
+  // Baked AO at the base of the wall (bottom ~0.5 m of the ground floor)
+  aoBand(H - 11, 11, 0.30, false)
 
   const tex = new THREE.CanvasTexture(canvas)
   tex.wrapS = THREE.RepeatWrapping
   tex.wrapT = THREE.RepeatWrapping
   tex.anisotropy = 4
-  textureCache.set(cacheKey, tex)
-  return tex
+  const normalMap = heightToNormalTexture(hcanvas, style === 'glass_curtain' ? 1.4 : 2.0)
+  const result: FacadeTextures = { map: tex, normalMap }
+  textureCache.set(cacheKey, result)
+  return result
 }
 
 // ── Material cache ───────────────────────────────────────────────────────────
@@ -420,9 +490,11 @@ function getFacadeMat(pal: Palette, key: string, rows: number, colourOverride?: 
     const hex = new THREE.Color(colourOverride).getHex()
     effective = { ...pal, facade: hex, frame: (hex >> 1) & 0x7f7f7f }
   }
-  const tex = makeWindowTexture(effective, cacheKey, rows)
+  const { map, normalMap } = makeWindowTexture(effective, cacheKey, rows)
   const mat = new THREE.MeshStandardMaterial({
-    map: tex,
+    map,
+    normalMap,
+    normalScale: new THREE.Vector2(0.7, 0.7),
     roughness: pal.isGlass ? 0.35 : 0.84,
     metalness: pal.isGlass ? 0.65 : 0.08,
   })
@@ -1260,6 +1332,24 @@ export class BuildingMeshGenerator {
     wallMesh.receiveShadow = true
     wallMesh.userData['buildingId'] = building.id
     group.add(wallMesh)
+
+    // ── 1b. Real ledges: cornice, plinth, balcony slabs + railings (shared materials) ──
+    const style = pal.style
+    const dressed = style === 'haussmann' || style === 'render' || style === 'brick' ||
+      style === 'civic_classical' || style === 'commercial_boutique' || style === 'residential_house' ||
+      style === 'religious'
+    if (dressed && wallHeight >= 3) {
+      addLedges(group, {
+        ring: fp2d,
+        bottomY,
+        topY: building.height,
+        floorH,
+        levels,
+        cornice: true,
+        plinth: style !== 'residential_house' && style !== 'religious',
+        balconies: style === 'haussmann',
+      })
+    }
 
     // ── 2. Roof Generation (Section 8: roof:shape=*) ──────────────────────
     let roofShape = building.roofShape ?? 'flat'

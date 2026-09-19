@@ -223,6 +223,11 @@ export class ChunkLoader {
       if (!resp.ok) {
         throw new Error(`HTTP ${resp.status} ${resp.statusText}`)
       }
+      // Dev servers answer unknown paths with index.html (200): not a chunk.
+      const ctype = resp.headers.get('content-type') ?? ''
+      if (!ctype.includes('json')) {
+        return 'pending'
+      }
       const data: WorldChunk = await resp.json()
       this.cache.set(id, data)
       return data
@@ -264,9 +269,10 @@ export class ChunkLoader {
       const mesh = WaterwayMeshGenerator.generate(waterway)
       if (mesh) group.add(mesh)
     }
+    const chunkPois = chunk.pointsOfInterest ?? []
     for (const park of chunk.parks ?? []) {
       yield estimateParkMs(park)
-      const parkGroup = ParkMeshGenerator.generate(park, allRoads as Road[])
+      const parkGroup = ParkMeshGenerator.generate(park, allRoads as Road[], chunkPois)
       if (parkGroup) group.add(parkGroup)
     }
     const pois = chunk.pointsOfInterest ?? []
@@ -284,10 +290,12 @@ export class ChunkLoader {
 
     // Street-level reality from tagged nodes (instanced; cheap per chunk)
     if (pois.length > 0) {
-      yield 4
+      // Measured: ~0.05 ms per POI (instancing) and ~0.07 ms per POI for the
+      // signage atlas (canvas text); announced so heavy chunks run in idle slices.
+      yield 2 + pois.length * 0.05
       const furniture = StreetFurnitureGenerator.generate(pois, allRoads as Road[], chunk.buildings)
       if (furniture) group.add(furniture)
-      yield 4
+      yield 2 + pois.length * 0.07
       const storefronts = StorefrontGenerator.generate(pois, chunk.buildings, allRoads as Road[])
       if (storefronts) group.add(storefronts)
     }

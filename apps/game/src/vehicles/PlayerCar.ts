@@ -8,6 +8,7 @@ import * as THREE from 'three'
 import RAPIER from '@dimforge/rapier3d-compat'
 import { worldToGeo, type WorldPosition, type GeoPosition } from '@world-drive/math'
 import type { RawInput } from '../game/InputManager.js'
+import { createFerrari, FERRARI_WHEEL_RADIUS, type FerrariCar } from './FerrariModel.js'
 
 // Car dimensions (metres)
 const CAR_W = 1.95
@@ -77,6 +78,9 @@ export class PlayerCar {
   private wheelFLSteer = new THREE.Group()
   private wheelFRSteer = new THREE.Group()
   private wheelMeshes: THREE.Group[] = []
+  private carModel: FerrariCar | null = null
+  /** Wheels live in a container turned by π about Y: forward travel spins them the other way. */
+  private readonly wheelSpinSign = -1
   private nitroFlames: THREE.Mesh[] = []
 
   // Dynamic visual suspension state
@@ -178,71 +182,6 @@ export class PlayerCar {
   private _buildMesh(): THREE.Group {
     const car = new THREE.Group()
 
-    // ── Materials ───────────────────────────────────────────────────────────
-    const paintMat = new THREE.MeshStandardMaterial({
-      color: 0x164ac8, // Burnout Paradise metallic royal blue
-      metalness: 0.88,
-      roughness: 0.18,
-    })
-
-    const stripeMat = new THREE.MeshStandardMaterial({
-      color: 0x0a0c10, // matte black racing stripes
-      metalness: 0.3,
-      roughness: 0.4,
-    })
-
-    const chromeMat = new THREE.MeshStandardMaterial({
-      color: 0xededed, // polished mirror chrome
-      metalness: 0.96,
-      roughness: 0.12,
-    })
-
-    const glassMat = new THREE.MeshStandardMaterial({
-      color: 0x08101d, // dark tinted privacy glass
-      metalness: 0.95,
-      roughness: 0.08,
-      transparent: true,
-      opacity: 0.88,
-    })
-
-    const grilleMat = new THREE.MeshStandardMaterial({
-      color: 0x111215, // black front mesh
-      metalness: 0.5,
-      roughness: 0.7,
-    })
-
-    const tailLightMat = new THREE.MeshStandardMaterial({
-      color: 0xff1500,
-      emissive: 0xff0a00,
-      emissiveIntensity: 2.2,
-      roughness: 0.2,
-    })
-
-    const headLightMat = new THREE.MeshStandardMaterial({
-      color: 0xffffff,
-      emissive: 0xffeedd,
-      emissiveIntensity: 1.6,
-      roughness: 0.1,
-    })
-
-    const tireMat = new THREE.MeshStandardMaterial({
-      color: 0x141518,
-      roughness: 0.85,
-      metalness: 0.05,
-    })
-
-    const rimMat = new THREE.MeshStandardMaterial({
-      color: 0xcccccc,
-      metalness: 0.92,
-      roughness: 0.15,
-    })
-
-    const brakeMat = new THREE.MeshStandardMaterial({
-      color: 0xd41111, // red sports brake caliper
-      metalness: 0.3,
-      roughness: 0.3,
-    })
-
     // ── A. Ground Contact AO Shadow Quad ───────────────────────────────────
     const shadowGeo = new THREE.PlaneGeometry(CAR_W + 0.45, CAR_L + 0.45)
     shadowGeo.rotateX(-Math.PI / 2)
@@ -256,165 +195,48 @@ export class PlayerCar {
     shadowMesh.position.y = -0.45 // 2cm above road surface
     car.add(shadowMesh)
 
-    // ── B. Dynamic Chassis Group (Pitch & Roll suspension) ─────────────────
+    // ── B. Ferrari-inspired coupe (procedural, see FerrariModel.ts) ────────
+    // Model frame: nose toward -Z, ground at y = 0. Game frame: forward +Z,
+    // the rigid body centre 0.48 m above the road. One container turns the
+    // model around (π about Y) and lowers it so its ground meets the road.
+    const porsche = createFerrari()
+    this.carModel = porsche
+    const MODEL_Y = -0.48
+
+    // Body (everything but the wheels) under the pitch/roll chassis group
     this.chassisGroup = new THREE.Group()
     car.add(this.chassisGroup)
-
-    // 1. Lower Body & Floorpan
-    const lowerBodyGeo = new THREE.BoxGeometry(CAR_W, 0.36, CAR_L)
-    const lowerBody = new THREE.Mesh(lowerBodyGeo, paintMat)
-    lowerBody.position.y = 0.04
-    this.chassisGroup.add(lowerBody)
-
-    // Side skirts
-    for (const x of [-CAR_W / 2 + 0.02, CAR_W / 2 - 0.02]) {
-      const skirtGeo = new THREE.BoxGeometry(0.08, 0.14, CAR_L * 0.6)
-      const skirt = new THREE.Mesh(skirtGeo, stripeMat)
-      skirt.position.set(x, -0.12, 0)
-      this.chassisGroup.add(skirt)
+    const bodyRoot = new THREE.Group()
+    bodyRoot.rotation.y = Math.PI
+    bodyRoot.position.y = MODEL_Y
+    this.chassisGroup.add(bodyRoot)
+    for (const child of [...porsche.group.children]) {
+      if (!porsche.wheels.includes(child as THREE.Group)) bodyRoot.add(child)
     }
 
-    // 2. Sculpted Front Hood with Power Bulge
-    const hoodGeo = new THREE.BoxGeometry(CAR_W * 0.94, 0.20, 1.55)
-    const hood = new THREE.Mesh(hoodGeo, paintMat)
-    hood.position.set(0, 0.22, 1.45)
-    this.chassisGroup.add(hood)
-
-    // Hood scoop / air intake
-    const scoopGeo = new THREE.BoxGeometry(0.55, 0.09, 0.65)
-    const scoop = new THREE.Mesh(scoopGeo, stripeMat)
-    scoop.position.set(0, 0.34, 1.35)
-    this.chassisGroup.add(scoop)
-
-    // Dual black racing stripes along hood & roof
-    for (const sx of [-0.22, 0.22]) {
-      const sGeo = new THREE.BoxGeometry(0.16, 0.02, 1.56)
-      const stripe = new THREE.Mesh(sGeo, stripeMat)
-      stripe.position.set(sx, 0.33, 1.45)
-      this.chassisGroup.add(stripe)
+    // Wheels: same rotated container, but each wheel sits in its own steer /
+    // fixed group at the hub so the existing steering + spin code applies.
+    const wheelRoot = new THREE.Group()
+    wheelRoot.rotation.y = Math.PI
+    wheelRoot.position.y = MODEL_Y
+    car.add(wheelRoot)
+    const [wheelFL, wheelFR, wheelRL, wheelRR] = porsche.wheels as [THREE.Group, THREE.Group, THREE.Group, THREE.Group]
+    const mount = (wheel: THREE.Group): THREE.Group => {
+      const holder = new THREE.Group()
+      holder.position.copy(wheel.position)
+      wheel.position.set(0, 0, 0)
+      holder.add(wheel)
+      wheelRoot.add(holder)
+      this.wheelMeshes.push(wheel)
+      return holder
     }
+    this.wheelFLSteer = mount(wheelFL)
+    this.wheelFRSteer = mount(wheelFR)
+    mount(wheelRL)
+    mount(wheelRR)
 
-    // 3. Front Grille, Bumper, Splitter & Quad Headlights
-    const grilleGeo = new THREE.BoxGeometry(CAR_W * 0.88, 0.22, 0.06)
-    const grille = new THREE.Mesh(grilleGeo, grilleMat)
-    grille.position.set(0, 0.10, CAR_L / 2 + 0.01)
-    this.chassisGroup.add(grille)
-
-    // Chrome front bumper bar
-    const fvBumperGeo = new THREE.BoxGeometry(CAR_W * 0.94, 0.10, 0.12)
-    const fvBumper = new THREE.Mesh(fvBumperGeo, chromeMat)
-    fvBumper.position.set(0, -0.05, CAR_L / 2 + 0.04)
-    this.chassisGroup.add(fvBumper)
-
-    // Front chin splitter
-    const splitterGeo = new THREE.BoxGeometry(CAR_W * 0.96, 0.04, 0.28)
-    const splitter = new THREE.Mesh(splitterGeo, stripeMat)
-    splitter.position.set(0, -0.14, CAR_L / 2 + 0.08)
-    this.chassisGroup.add(splitter)
-
-    // Quad round headlights with chrome bezels
-    const headlights = [-0.65, -0.42, 0.42, 0.65] as const
-    for (const x of headlights) {
-      const bezelGeo = new THREE.CylinderGeometry(0.11, 0.11, 0.05, 14)
-      bezelGeo.rotateX(Math.PI / 2)
-      const bezel = new THREE.Mesh(bezelGeo, chromeMat)
-      bezel.position.set(x, 0.12, CAR_L / 2 + 0.03)
-      this.chassisGroup.add(bezel)
-
-      const bulbGeo = new THREE.CylinderGeometry(0.085, 0.085, 0.055, 14)
-      bulbGeo.rotateX(Math.PI / 2)
-      const bulb = new THREE.Mesh(bulbGeo, headLightMat)
-      bulb.position.set(x, 0.12, CAR_L / 2 + 0.04)
-      this.chassisGroup.add(bulb)
-    }
-
-    // 4. Fastback Coupe Cockpit & Tinted Glass
-    const roofGeo = new THREE.BoxGeometry(CAR_W * 0.82, 0.08, 1.4)
-    const roof = new THREE.Mesh(roofGeo, paintMat)
-    roof.position.set(0, 0.72, -0.32)
-    this.chassisGroup.add(roof)
-
-    const cabinGeo = new THREE.BoxGeometry(CAR_W * 0.80, 0.46, 1.95)
-    const cabin = new THREE.Mesh(cabinGeo, glassMat)
-    cabin.position.set(0, 0.48, -0.30)
-    this.chassisGroup.add(cabin)
-
-    const windshieldGeo = new THREE.BoxGeometry(CAR_W * 0.76, 0.06, 0.92)
-    const windshield = new THREE.Mesh(windshieldGeo, glassMat)
-    windshield.position.set(0, 0.54, 0.48)
-    windshield.rotation.x = -0.58
-    this.chassisGroup.add(windshield)
-
-    const rearGlassGeo = new THREE.BoxGeometry(CAR_W * 0.74, 0.06, 1.15)
-    const rearGlass = new THREE.Mesh(rearGlassGeo, glassMat)
-    rearGlass.position.set(0, 0.52, -1.18)
-    rearGlass.rotation.x = 0.50
-    this.chassisGroup.add(rearGlass)
-
-    // Side mirrors
-    for (const x of [-CAR_W / 2 - 0.04, CAR_W / 2 + 0.04]) {
-      const mirror = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.10, 0.12), paintMat)
-      mirror.position.set(x, 0.38, 0.25)
-      this.chassisGroup.add(mirror)
-    }
-
-    // 5. Rear Trunk & Ducktail Spoiler
-    const trunkGeo = new THREE.BoxGeometry(CAR_W * 0.92, 0.18, 1.1)
-    const trunk = new THREE.Mesh(trunkGeo, paintMat)
-    trunk.position.set(0, 0.24, -1.75)
-    this.chassisGroup.add(trunk)
-
-    // Ducktail rear spoiler
-    const spoilerGeo = new THREE.BoxGeometry(CAR_W * 0.86, 0.12, 0.22)
-    const spoiler = new THREE.Mesh(spoilerGeo, stripeMat)
-    spoiler.position.set(0, 0.36, -2.25)
-    spoiler.rotation.x = 0.20
-    this.chassisGroup.add(spoiler)
-
-    // Rear fascia
-    const rearPanel = new THREE.Mesh(new THREE.BoxGeometry(CAR_W * 0.90, 0.30, 0.08), grilleMat)
-    rearPanel.position.set(0, 0.08, -CAR_L / 2 - 0.01)
-    this.chassisGroup.add(rearPanel)
-
-    // Chrome rear bumper
-    const rBumper = new THREE.Mesh(new THREE.BoxGeometry(CAR_W * 0.98, 0.14, 0.16), chromeMat)
-    rBumper.position.set(0, -0.06, -CAR_L / 2 - 0.04)
-    this.chassisGroup.add(rBumper)
-
-    // Quad horizontal red tail lights
-    const taillights = [
-      { x: -0.62, w: 0.28 },
-      { x: -0.30, w: 0.28 },
-      { x: 0.30, w: 0.28 },
-      { x: 0.62, w: 0.28 },
-    ] as const
-
-    for (const t of taillights) {
-      const housing = new THREE.Mesh(new THREE.BoxGeometry(t.w + 0.05, 0.14, 0.04), chromeMat)
-      housing.position.set(t.x, 0.10, -CAR_L / 2 - 0.03)
-      this.chassisGroup.add(housing)
-
-      const tail = new THREE.Mesh(new THREE.BoxGeometry(t.w, 0.10, 0.05), tailLightMat)
-      tail.position.set(t.x, 0.10, -CAR_L / 2 - 0.04)
-      this.chassisGroup.add(tail)
-    }
-
-    // License plate
-    const plate = new THREE.Mesh(
-      new THREE.BoxGeometry(0.38, 0.16, 0.03),
-      new THREE.MeshStandardMaterial({ color: 0xe0e6ed, roughness: 0.4 }),
-    )
-    plate.position.set(0, 0.08, -CAR_L / 2 - 0.045)
-    this.chassisGroup.add(plate)
-
-    // Dual chrome exhaust pipes & nitro flames
-    for (const x of [-0.45, 0.45]) {
-      const pipeGeo = new THREE.CylinderGeometry(0.065, 0.065, 0.26, 12)
-      pipeGeo.rotateX(Math.PI / 2)
-      const pipe = new THREE.Mesh(pipeGeo, chromeMat)
-      pipe.position.set(x, -0.16, -CAR_L / 2 - 0.08)
-      this.chassisGroup.add(pipe)
-
+    // ── C. Burnout nitro flames behind the exhausts ─────────────────────────
+    for (const x of [-0.31, 0.31]) {
       const flameGeo = new THREE.ConeGeometry(0.08, 0.50, 8)
       flameGeo.rotateX(-Math.PI / 2)
       flameGeo.translate(0, 0, -0.28)
@@ -424,88 +246,12 @@ export class PlayerCar {
         opacity: 0.85,
       })
       const flame = new THREE.Mesh(flameGeo, flameMat)
-      flame.position.set(x, -0.16, -CAR_L / 2 - 0.18)
+      flame.position.set(x, -0.08, -2.45)
       flame.scale.set(0.001, 0.001, 0.001)
       this.chassisGroup.add(flame)
       this.nitroFlames.push(flame)
     }
 
-    // ── C. 3D Wheels with Steerable Front Assemblies ────────────────────────
-    function buildWheelMesh(isRight: boolean): THREE.Group {
-      const g = new THREE.Group()
-
-      // Tire (rubber cylinder)
-      const tireGeo = new THREE.CylinderGeometry(WHEEL_RADIUS, WHEEL_RADIUS, 0.28, 20)
-      tireGeo.rotateZ(Math.PI / 2)
-      const tire = new THREE.Mesh(tireGeo, tireMat)
-      tire.castShadow = true
-      g.add(tire)
-
-      // Chrome rim
-      const rimGeo = new THREE.CylinderGeometry(WHEEL_RADIUS * 0.70, WHEEL_RADIUS * 0.70, 0.29, 16)
-      rimGeo.rotateZ(Math.PI / 2)
-      const rim = new THREE.Mesh(rimGeo, rimMat)
-      g.add(rim)
-
-      // 5 Chrome spokes
-      for (let s = 0; s < 5; s++) {
-        const angle = (s * Math.PI * 2) / 5
-        const spokeGeo = new THREE.BoxGeometry(0.05, WHEEL_RADIUS * 0.65, 0.04)
-        spokeGeo.rotateZ(angle)
-        spokeGeo.translate(isRight ? 0.13 : -0.13, 0, 0)
-        const spoke = new THREE.Mesh(spokeGeo, chromeMat)
-        g.add(spoke)
-      }
-
-      // Brake caliper
-      const caliperGeo = new THREE.BoxGeometry(0.12, 0.15, 0.10)
-      const caliper = new THREE.Mesh(caliperGeo, brakeMat)
-      caliper.position.set(isRight ? 0.08 : -0.08, 0.14, 0)
-      g.add(caliper)
-
-      return g
-    }
-
-    const zFront = CAR_L / 2 - 0.95
-    const zRear = -CAR_L / 2 + 0.95
-    const xFL = -CAR_W / 2 - 0.06
-    const xFR = CAR_W / 2 + 0.06
-    const xRL = -CAR_W / 2 - 0.08
-    const xRR = CAR_W / 2 + 0.08
-
-    // 1. Front Left (Steering parent + Spinning child)
-    this.wheelFLSteer = new THREE.Group()
-    this.wheelFLSteer.position.set(xFL, WHEEL_Y, zFront)
-    const wheelFL = buildWheelMesh(false)
-    this.wheelFLSteer.add(wheelFL)
-    car.add(this.wheelFLSteer)
-    this.wheelMeshes.push(wheelFL)
-
-    // 2. Front Right (Steering parent + Spinning child)
-    this.wheelFRSteer = new THREE.Group()
-    this.wheelFRSteer.position.set(xFR, WHEEL_Y, zFront)
-    const wheelFR = buildWheelMesh(true)
-    this.wheelFRSteer.add(wheelFR)
-    car.add(this.wheelFRSteer)
-    this.wheelMeshes.push(wheelFR)
-
-    // 3. Rear Left (Fixed yaw + Spinning)
-    const rearLGroup = new THREE.Group()
-    rearLGroup.position.set(xRL, WHEEL_Y, zRear)
-    const wheelRL = buildWheelMesh(false)
-    rearLGroup.add(wheelRL)
-    car.add(rearLGroup)
-    this.wheelMeshes.push(wheelRL)
-
-    // 4. Rear Right (Fixed yaw + Spinning)
-    const rearRGroup = new THREE.Group()
-    rearRGroup.position.set(xRR, WHEEL_Y, zRear)
-    const wheelRR = buildWheelMesh(true)
-    rearRGroup.add(wheelRR)
-    car.add(rearRGroup)
-    this.wheelMeshes.push(wheelRR)
-
-    // Enable castShadow across all components
     car.traverse((child) => {
       if ((child as THREE.Mesh).isMesh && child !== shadowMesh) {
         child.castShadow = true
@@ -664,7 +410,7 @@ export class PlayerCar {
     this.wheelFRSteer.rotation.y = this.steerAngle
 
     // ── 2. All 4 Wheels Spin with Speed ──────────────────────────────────────
-    const spinDelta = (forwardSpeed * dt) / WHEEL_RADIUS
+    const spinDelta = ((forwardSpeed * dt) / FERRARI_WHEEL_RADIUS) * this.wheelSpinSign
     for (const w of this.wheelMeshes) {
       w.rotation.x += spinDelta
     }
@@ -776,6 +522,7 @@ export class PlayerCar {
 
   dispose(): void {
     this.scene.remove(this.mesh)
+    this.carModel?.dispose()
   }
 
   /**

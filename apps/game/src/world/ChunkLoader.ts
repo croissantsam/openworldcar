@@ -26,6 +26,17 @@ import { ChunkCache } from './ChunkCache.js'
 import { optimizeChunkGroup, optimizeChunkGroupIncremental } from './ChunkOptimizer.js'
 import { deduplicateBuildings } from '@world-drive/world-data'
 
+/**
+ * Upstream deduplication compares outer rings only: a courtyard block (holes)
+ * would "overlap" the buildings standing inside its courtyard. Courtyard blocks
+ * are therefore kept as they are and the rule applies to the others.
+ */
+function dedupeBuildings(buildings: WorldChunk['buildings']): WorldChunk['buildings'] {
+  const courtyards = buildings.filter((b) => (b.holes?.length ?? 0) > 0)
+  if (courtyards.length === 0) return deduplicateBuildings(buildings)
+  return [...deduplicateBuildings(buildings.filter((b) => (b.holes?.length ?? 0) === 0)), ...courtyards]
+}
+
 export type LoadedChunk = {
   id: ChunkId
   group: THREE.Group
@@ -74,7 +85,7 @@ export function unionWorldChunk(base: WorldChunk, extra: WorldChunk): WorldChunk
   }
   appendMissing(out.roads, extra.roads)
   appendMissing(out.buildings, extra.buildings)
-  out.buildings = deduplicateBuildings(out.buildings)
+  out.buildings = dedupeBuildings(out.buildings)
   appendMissing(out.pointsOfInterest, extra.pointsOfInterest)
   appendMissing(out.waterways, extra.waterways)
   appendMissing(out.parks, extra.parks)
@@ -289,7 +300,7 @@ export class ChunkLoader {
       const roadGroup = RoadMeshGenerator.generate(road, allRoads as Road[], { syntheticLamps: !hasRealLamps, cell: { x: chunk.id.x, z: chunk.id.z } })
       if (roadGroup) group.add(roadGroup)
     }
-    const uniqueBuildings = deduplicateBuildings(chunk.buildings)
+    const uniqueBuildings = dedupeBuildings(chunk.buildings)
     for (const building of uniqueBuildings) {
       yield 0.2 + 0.03 * building.footprint.length
       const buildingGroup = BuildingMeshGenerator.generate(building)

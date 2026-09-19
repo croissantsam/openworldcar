@@ -155,8 +155,8 @@ const TYPE_PALETTES: Partial<Record<BuildingType, Palette>> = {
   theatre:            { facade: 0x484e5a, frame: 0x383c48, roof: 0x282c38, style: 'industrial', isGlass: false },
 
   // Fuel / Charging
-  fuel:               { facade: 0xffffff, frame: 0xcccccc, roof: 0xff0000, style: 'commercial_boutique', isGlass: false, hasBoutiques: true },
-  charging_station:   { facade: 0x00aaff, frame: 0x0088cc, roof: 0x004466, style: 'commercial_boutique', isGlass: true, hasBoutiques: true },
+  fuel:               { facade: 0xffffff, frame: 0xcccccc, roof: 0xff0000, style: 'commercial_boutique', isGlass: false },
+  charging_station:   { facade: 0x00aaff, frame: 0x0088cc, roof: 0x004466, style: 'commercial_boutique', isGlass: true },
 
   // Canopy
   roof:               { facade: 0x909296, frame: 0x606268, roof: 0x3c3e44, style: 'industrial', isGlass: false },

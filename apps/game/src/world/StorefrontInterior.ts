@@ -735,6 +735,7 @@ export function getInteriorAtlasCanvas(): HTMLCanvasElement | null {
 // ─── Shader material (module-level, shared by every chunk) ──────────────────
 
 const VERT = /* glsl */ `
+#include <common>
 attribute vec3 aTangent;
 attribute vec4 aRoom;
 varying vec3 vWorldPos;
@@ -743,6 +744,7 @@ varying vec3 vN;
 varying vec2 vUv;
 varying vec4 vRoom;
 #include <fog_pars_vertex>
+#include <logdepthbuf_pars_vertex>
 void main() {
   vec4 wp = modelMatrix * vec4(position, 1.0);
   vWorldPos = wp.xyz;
@@ -752,6 +754,7 @@ void main() {
   vRoom = aRoom;
   vec4 mvPosition = viewMatrix * wp;
   gl_Position = projectionMatrix * mvPosition;
+  #include <logdepthbuf_vertex>
   #include <fog_vertex>
 }
 `
@@ -769,6 +772,7 @@ varying vec3 vN;
 varying vec2 vUv;
 varying vec4 vRoom;
 #include <fog_pars_fragment>
+#include <logdepthbuf_pars_fragment>
 
 const float CELL_H = ${CELL_H}.0;
 // face cells: x0, width (px)
@@ -779,6 +783,7 @@ const vec2 CELL_FLOOR = vec2(${X_FLOOR}.0, ${FLOOR_W}.0);
 const vec2 CELL_CEIL  = vec2(${X_CEIL}.0, ${CEIL_W}.0);
 
 void main() {
+  #include <logdepthbuf_fragment>
   vec3 V = vWorldPos - cameraPosition;
   float dist = length(V);
   vec3 Vn = V / max(dist, 1e-4);

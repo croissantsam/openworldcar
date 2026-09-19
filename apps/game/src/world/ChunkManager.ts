@@ -328,10 +328,13 @@ export class ChunkManager {
         if (n >= COLLIDERS_PER_SLICE) { n = 0; yield }
       }
       for (const road of features.roads) {
-        // Clip road to chunk bounds for colliders too
-        const clippedRoad = clipRoadToChunk(road, managed.id)
-        if (clippedRoad) {
-          for (const desc of RoadMeshGenerator.createColliderDescs(clippedRoad as Road, allRoads)) add(desc)
+        // Ground roads: clip the collider to the chunk so a way crossing several
+        // chunks is not duplicated. Bridges/tunnels keep their full profile: a
+        // clipped one would put its ramp at the chunk border (the visual is not clipped).
+        const elevated = road.bridge || road.tunnel || (road.elevationMode !== undefined && road.elevationMode !== 'ground')
+        const colliderRoad = elevated ? road : clipRoadToChunk(road, managed.id)
+        if (colliderRoad) {
+          for (const desc of RoadMeshGenerator.createColliderDescs(colliderRoad as Road, allRoads)) add(desc)
         }
         if (n >= COLLIDERS_PER_SLICE) { n = 0; yield }
       }

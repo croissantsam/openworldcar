@@ -25,7 +25,6 @@ import { StorefrontGenerator } from './StorefrontGenerator.js'
 import { ChunkCache } from './ChunkCache.js'
 import { optimizeChunkGroup, optimizeChunkGroupIncremental } from './ChunkOptimizer.js'
 import { deduplicateBuildings } from '@world-drive/world-data'
-import { clipRoadToChunk } from './ChunkBounds.js'
 
 export type LoadedChunk = {
   id: ChunkId
@@ -150,7 +149,10 @@ const URBAN_SLAB_MATERIAL = new THREE.MeshStandardMaterial({
   color: 0x7c7872, // Warm Parisian stone pavement foundation
   roughness: 0.88,
   metalness: 0.04,
-  stencilWrite: false,
+  // Stencil TEST only (three.js enables the test through stencilWrite; mask 0 = no writes):
+  // tunnel trench masks (ref 1, drawn first) cut the slab so descending ramps stay visible.
+  stencilWrite: true,
+  stencilWriteMask: 0,
   stencilRef: 1,
   stencilFunc: THREE.NotEqualStencilFunc,
 })
@@ -282,11 +284,10 @@ export class ChunkLoader {
     const hasRealLamps = pois.some((p) => p.kind === 'street_lamp')
     for (const road of chunk.roads) {
       yield estimateRoadMs(road)
-      const clippedRoad = clipRoadToChunk(road, chunk.id)
-      if (clippedRoad) {
-        const roadGroup = RoadMeshGenerator.generate(clippedRoad as Road, allRoads as Road[], { syntheticLamps: !hasRealLamps })
-        if (roadGroup) group.add(roadGroup)
-      }
+      // The generator builds only this cell's portions of the way (junction-aware
+      // cuts at the cell border), so the full way is passed rather than a clipped one.
+      const roadGroup = RoadMeshGenerator.generate(road, allRoads as Road[], { syntheticLamps: !hasRealLamps, cell: { x: chunk.id.x, z: chunk.id.z } })
+      if (roadGroup) group.add(roadGroup)
     }
     const uniqueBuildings = deduplicateBuildings(chunk.buildings)
     for (const building of uniqueBuildings) {
@@ -402,13 +403,10 @@ export class ChunkLoader {
     }
 
     // 3. Roads with markings and sidewalks
-    // Clip roads to chunk bounds to prevent overlapping at chunk boundaries
+    // Each way is built once per cell it crosses (portions), never doubled at chunk borders
     for (const road of chunk.roads) {
-      const clippedRoad = clipRoadToChunk(road, chunk.id)
-      if (clippedRoad) {
-        const roadGroup = RoadMeshGenerator.generate(clippedRoad as Road, chunk.roads)
-        if (roadGroup) group.add(roadGroup)
-      }
+      const roadGroup = RoadMeshGenerator.generate(road, chunk.roads, { cell: { x: chunk.id.x, z: chunk.id.z } })
+      if (roadGroup) group.add(roadGroup)
     }
 
     // 4. Buildings with window textures

@@ -22,12 +22,33 @@ import type { WorldPosition } from '@world-drive/math'
 import type { Road, PlayerSnapshot } from '@world-drive/shared'
 import { v4 as uuidv4 } from 'uuid'
 
+const DEFAULT_WS_URL = 'wss://openspeed.onrender.com'
+
+/**
+ * A host with no scheme ("openspeed.onrender.com") is a path to `new WebSocket`,
+ * not a host: the browser resolves it against the page and ends up asking for
+ * wss://<the site>/openspeed.onrender.com, which 404s and leaves the game
+ * offline. Accept the scheme-less form, and http(s) too, rather than trusting
+ * whoever set the variable to have typed it exactly right.
+ */
+function normalizeWsUrl(raw: string): string {
+  const url = raw.trim().replace(/\/+$/, '')
+  if (/^wss?:\/\//i.test(url)) return url
+  if (/^https:\/\//i.test(url)) return `wss://${url.slice('https://'.length)}`
+  if (/^http:\/\//i.test(url)) return `ws://${url.slice('http://'.length)}`
+  const host = url.replace(/^\/+/, '')
+  if (host.length === 0) return DEFAULT_WS_URL
+  // A local server is plain ws: it has no certificate.
+  const local = /^(localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0)(?::|\/|$)/i.test(host)
+  return `${local ? 'ws' : 'wss'}://${host}`
+}
+
 /** Resolve WS server URL. Override with the VITE_WS_URL env var (local server / tests). */
 function resolveWsUrl(): string {
   const env = (import.meta as unknown as { env?: Record<string, string | undefined> }).env
   const override = env?.['VITE_WS_URL']
-  if (typeof override === 'string' && override.length > 0) return override
-  return 'wss://openspeed.onrender.com'
+  if (typeof override === 'string' && override.length > 0) return normalizeWsUrl(override)
+  return DEFAULT_WS_URL
 }
 
 const MIN_RECONNECT_MS = 1_000

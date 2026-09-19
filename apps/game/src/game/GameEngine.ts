@@ -3,12 +3,17 @@
  *
  * Owns and connects:
  *   InputManager → PlayerCar → ThirdPersonCamera → Renderer
+ *   InputManager → PlayerPlane → FlightCamera → Renderer   (plane mode)
  *   ChunkManager
  *   NPCManager
  *   GameClient (WebSocket)
  *
  * Game loop:
  *   rAF → input → physics tick(s) → networking → world streaming → NPC → render
+ *
+ * Vehicle mode: the player drives the car ('car') or flies the two-seat
+ * plane ('plane'). While flying, the car keeps all its state but its rigid
+ * body is disabled and its mesh hidden.
  */
 
 import RAPIER from '@dimforge/rapier3d-compat'
@@ -16,6 +21,8 @@ import { Renderer } from '../renderer/Renderer.js'
 import { InputManager } from './InputManager.js'
 import { PlayerCar } from '../vehicles/PlayerCar.js'
 import { ThirdPersonCamera } from '../camera/ThirdPersonCamera.js'
+import { PlayerPlane, type PlaneState } from '../vehicles/PlayerPlane.js'
+import { FlightCamera } from '../camera/FlightCamera.js'
 import { ChunkManager, type StreetInfo } from '../world/ChunkManager.js'
 import { NPCManager } from '../vehicles/NPCManager.js'
 import { RemotePlayerManager } from '../vehicles/RemotePlayerManager.js'
@@ -24,6 +31,7 @@ import {
   setWorldOrigin,
   DEFAULT_ORIGIN,
   worldToChunk,
+  worldToGeo,
 } from '@world-drive/math'
 import type { WorldPosition } from '@world-drive/math'
 import { buildRoadGraph, findAStarPath } from '@world-drive/world-data'
@@ -32,9 +40,38 @@ import { fetchRealOsmArea } from '../world/LiveOsmFetcher.js'
 import { OsmStreamingManager } from '../world/OsmStreamingManager.js'
 import { tickWater } from '../world/WaterwayMeshGenerator.js'
 import { ImpactFX } from '../effects/ImpactFX.js'
+import type { Road } from '@world-drive/shared'
+import * as THREE from 'three'
 
 /** Fixed physics timestep (60 Hz). */
 const FIXED_DT = 1 / 60
+
+/** Height of the car's rigid-body centre above the road (see PlayerCar.teleport). */
+const CAR_RIDE_HEIGHT = 0.48
+
+/** Leaving the plane slower than this, on the ground: the car appears right there. */
+const EXIT_IN_PLACE_MAX_SPEED = 8
+/** Otherwise the car is put on the nearest road within this distance. */
+const EXIT_ROAD_SEARCH_RADIUS = 400
+
+/** Airborne spawn (Shift+P, or the toggle while the plane is requested in the air). */
+const AIRBORNE_ALTITUDE = 150
+const AIRBORNE_SPEED = 50
+
+/** Road classes a car can be dropped on when leaving the plane, best first. */
+const DROP_ROAD_RANK: Record<string, number> = {
+  primary: 0,
+  secondary: 0,
+  tertiary: 0,
+  trunk: 1,
+  residential: 1,
+  unclassified: 1,
+  living_street: 2,
+  service: 3,
+  motorway: 3,
+}
+
+export type VehicleMode = 'car' | 'plane'
 
 export type DebugStats = {
   fps: number
@@ -65,6 +102,18 @@ export class GameEngine {
   private gameClient!: GameClient
   private remotePlayers!: RemotePlayerManager
   private osmStreaming!: OsmStreamingManager
+
+  // ─── Plane (created on first use) ──────────────────────────────────────────
+  private plane: PlayerPlane | null = null
+  private flightCamera: FlightCamera | null = null
+  private _vehicleMode: VehicleMode = 'car'
+  /** Car camera settings saved when taking the plane, restored on landing. */
+  private savedCameraSettings: { fov: number; near: number; far: number } | null = null
+  /** Last sane plane position (ground point) and yaw, for recovery. */
+  private lastSafePlaneGround: WorldPosition | null = null
+  private lastSafePlaneYaw = 0
+  /** Called when the player switches between car and plane. */
+  onVehicleModeChanged?: (mode: VehicleMode) => void
 
   private world!: RAPIER.World
   private rafId = 0
@@ -157,6 +206,15 @@ export class GameEngine {
       this.onInvincibilityWarning?.()
     }
 
+    // P: car <-> plane, Shift+P: plane directly in the air
+    this.input.onVehicleToggle = (airborne) => {
+      if (airborne) {
+        this.enterPlane({ airborne: true })
+      } else {
+        this.togglePlane()
+      }
+    }
+
     this.chunkManager = new ChunkManager(this.renderer.scene, this.world)
     this.npcManager = new NPCManager(this.renderer.scene)
     this.remotePlayers = new RemotePlayerManager(this.renderer.scene, this.world)
@@ -168,7 +226,7 @@ export class GameEngine {
       if (!this.disposed) {
         this.chunkManager.addRealOsmChunks(newChunks)
         // Trigger immediate re-load of chunks that just got OSM data
-        this.chunkManager.update(this.playerCar.getPosition())
+        this.chunkManager.update(this.getPlayerPosition())
       }
     }
 
@@ -200,8 +258,12 @@ export class GameEngine {
         if (realOsm && realOsm.chunks.size > 0 && !this.disposed) {
           this.chunkManager.setRealOsmChunks(realOsm.chunks)
           this.chunkManager.clearAllChunks()
+          // The world is rebuilt from scratch: the player restarts in the car
+          const wasFlying = this._vehicleMode === 'plane'
+          this._leavePlane()
           this.playerCar.teleport(realOsm.spawnPoint, realOsm.spawnHeading)
-          this.camera.update(0.016)
+          if (wasFlying) this._snapCarCamera()
+          else this.camera.update(0.016)
           this.chunkManager.update(realOsm.spawnPoint)
           // Mark the initial area as covered so the streaming manager
           // doesn't immediately re-fetch the same zone
@@ -262,32 +324,52 @@ export class GameEngine {
 
     // ── Input ──────────────────────────────────────────────────────────────
     const rawInput = this.input.getInput()
+    const plane = this._vehicleMode === 'plane' ? this.plane : null
+    const flightInput = plane ? this.input.getFlightInput() : null
 
     // ── Fixed timestep physics ─────────────────────────────────────────────
     while (this.accumulator >= FIXED_DT) {
-      this.playerCar.applyInput(rawInput, FIXED_DT)
+      if (plane && flightInput) {
+        plane.step(flightInput, FIXED_DT)
+      } else {
+        this.playerCar.applyInput(rawInput, FIXED_DT)
+      }
       this.world.step()
       this.npcManager.tick(FIXED_DT)
       this.accumulator -= FIXED_DT
     }
 
-    // ── Water Plunge & Falling Respawn ──────────────────────────────────────
-    const pos = this.playerCar.getPosition()
-    const inTunnel = this.chunkManager?.isPointNearTunnel(pos.x, pos.z) ?? false
-    this.playerCar.setNearTunnel(inTunnel)
+    let pos: WorldPosition
+    if (plane) {
+      // ── Plane safety net (the plane handles its own crashes) ─────────────
+      pos = plane.getPosition()
+      if (!isFiniteVec(pos) || pos.y < -15.0) {
+        this._recoverPlane()
+        pos = this.getPlayerPosition()
+      } else if (pos.y >= -2.0) {
+        this.lastSafePlaneGround = groundBelow(pos, plane.getState().altitudeAGL)
+        const yaw = plane.getYaw()
+        if (Number.isFinite(yaw)) this.lastSafePlaneYaw = yaw
+      }
+    } else {
+      // ── Water Plunge & Falling Respawn ────────────────────────────────────
+      pos = this.playerCar.getPosition()
+      const inTunnel = this.chunkManager?.isPointNearTunnel(pos.x, pos.z) ?? false
+      this.playerCar.setNearTunnel(inTunnel)
 
-    const inWater = !inTunnel && this._isCarInWater(pos)
+      const inWater = !inTunnel && this._isCarInWater(pos)
 
-    if (inWater || pos.y < -15.0) {
-      // Car plunged into water (Seine, canal, basin) or fell off the world — respawn!
-      this.impactFX?.triggerWaterSplash(pos)
-      this.camera.addTrauma(0.65)
-      this.playerCar.teleport(this.lastSafePos, this.lastSafeYaw)
-      this.gameClient.sendRespawn()
-    } else if (pos.y >= -7.0) {
-      // Car is safely on road (surface or inside subterranean tunnel) — update safe respawn position
-      this.lastSafePos = { x: pos.x, y: pos.y, z: pos.z }
-      this.lastSafeYaw = this.playerCar.getYaw()
+      if (inWater || pos.y < -15.0) {
+        // Car plunged into water (Seine, canal, basin) or fell off the world — respawn!
+        this.impactFX?.triggerWaterSplash(pos)
+        this.camera.addTrauma(0.65)
+        this.playerCar.teleport(this.lastSafePos, this.lastSafeYaw)
+        this.gameClient.sendRespawn()
+      } else if (pos.y >= -7.0) {
+        // Car is safely on road (surface or inside subterranean tunnel) — update safe respawn position
+        this.lastSafePos = { x: pos.x, y: pos.y, z: pos.z }
+        this.lastSafeYaw = this.playerCar.getYaw()
+      }
     }
 
     // ── Networking ─────────────────────────────────────────────────────────
@@ -296,17 +378,31 @@ export class GameEngine {
     this.netTimer += delta
     if (this.netTimer >= 0.05) {
       this.netTimer = 0
-      const carPos = this.playerCar.getPosition()
-      const quat = this.playerCar.getQuaternion()
-      const vel = this.playerCar.getVelocity()
-      const speed = this.playerCar.getSpeed()
-      this.gameClient.sendState({
-        position: carPos,
-        rotation: { x: quat.x, y: quat.y, z: quat.z, w: quat.w },
-        velocity: vel,
-        steering: rawInput.steering,
-        speed,
-      })
+      if (this._vehicleMode === 'plane' && this.plane) {
+        const q = this.plane.getQuaternion()
+        const v = this.plane.getVelocity()
+        this.gameClient.sendState({
+          position: this.plane.getPosition(),
+          rotation: { x: q.x, y: q.y, z: q.z, w: q.w },
+          velocity: v,
+          steering: 0,
+          speed: Math.hypot(v.x, v.y, v.z),
+          vehicle: 'plane',
+        })
+      } else {
+        const carPos = this.playerCar.getPosition()
+        const quat = this.playerCar.getQuaternion()
+        const vel = this.playerCar.getVelocity()
+        const speed = this.playerCar.getSpeed()
+        this.gameClient.sendState({
+          position: carPos,
+          rotation: { x: quat.x, y: quat.y, z: quat.z, w: quat.w },
+          velocity: vel,
+          steering: rawInput.steering,
+          speed,
+          vehicle: 'car',
+        })
+      }
     }
 
     this.gameClient.processMessages(this.npcManager, pos, this.chunkManager?.getActiveRoads())
@@ -315,24 +411,37 @@ export class GameEngine {
     this.chunkManager.update(pos)
 
     // ── OSM continuous streaming (throttled internally) ────────────────────
-    const geoPos = this.playerCar.getGeoPosition()
-    this.osmStreaming.update({ latitude: geoPos.lat, longitude: geoPos.lon })
+    const geoPos = worldToGeo(pos)
+    this.osmStreaming.update(
+      { latitude: geoPos.latitude, longitude: geoPos.longitude },
+      this.getPlayerVelocity(),
+    )
 
     // ── Water animation tick ───────────────────────────────────────────────
     tickWater()
 
     // ── Remote Multiplayer Players ─────────────────────────────────────────
-    this.remotePlayers?.setLocalPlayerState(pos, this.playerCar.isInvincible())
+    // While flying, other players' cars are ghosts to the plane
+    this.remotePlayers?.setLocalPlayerState(pos, plane ? true : this.playerCar.isInvincible())
     this.remotePlayers?.update(delta)
 
     // ── Impact Sparks & Screen FX ───────────────────────────────────────────
     this.impactFX?.update(delta)
 
     // ── Camera ─────────────────────────────────────────────────────────────
-    this.camera.update(delta)
+    if (this._vehicleMode === 'plane' && this.plane && this.flightCamera) {
+      // Render interpolation between the last two physics states
+      this.plane.syncMesh(Math.min(1, Math.max(0, this.accumulator / FIXED_DT)), delta)
+      this.flightCamera.update(delta)
+    } else {
+      this.camera.update(delta)
+    }
 
     // ── Update Sun & Shadow Camera around Player ───────────────────────────
-    this.renderer.updateSunPosition(pos)
+    // (in the air, keep the shadow box low enough to cover the streets below)
+    this.renderer.updateSunPosition(
+      this._vehicleMode === 'plane' ? { x: pos.x, y: Math.min(pos.y, 60), z: pos.z } : pos,
+    )
 
     // ── Render ─────────────────────────────────────────────────────────────
     this.renderer.render()
@@ -361,6 +470,333 @@ export class GameEngine {
 
     // ── Update debug stats ─────────────────────────────────────────────────
     this._updateStats(pos)
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Vehicle mode (car / plane)
+  // ───────────────────────────────────────────────────────────────────────────
+
+  get vehicleMode(): VehicleMode {
+    return this._vehicleMode
+  }
+
+  /** Switch car -> plane (on the ground, where the car is) or plane -> car. */
+  togglePlane(opts: { airborne?: boolean } = {}): void {
+    if (this._vehicleMode === 'plane') {
+      this.exitPlane()
+    } else {
+      this.enterPlane(opts)
+    }
+  }
+
+  /**
+   * Take the plane. It appears where the car is, facing the same way — on the
+   * ground, or (airborne) 150 m above it at cruise speed. In plane mode,
+   * `airborne` re-launches the plane in the air above its current position.
+   * Returns false if the plane could not be spawned (the car is kept).
+   */
+  enterPlane(opts: { airborne?: boolean } = {}): boolean {
+    if (this.disposed || !this.world || !this.playerCar) return false
+    const airborne = opts.airborne === true
+
+    let ground: WorldPosition
+    let heading: number
+    if (this._vehicleMode === 'plane' && this.plane) {
+      if (!airborne) return true
+      const p = this.plane.getPosition()
+      ground = isFiniteVec(p)
+        ? groundBelow(p, this.plane.getState().altitudeAGL)
+        : this.lastSafePlaneGround ?? { x: this.lastSafePos.x, y: 0, z: this.lastSafePos.z }
+      heading = Number.isFinite(this.plane.getYaw()) ? this.plane.getYaw() : this.lastSafePlaneYaw
+    } else {
+      const c = this.playerCar.getPosition()
+      // A car in a tunnel would put the plane under the street: clamp to street level
+      ground = { x: c.x, y: Math.max(0, c.y - CAR_RIDE_HEIGHT), z: c.z }
+      heading = this.playerCar.getYaw()
+    }
+
+    let plane: PlayerPlane
+    try {
+      plane = this._ensurePlane()
+      plane.spawn(
+        ground,
+        heading,
+        airborne ? { airborne: true, altitude: AIRBORNE_ALTITUDE, speed: AIRBORNE_SPEED } : undefined,
+      )
+    } catch (err) {
+      console.error('[GameEngine] Could not spawn the plane:', err)
+      try {
+        this.plane?.despawn()
+      } catch {
+        // ignore
+      }
+      return false
+    }
+
+    if (this._vehicleMode !== 'plane') {
+      // Park the car: keep all its state, take it out of the simulation
+      const body = this.playerCar.getRigidBody()
+      body.setLinvel({ x: 0, y: 0, z: 0 }, false)
+      body.setAngvel({ x: 0, y: 0, z: 0 }, false)
+      body.setEnabled(false)
+      this.playerCar.getMesh().visible = false
+
+      const cam = this.renderer.camera
+      this.savedCameraSettings = { fov: cam.fov, near: cam.near, far: cam.far }
+      this._vehicleMode = 'plane'
+      this.onVehicleModeChanged?.('plane')
+    }
+
+    this.lastSafePlaneGround = { ...ground }
+    this.lastSafePlaneYaw = heading
+    plane.syncMesh(1, 0)
+    this.flightCamera?.snap()
+    return true
+  }
+
+  /**
+   * Back to the car. Slow on the ground: the car appears where the plane is.
+   * Otherwise (in the air, fast, crashed): on the nearest road, heading along it.
+   */
+  exitPlane(): void {
+    if (this._vehicleMode !== 'plane') return
+    const plane = this.plane
+    let target: { pos: WorldPosition; heading: number; inPlace: boolean } | null = null
+
+    if (plane) {
+      const p = plane.getPosition()
+      const st = plane.getState()
+      const yaw = plane.getYaw()
+      const sane = isFiniteVec(p) && Number.isFinite(yaw)
+      if (sane && st.onGround && !st.crashed && st.groundSpeed < EXIT_IN_PLACE_MAX_SPEED) {
+        target = { pos: { x: p.x, y: Math.max(0, p.y), z: p.z }, heading: yaw, inPlace: true }
+      } else if (sane) {
+        const road = this._findRoadDrop(p.x, p.z, yaw)
+        if (road) target = { ...road, inPlace: false }
+      }
+    }
+
+    this._leavePlane()
+
+    if (target) {
+      this._placeCar(target.pos, target.heading, !target.inPlace)
+    } else {
+      // Fallback: the last place the car was safely driving
+      this._placeCar(
+        { x: this.lastSafePos.x, y: Math.max(0, this.lastSafePos.y - CAR_RIDE_HEIGHT), z: this.lastSafePos.z },
+        this.lastSafeYaw,
+        true,
+      )
+    }
+    this.gameClient?.sendRespawn()
+    this._snapCarCamera()
+  }
+
+  /** Despawn the plane and give the simulation back to the car (not moved). */
+  private _leavePlane(): void {
+    if (this._vehicleMode !== 'plane') return
+    try {
+      this.plane?.despawn()
+    } catch (err) {
+      console.warn('[GameEngine] plane.despawn failed:', err)
+    }
+    const body = this.playerCar.getRigidBody()
+    body.setEnabled(true)
+    this.playerCar.getMesh().visible = true
+
+    // Give the car camera back its own settings
+    const cam = this.renderer.camera
+    if (this.savedCameraSettings) {
+      cam.fov = this.savedCameraSettings.fov
+      cam.near = this.savedCameraSettings.near
+      cam.far = this.savedCameraSettings.far
+      this.savedCameraSettings = null
+    }
+    cam.up.set(0, 1, 0)
+    cam.updateProjectionMatrix()
+
+    this._vehicleMode = 'car'
+    this.onVehicleModeChanged?.('car')
+  }
+
+  /**
+   * Put the (enabled) car at a ground point. `respawn` = like a respawn
+   * (spawn invincibility); otherwise a quiet placement.
+   */
+  private _placeCar(ground: WorldPosition, heading: number, respawn: boolean): void {
+    const car = this.playerCar
+    if (respawn) {
+      car.teleport(ground, heading)
+    } else {
+      const body = car.getRigidBody()
+      const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), heading)
+      body.setTranslation({ x: ground.x, y: ground.y + CAR_RIDE_HEIGHT, z: ground.z }, true)
+      body.setRotation({ x: q.x, y: q.y, z: q.z, w: q.w }, true)
+      body.setLinvel({ x: 0, y: 0, z: 0 }, true)
+      body.setAngvel({ x: 0, y: 0, z: 0 }, true)
+      car.syncMesh(0)
+    }
+    // The car remembers its velocity from before the flight: one zero-dt tick
+    // with a muted impact callback resets that, so no phantom crash is felt
+    const onImpact = car.onImpact
+    car.onImpact = () => {}
+    car.applyInput({ throttle: 0, brake: 0, steering: 0, handbrake: false }, 0)
+    if (onImpact) car.onImpact = onImpact
+
+    const p = car.getPosition()
+    this.lastSafePos = { x: p.x, y: p.y, z: p.z }
+    this.lastSafeYaw = heading
+  }
+
+  /** Converge the chase camera behind the car right away. */
+  private _snapCarCamera(): void {
+    for (let i = 0; i < 45; i++) this.camera.update(1 / 60)
+  }
+
+  /**
+   * Nearest drivable road point within EXIT_ROAD_SEARCH_RADIUS of (x, z),
+   * heading along the road (the direction closest to `yaw`, or the one-way
+   * direction). Main streets win over service roads at similar distance.
+   */
+  private _findRoadDrop(x: number, z: number, yaw: number): { pos: WorldPosition; heading: number } | null {
+    const roads: Road[] = this.chunkManager?.getActiveRoads() ?? []
+    const fx = Math.sin(yaw)
+    const fz = Math.cos(yaw)
+    let best: { pos: WorldPosition; heading: number } | null = null
+    let bestScore = Infinity
+    const maxSq = EXIT_ROAD_SEARCH_RADIUS * EXIT_ROAD_SEARCH_RADIUS
+    for (const r of roads) {
+      const rank = DROP_ROAD_RANK[r.highway]
+      if (rank === undefined || r.points.length < 2) continue
+      // Only plain street-level roads (no bridge decks, no tunnels)
+      if (r.bridge || r.tunnel || (r.elevationMode && r.elevationMode !== 'ground')) continue
+      const pts = r.points
+      for (let i = 0; i < pts.length - 1; i++) {
+        const a = pts[i]!
+        const b = pts[i + 1]!
+        const sx = b.x - a.x
+        const sz = b.z - a.z
+        const len2 = sx * sx + sz * sz
+        if (len2 < 1) continue
+        let t = ((x - a.x) * sx + (z - a.z) * sz) / len2
+        // Stay off the very ends of a segment (junctions)
+        t = Math.max(0.1, Math.min(0.9, t))
+        const px = a.x + sx * t
+        const pz = a.z + sz * t
+        const d2 = (px - x) * (px - x) + (pz - z) * (pz - z)
+        if (d2 > maxSq) continue
+        const score = Math.sqrt(d2) + rank * 40
+        if (score < bestScore) {
+          bestScore = score
+          let hx = sx
+          let hz = sz
+          if (!r.oneway && hx * fx + hz * fz < 0) {
+            hx = -hx
+            hz = -hz
+          }
+          best = { pos: { x: px, y: 0, z: pz }, heading: Math.atan2(hx, hz) }
+        }
+      }
+    }
+    return best
+  }
+
+  /** The plane state went bad (NaN, fell through the world): relaunch it in the air. */
+  private _recoverPlane(): void {
+    console.warn('[GameEngine] Plane state invalid — relaunching it in the air')
+    const ground = this.lastSafePlaneGround ?? {
+      x: this.lastSafePos.x,
+      y: 0,
+      z: this.lastSafePos.z,
+    }
+    try {
+      this.plane?.spawn(ground, this.lastSafePlaneYaw, {
+        airborne: true,
+        altitude: AIRBORNE_ALTITUDE,
+        speed: AIRBORNE_SPEED,
+      })
+      if (this.plane && isFiniteVec(this.plane.getPosition())) {
+        this.plane.syncMesh(1, 0)
+        this.flightCamera?.snap()
+        return
+      }
+    } catch (err) {
+      console.error('[GameEngine] Plane relaunch failed:', err)
+    }
+    // Still broken: back to the car
+    this._leavePlane()
+    this._placeCar(
+      { x: this.lastSafePos.x, y: Math.max(0, this.lastSafePos.y - CAR_RIDE_HEIGHT), z: this.lastSafePos.z },
+      this.lastSafeYaw,
+      true,
+    )
+    this._snapCarCamera()
+  }
+
+  private _ensurePlane(): PlayerPlane {
+    if (this.plane) return this.plane
+    const plane = new PlayerPlane(this.world, this.renderer.scene)
+    plane.onCrash = (intensity, point, direction) => {
+      this.flightCamera?.addTrauma(intensity)
+      this.impactFX?.triggerImpact(intensity, point, direction)
+    }
+    this.plane = plane
+    this.flightCamera = new FlightCamera(this.renderer.camera, plane)
+    return plane
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Active-vehicle getters (car or plane) for the UI
+  // ───────────────────────────────────────────────────────────────────────────
+
+  /** Position of the vehicle being driven (car body centre / plane wheels point). */
+  getPlayerPosition(): WorldPosition {
+    if (this._vehicleMode === 'plane' && this.plane) {
+      const p = this.plane.getPosition()
+      if (isFiniteVec(p)) return p
+    }
+    return this.playerCar.getPosition()
+  }
+
+  /** Horizontal-ish heading vector of the active vehicle (car: its forward vector, as before). */
+  getPlayerHeadingVector(): THREE.Vector3 {
+    if (this._vehicleMode === 'plane' && this.plane) {
+      const f = this.plane.getForwardVector()
+      const h = Math.hypot(f.x, f.z)
+      if (Number.isFinite(h) && h > 0.2) return new THREE.Vector3(f.x / h, 0, f.z / h)
+      // Nose straight up/down: use the flight path, then the yaw
+      const v = this.plane.getVelocity()
+      const vh = Math.hypot(v.x, v.z)
+      if (Number.isFinite(vh) && vh > 1) return new THREE.Vector3(v.x / vh, 0, v.z / vh)
+      const yaw = this.plane.getYaw()
+      if (Number.isFinite(yaw)) return new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw))
+    }
+    return this.playerCar.getHeadingVector()
+  }
+
+  /** World velocity (m/s) of the active vehicle. */
+  getPlayerVelocity(): { x: number; y: number; z: number } {
+    if (this._vehicleMode === 'plane' && this.plane) {
+      const v = this.plane.getVelocity()
+      if (isFiniteVec(v)) return v
+      return { x: 0, y: 0, z: 0 }
+    }
+    return this.playerCar.getVelocity()
+  }
+
+  /** Speed (m/s) of the active vehicle (car: horizontal speed, as before). */
+  getPlayerSpeed(): number {
+    if (this._vehicleMode === 'plane' && this.plane) {
+      const v = this.getPlayerVelocity()
+      return Math.hypot(v.x, v.y, v.z)
+    }
+    return this.playerCar.getSpeed()
+  }
+
+  /** Flight instruments, or null when driving the car. */
+  getFlightState(): PlaneState | null {
+    if (this._vehicleMode !== 'plane' || !this.plane) return null
+    return this.plane.getState()
   }
 
   setGpsDestination(target: WorldPosition | null): void {
@@ -413,6 +849,12 @@ export class GameEngine {
 
   respawnPlayer(): void {
     if (!this.playerCar) return
+    if (this._vehicleMode === 'plane') {
+      // Back in the car, on a road near the plane (or the last safe spot)
+      this.exitPlane()
+      this.playerCar.grantSpawnInvincibility()
+      return
+    }
     this.playerCar.teleport(this.lastSafePos, this.lastSafeYaw)
     this.playerCar.grantSpawnInvincibility()
     this.gameClient?.sendRespawn()
@@ -423,7 +865,7 @@ export class GameEngine {
     const roads = this.chunkManager.getActiveRoads()
     if (roads.length === 0) return
     const graph = buildRoadGraph(roads)
-    const p = this.playerCar.getPosition()
+    const p = this.getPlayerPosition()
     this.gpsRoute = findAStarPath(graph, p, this.gpsDestination)
   }
 
@@ -433,6 +875,9 @@ export class GameEngine {
    * and places the player car safely at the spawn point.
    */
   travelTo(destination: WorldDestination): void {
+    // Travel always lands in the car
+    const wasFlying = this._vehicleMode === 'plane'
+    this._leavePlane()
     this.currentDestination = destination
 
     // 1. Reset origin and switch chunk base path
@@ -454,7 +899,8 @@ export class GameEngine {
     this.gameClient.sendRespawn()
 
     // 4. Update camera
-    this.camera.update(0.016)
+    if (wasFlying) this._snapCarCamera()
+    else this.camera.update(0.016)
 
     // 5. Trigger immediate world streaming around spawn point (procedural ready immediately)
     this.chunkManager.update(spawnPos)
@@ -480,9 +926,13 @@ export class GameEngine {
           this.chunkManager.setRealOsmChunks(realOsm.chunks)
           this.chunkManager.clearAllChunks()
           // Reposition car directly onto the real OSM road centerline
+          // (the player may have taken the plane meanwhile: back to the car)
+          const wasFlying = this._vehicleMode === 'plane'
+          this._leavePlane()
           this.playerCar.teleport(realOsm.spawnPoint, realOsm.spawnHeading)
           this.gameClient.sendRespawn()
-          this.camera.update(0.016)
+          if (wasFlying) this._snapCarCamera()
+          else this.camera.update(0.016)
           this.chunkManager.update(realOsm.spawnPoint)
           // Mark the new destination as covered so streaming doesn't re-fetch immediately
           this.osmStreaming.markCovered(destination.origin)
@@ -504,16 +954,23 @@ export class GameEngine {
   getCurrentStreet(): StreetInfo | null {
     if (!this.chunkManager || !this.playerCar) return null
     return this.chunkManager.getNearestStreet(
-      this.playerCar.getPosition(),
-      this.playerCar.getHeadingVector(),
+      this.getPlayerPosition(),
+      this.getPlayerHeadingVector(),
     )
   }
 
   private _updateStats(pos: WorldPosition): void {
     const info = this.renderer.renderer.info
     const chunkId = worldToChunk(pos)
-    const heading = this.playerCar?.getHeadingVector()
+    const heading = this.getPlayerHeadingVector()
     const street = this.chunkManager?.getNearestStreet(pos, heading)
+    let gpsPosition: { lat: number; lon: number }
+    if (this._vehicleMode === 'plane') {
+      const g = worldToGeo(pos)
+      gpsPosition = { lat: g.latitude, lon: g.longitude }
+    } else {
+      gpsPosition = this.playerCar.getGeoPosition()
+    }
 
     this.stats = {
       fps: this.currentFps,
@@ -523,7 +980,7 @@ export class GameEngine {
       currentChunk: `${chunkId.x}:${chunkId.z}:${chunkId.level}`,
       loadedChunks: this.chunkManager.loadedCount,
       playerPosition: pos,
-      gpsPosition: this.playerCar.getGeoPosition(),
+      gpsPosition,
       networkLatency: this.gameClient.latency,
       nearbyPlayers: this.gameClient.nearbyPlayerCount,
       npcCount: this.npcManager.activeCount,
@@ -596,6 +1053,10 @@ export class GameEngine {
     }
     this.input?.dispose()
     this.chunkManager?.dispose()
+    this.flightCamera?.dispose()
+    this.flightCamera = null
+    this.plane?.dispose()
+    this.plane = null
     this.playerCar?.dispose()
     this.impactFX?.dispose()
     this.remotePlayers?.dispose()
@@ -609,6 +1070,16 @@ export class GameEngine {
       }
     }
   }
+}
+
+function isFiniteVec(v: { x: number; y: number; z: number }): boolean {
+  return Number.isFinite(v.x) && Number.isFinite(v.y) && Number.isFinite(v.z)
+}
+
+/** Ground point under a plane position, given its height above ground. */
+function groundBelow(p: WorldPosition, altitudeAGL: number): WorldPosition {
+  const agl = Number.isFinite(altitudeAGL) ? Math.max(0, altitudeAGL) : p.y
+  return { x: p.x, y: Math.max(0, p.y - agl), z: p.z }
 }
 
 function distToSegmentSquared(px: number, pz: number, x1: number, z1: number, x2: number, z2: number): number {

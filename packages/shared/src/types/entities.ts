@@ -12,6 +12,8 @@ export type PlayerSnapshot = {
   tick: number
   /** Timestamp (ms) until which the player is invincible against collisions with other players. */
   invincibleUntil?: number
+  /** Vehicle the player is driving. Absent = 'car' (older servers / clients). */
+  vehicle?: 'car' | 'plane'
 }
 
 // ─── NPC ─────────────────────────────────────────────────────────────────────

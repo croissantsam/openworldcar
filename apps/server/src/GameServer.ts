@@ -107,6 +107,8 @@ export class GameServer {
           velocity: s.state.velocity,
           tick: this.tick,
           invincibleUntil: s.invincibleUntil,
+          // Only sent for planes: absent = car, as older clients expect
+          ...(s.state.vehicle === 'plane' ? { vehicle: 'plane' as const } : {}),
         }
       })
 

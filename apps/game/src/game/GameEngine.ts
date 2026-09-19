@@ -21,7 +21,9 @@ import { Renderer } from '../renderer/Renderer.js'
 import { InputManager } from './InputManager.js'
 import { PlayerCar } from '../vehicles/PlayerCar.js'
 import { ThirdPersonCamera } from '../camera/ThirdPersonCamera.js'
-import { PlayerPlane, type PlaneState } from '../vehicles/PlayerPlane.js'
+import { PlayerPlane, type PlaneState, type FlightInput } from '../vehicles/PlayerPlane.js'
+import { PlaneGun } from '../vehicles/PlaneGun.js'
+import { CombatSystem, MAX_HEALTH } from './CombatSystem.js'
 import { FlightCamera } from '../camera/FlightCamera.js'
 import { ChunkManager, type StreetInfo } from '../world/ChunkManager.js'
 import { NPCManager } from '../vehicles/NPCManager.js'
@@ -45,6 +47,13 @@ import * as THREE from 'three'
 
 /** Fixed physics timestep (60 Hz). */
 const FIXED_DT = 1 / 60
+
+/** Damage of one machine-gun round on another player. */
+const DAMAGE_PER_ROUND = 7
+/** How long the 'DÉTRUIT' state lasts after the player is shot down (ms). */
+const DESTROYED_MS = 1500
+/** Hits on the world only spark this often (the guns fire 11 rounds/s). */
+const WORLD_IMPACT_FX_INTERVAL = 0.2
 
 /** Height of the car's rigid-body centre above the road (see PlayerCar.teleport). */
 const CAR_RIDE_HEIGHT = 0.48
@@ -105,7 +114,23 @@ export class GameEngine {
 
   // ─── Plane (created on first use) ──────────────────────────────────────────
   private plane: PlayerPlane | null = null
+  private planeGun: PlaneGun | null = null
+  private combat: CombatSystem | null = null
   private flightCamera: FlightCamera | null = null
+
+  // Gun scratch (no per-frame allocation)
+  private readonly muzzleA = new THREE.Vector3()
+  private readonly muzzleB = new THREE.Vector3()
+  private readonly gunForward = new THREE.Vector3(0, 0, 1)
+  private lastWorldImpactFX = 0
+  private destroyedUntil = 0
+
+  /** A round of ours hit another player (HUD hit marker). */
+  onGunHit?: (() => void) | undefined
+  /** The local player took damage (HUD red flash). */
+  onDamageTaken?: ((damage: number, health: number) => void) | undefined
+  /** The local player was shot down (HUD 'DÉTRUIT' overlay). */
+  onPlayerDestroyed?: ((by: string) => void) | undefined
   private _vehicleMode: VehicleMode = 'car'
   /** Car camera settings saved when taking the plane, restored on landing. */
   private savedCameraSettings: { fov: number; near: number; far: number } | null = null
@@ -233,6 +258,23 @@ export class GameEngine {
     // Receive multiplayer snapshots and route to RemotePlayerManager
     this.gameClient.onSnapshot = (players, localId) => {
       this.remotePlayers?.handleSnapshot(players, localId)
+    }
+
+    // ── Combat: damage taken / dealt, destructions ─────────────────────────
+    this.combat = new CombatSystem(this.gameClient, this.remotePlayers)
+    this.combat.onDamageTaken = (e) => {
+      const f = Math.min(1, Math.max(0.18, e.damage / 35))
+      this.impactFX?.triggerImpact(f * 0.6, e.point, { x: 0, y: 1, z: 0 })
+      const trauma = 0.12 + f * 0.35
+      if (this._vehicleMode === 'plane') this.flightCamera?.addTrauma(trauma)
+      else this.camera?.addTrauma(trauma)
+      this.onDamageTaken?.(e.damage, e.health)
+    }
+    this.combat.onDestroyed = (by) => {
+      this._destroyLocalPlayer(by)
+    }
+    this.combat.onRemoteDestroyed = (_id, position) => {
+      this._explosionAt(position)
     }
 
     // Ground plane (flat terrain for Phase 1)
@@ -427,13 +469,19 @@ export class GameEngine {
 
     // ── Impact Sparks & Screen FX ───────────────────────────────────────────
     this.impactFX?.update(delta)
+    this.combat?.update(delta)
+    if (this.lastWorldImpactFX > 0) this.lastWorldImpactFX = Math.max(0, this.lastWorldImpactFX - delta)
 
     // ── Camera ─────────────────────────────────────────────────────────────
     if (this._vehicleMode === 'plane' && this.plane && this.flightCamera) {
       // Render interpolation between the last two physics states
       this.plane.syncMesh(Math.min(1, Math.max(0, this.accumulator / FIXED_DT)), delta)
+      // Guns after syncMesh: the muzzles follow the pose that is drawn
+      this._updateGun(delta, this.plane, flightInput)
       this.flightCamera.update(delta)
     } else {
+      // Car mode: the guns never fire, but their tracers finish and cool down
+      this._updateGun(delta, null, null)
       this.camera.update(delta)
     }
 
@@ -550,6 +598,9 @@ export class GameEngine {
     this.lastSafePlaneGround = { ...ground }
     this.lastSafePlaneYaw = heading
     plane.syncMesh(1, 0)
+    this.planeGun?.reset()
+    plane.getMuzzles(this.muzzleA, this.muzzleB)
+    plane.readForward(this.gunForward)
     this.flightCamera?.snap()
     return true
   }
@@ -600,6 +651,7 @@ export class GameEngine {
     } catch (err) {
       console.warn('[GameEngine] plane.despawn failed:', err)
     }
+    this.planeGun?.reset()
     const body = this.playerCar.getRigidBody()
     body.setEnabled(true)
     this.playerCar.getMesh().visible = true
@@ -742,7 +794,87 @@ export class GameEngine {
     }
     this.plane = plane
     this.flightCamera = new FlightCamera(this.renderer.camera, plane)
+
+    const gun = new PlaneGun(this.renderer.scene, this.world)
+    gun.onHit = (hit) => {
+      const id =
+        hit.colliderHandle === null
+          ? null
+          : this.remotePlayers?.getPlayerIdForCollider(hit.colliderHandle) ?? null
+      if (id) {
+        // Another player: the server arbitrates the damage
+        this.combat?.reportHit(id, DAMAGE_PER_ROUND, { x: hit.point.x, y: hit.point.y, z: hit.point.z })
+        this.onGunHit?.()
+        return
+      }
+      // World hit: sparks + sound, throttled (the gun draws its own dust puff)
+      if (this.lastWorldImpactFX > 0) return
+      this.lastWorldImpactFX = WORLD_IMPACT_FX_INTERVAL
+      this.impactFX?.triggerImpact(0.3, hit.point, this.gunForward)
+    }
+    this.planeGun = gun
     return plane
+  }
+
+  /**
+   * One frame of machine guns. `plane` is null in car mode: the gun then only
+   * cools down and finishes its tracers — it can never fire.
+   */
+  private _updateGun(dt: number, plane: PlayerPlane | null, input: FlightInput | null): void {
+    const gun = this.planeGun
+    if (!gun) return
+    let firing = false
+    if (plane) {
+      plane.getMuzzles(this.muzzleA, this.muzzleB)
+      plane.readForward(this.gunForward)
+      firing = input?.fire === true && !plane.isCrashed() && this.destroyedUntil <= performance.now()
+    }
+    const before = gun.getState().ammo
+    gun.update(dt, this.muzzleA, this.muzzleB, this.gunForward, firing)
+    const fired = before - gun.getState().ammo
+    if (fired > 0) this.flightCamera?.addTrauma(0.04 * fired)
+  }
+
+  /** A big two-stage burst (used for destructions). */
+  private _explosionAt(p: WorldPosition): void {
+    if (!isFiniteVec(p)) return
+    this.impactFX?.triggerImpact(1, p, { x: 0, y: 1, z: 0 })
+    this.impactFX?.triggerImpact(0.8, { x: p.x, y: p.y + 1.4, z: p.z }, { x: 0, y: -1, z: 0 })
+  }
+
+  /** Health reached 0: explosion, 'DÉTRUIT' state, then respawn. */
+  private _destroyLocalPlayer(by: string): void {
+    const pos = this.getPlayerPosition()
+    this._explosionAt(pos)
+    this.destroyedUntil = performance.now() + DESTROYED_MS
+    this.planeGun?.reset()
+    if (this._vehicleMode === 'plane') {
+      this.flightCamera?.addTrauma(1)
+      // Crash-reset: the plane is relaunched in the air over the last safe ground
+      const ground =
+        this.lastSafePlaneGround ??
+        (isFiniteVec(pos) ? { x: pos.x, y: Math.max(0, pos.y - (this.plane?.getState().altitudeAGL ?? 0)), z: pos.z } : null)
+      try {
+        if (ground) {
+          this.plane?.spawn(ground, this.lastSafePlaneYaw, {
+            airborne: true,
+            altitude: AIRBORNE_ALTITUDE,
+            speed: AIRBORNE_SPEED,
+          })
+          this.plane?.syncMesh(1, 0)
+          this.flightCamera?.snap()
+        } else {
+          this._recoverPlane()
+        }
+      } catch (err) {
+        console.warn('[GameEngine] Respawn of the destroyed plane failed:', err)
+        this._recoverPlane()
+      }
+    } else {
+      this.camera?.addTrauma(1)
+      this.respawnPlayer()
+    }
+    this.onPlayerDestroyed?.(by)
   }
 
   // ───────────────────────────────────────────────────────────────────────────
@@ -797,6 +929,27 @@ export class GameEngine {
   getFlightState(): PlaneState | null {
     if (this._vehicleMode !== 'plane' || !this.plane) return null
     return this.plane.getState()
+  }
+
+  /** Machine-gun readout (ammo, heat), or null outside plane mode. */
+  getGunState(): { ammo: number; maxAmmo: number; heat: number; overheated: boolean; firing: boolean } | null {
+    if (this._vehicleMode !== 'plane' || !this.planeGun) return null
+    return this.planeGun.getState()
+  }
+
+  /** Health / spawn protection of the local player. */
+  getCombatState(): { health: number; maxHealth: number; invincible: boolean } {
+    const c = this.combat
+    return {
+      health: c ? c.health : MAX_HEALTH,
+      maxHealth: MAX_HEALTH,
+      invincible: c ? c.invincible : false,
+    }
+  }
+
+  /** True during the ~1.5 s that follow a destruction (HUD overlay). */
+  isDestroyed(): boolean {
+    return this.destroyedUntil > performance.now()
   }
 
   setGpsDestination(target: WorldPosition | null): void {
@@ -1055,6 +1208,10 @@ export class GameEngine {
     this.chunkManager?.dispose()
     this.flightCamera?.dispose()
     this.flightCamera = null
+    this.planeGun?.dispose()
+    this.planeGun = null
+    this.combat?.dispose()
+    this.combat = null
     this.plane?.dispose()
     this.plane = null
     this.playerCar?.dispose()

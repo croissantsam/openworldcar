@@ -52,11 +52,35 @@ function finiteOr(v: number, fallback: number): number {
   return Number.isFinite(v) ? v : fallback
 }
 
+/** Machine-gun readout (plane mode). */
+type GunReadout = {
+  ammo: number
+  maxAmmo: number
+  /** 0..100 */
+  heat: number
+  overheated: boolean
+}
+
+function sameGun(a: GunReadout | null, b: GunReadout | null): boolean {
+  if (a === null || b === null) return a === b
+  return a.ammo === b.ammo && a.maxAmmo === b.maxAmmo && a.heat === b.heat && a.overheated === b.overheated
+}
+
 export const HUD: React.FC<HUDProps> = ({ engine }) => {
   const [speed, setSpeed] = useState(0)
   const [gear, setGear] = useState('D')
   const [vehicleMode, setVehicleMode] = useState<VehicleMode>(() => engine.vehicleMode)
   const [flight, setFlight] = useState<FlightReadout>(FLIGHT_READOUT_EMPTY)
+  const [gun, setGun] = useState<GunReadout | null>(null)
+  const [health, setHealth] = useState<number>(100)
+  const [maxHealth, setMaxHealth] = useState<number>(100)
+  const [combatInvincible, setCombatInvincible] = useState(false)
+  const [hitMarker, setHitMarker] = useState(false)
+  const [damageFlash, setDamageFlash] = useState(false)
+  const [destroyed, setDestroyed] = useState(false)
+  const hitTimer = useRef<number | null>(null)
+  const damageTimer = useRef<number | null>(null)
+  const destroyedTimer = useRef<number | null>(null)
   const [street, setStreet] = useState<StreetInfo | null>(() => engine.getCurrentStreet())
   const [currentDest, setCurrentDest] = useState<WorldDestination>(() => engine.currentDestination)
   const currentDestRef = useRef<WorldDestination>(engine.currentDestination)
@@ -138,6 +162,26 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
       setVehicleMode(mode)
     }
 
+    // ── Combat feedback ───────────────────────────────────────────────────
+    engine.onGunHit = () => {
+      setHitMarker(true)
+      if (hitTimer.current !== null) window.clearTimeout(hitTimer.current)
+      hitTimer.current = window.setTimeout(() => setHitMarker(false), 220)
+    }
+
+    engine.onDamageTaken = (_damage, hp) => {
+      setHealth(hp)
+      setDamageFlash(true)
+      if (damageTimer.current !== null) window.clearTimeout(damageTimer.current)
+      damageTimer.current = window.setTimeout(() => setDamageFlash(false), 340)
+    }
+
+    engine.onPlayerDestroyed = () => {
+      setDestroyed(true)
+      if (destroyedTimer.current !== null) window.clearTimeout(destroyedTimer.current)
+      destroyedTimer.current = window.setTimeout(() => setDestroyed(false), 1500)
+    }
+
     const onKey = (e: KeyboardEvent) => {
       if (
         document.activeElement &&
@@ -153,7 +197,8 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
 
       if (e.key === 't' || e.key === 'T') {
         setTravelOpen((v) => !v)
-      } else if (e.key === '/' || e.key === 'f' || e.key === 'F') {
+      } else if (e.key === '/' || ((e.key === 'f' || e.key === 'F') && engine.vehicleMode !== 'plane')) {
+        // In the plane, F is the machine-gun trigger (InputManager)
         e.preventDefault()
         setSearchBarOpen((v) => !v)
       } else if (e.key === 'Escape') {
@@ -206,6 +251,23 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
         }
       }
 
+      // Machine guns + health
+      const gs = engine.getGunState()
+      const nextGun: GunReadout | null = gs
+        ? {
+            ammo: Math.max(0, Math.round(gs.ammo)),
+            maxAmmo: Math.max(1, Math.round(gs.maxAmmo)),
+            heat: Math.round(Math.min(1, Math.max(0, finiteOr(gs.heat, 0))) * 100),
+            overheated: gs.overheated,
+          }
+        : null
+      setGun((prev) => (sameGun(prev, nextGun) ? prev : nextGun))
+
+      const cs = engine.getCombatState()
+      setHealth(Math.max(0, Math.round(finiteOr(cs.health, 100))))
+      setMaxHealth(Math.max(1, Math.round(finiteOr(cs.maxHealth, 100))))
+      setCombatInvincible(cs.invincible)
+
       setInvincibilitySec(engine.getInvincibilityRemaining())
       setPlayerCount(engine.getConnectedPlayerCount())
       setIsNetworkConnected(engine.isNetworkConnected())
@@ -215,6 +277,12 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
     return () => {
       clearInterval(id)
       window.removeEventListener('keydown', onKey)
+      if (hitTimer.current !== null) window.clearTimeout(hitTimer.current)
+      if (damageTimer.current !== null) window.clearTimeout(damageTimer.current)
+      if (destroyedTimer.current !== null) window.clearTimeout(destroyedTimer.current)
+      engine.onGunHit = undefined
+      engine.onDamageTaken = undefined
+      engine.onPlayerDestroyed = undefined
     }
   }, [engine, travelOpen])
 
@@ -378,6 +446,135 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
               {flight.onGround ? 'SOL' : 'VOL'}
             </span>
           </div>
+          {/* Machine guns: ammo + barrel heat */}
+          {gun && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ ...flightLabelStyle, minWidth: 24, color: gun.overheated ? '#f87171' : '#fbbf24' }}>MUN</span>
+              <span
+                style={{
+                  fontFamily: "'Orbitron', sans-serif",
+                  fontSize: touchMode ? 12 : 14,
+                  fontWeight: 800,
+                  color: gun.ammo === 0 ? '#f87171' : '#fff',
+                  minWidth: touchMode ? 30 : 36,
+                  textAlign: 'right',
+                }}
+              >
+                {gun.ammo}
+              </span>
+              <div
+                style={{
+                  flex: 1,
+                  height: touchMode ? 5 : 6,
+                  borderRadius: 3,
+                  background: 'rgba(255, 255, 255, 0.12)',
+                  overflow: 'hidden',
+                }}
+              >
+                <div
+                  style={{
+                    width: `${gun.heat}%`,
+                    height: '100%',
+                    borderRadius: 3,
+                    background: gun.overheated
+                      ? 'linear-gradient(90deg, #ef4444, #fca5a5)'
+                      : 'linear-gradient(90deg, #f59e0b, #fbbf24)',
+                    boxShadow: gun.overheated ? '0 0 8px rgba(239, 68, 68, 0.7)' : '0 0 6px rgba(251, 191, 36, 0.5)',
+                    transition: 'width 0.1s linear',
+                  }}
+                />
+              </div>
+              <span
+                style={{
+                  fontFamily: "'Orbitron', sans-serif",
+                  fontSize: touchMode ? 8 : 9,
+                  fontWeight: 900,
+                  letterSpacing: 1,
+                  color: gun.overheated ? '#f87171' : 'rgba(148, 163, 184, 0.9)',
+                  minWidth: 56,
+                  textAlign: 'right',
+                  animation: gun.overheated ? 'hudFlash 0.45s ease-in-out infinite alternate' : undefined,
+                }}
+              >
+                {gun.overheated ? 'SURCHAUFFE' : `${gun.heat}%`}
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Gun sight (plane mode) */}
+      {isPlane && !flight.crashed && (
+        <div
+          style={{
+            position: 'absolute',
+            top: '50%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)',
+            width: 46,
+            height: 46,
+            pointerEvents: 'none',
+            userSelect: 'none',
+            zIndex: 25,
+          }}
+        >
+          {/* four thin ticks + centre dot */}
+          {([
+            { top: 0, left: '50%', width: 1, height: 13, marginLeft: -0.5 },
+            { bottom: 0, left: '50%', width: 1, height: 13, marginLeft: -0.5 },
+            { left: 0, top: '50%', width: 13, height: 1, marginTop: -0.5 },
+            { right: 0, top: '50%', width: 13, height: 1, marginTop: -0.5 },
+          ] as React.CSSProperties[]).map((tick, i) => (
+            <div
+              key={i}
+              style={{
+                position: 'absolute',
+                background: hitMarker ? 'rgba(248, 113, 113, 0.95)' : 'rgba(255, 255, 255, 0.75)',
+                boxShadow: '0 0 4px rgba(0, 0, 0, 0.8)',
+                ...tick,
+              }}
+            />
+          ))}
+          <div
+            style={{
+              position: 'absolute',
+              top: '50%',
+              left: '50%',
+              width: 3,
+              height: 3,
+              marginTop: -1.5,
+              marginLeft: -1.5,
+              borderRadius: '50%',
+              background: hitMarker ? '#f87171' : 'rgba(255, 255, 255, 0.85)',
+              boxShadow: '0 0 4px rgba(0, 0, 0, 0.8)',
+            }}
+          />
+          {/* Hit marker: four diagonals that flash on a player hit */}
+          {hitMarker &&
+            ([
+              { top: 4, left: 4, rotate: '45deg' },
+              { top: 4, right: 4, rotate: '-45deg' },
+              { bottom: 4, left: 4, rotate: '-45deg' },
+              { bottom: 4, right: 4, rotate: '45deg' },
+            ] as Array<{ top?: number; bottom?: number; left?: number; right?: number; rotate: string }>).map(
+              (m, i) => (
+                <div
+                  key={`hm${i}`}
+                  style={{
+                    position: 'absolute',
+                    top: m.top,
+                    bottom: m.bottom,
+                    left: m.left,
+                    right: m.right,
+                    width: 10,
+                    height: 2,
+                    background: '#fca5a5',
+                    boxShadow: '0 0 6px rgba(239, 68, 68, 0.9)',
+                    transform: `rotate(${m.rotate})`,
+                  }}
+                />
+              ),
+            )}
         </div>
       )}
 
@@ -530,6 +727,108 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
       </div>
       )}
 
+      {/* Health (PV) — both modes */}
+      <div
+        style={{
+          position: 'absolute',
+          bottom: touchMode ? 'max(120px, calc(env(safe-area-inset-bottom, 0px) + 120px))' : 30,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          background: 'rgba(10, 16, 28, 0.72)',
+          backdropFilter: 'blur(10px)',
+          WebkitBackdropFilter: 'blur(10px)',
+          border: damageFlash
+            ? '1px solid rgba(239, 68, 68, 0.9)'
+            : combatInvincible
+            ? '1px solid rgba(0, 229, 255, 0.55)'
+            : '1px solid rgba(0, 212, 255, 0.3)',
+          boxShadow: damageFlash
+            ? '0 4px 16px rgba(0,0,0,0.4), 0 0 18px rgba(239, 68, 68, 0.55)'
+            : '0 4px 16px rgba(0, 0, 0, 0.4)',
+          borderRadius: 14,
+          padding: touchMode ? '4px 10px' : '6px 14px',
+          pointerEvents: 'none',
+          userSelect: 'none',
+          zIndex: 34,
+          transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
+        }}
+      >
+        <span style={{ ...flightLabelStyle, color: damageFlash ? '#fca5a5' : '#00d4ff' }}>PV</span>
+        <div
+          style={{
+            width: touchMode ? 110 : 150,
+            height: touchMode ? 7 : 8,
+            borderRadius: 4,
+            background: 'rgba(255, 255, 255, 0.12)',
+            overflow: 'hidden',
+          }}
+        >
+          <div
+            style={{
+              width: `${Math.max(0, Math.min(100, (health / maxHealth) * 100))}%`,
+              height: '100%',
+              borderRadius: 4,
+              background:
+                health <= maxHealth * 0.3
+                  ? 'linear-gradient(90deg, #dc2626, #f87171)'
+                  : health <= maxHealth * 0.6
+                  ? 'linear-gradient(90deg, #d97706, #fbbf24)'
+                  : 'linear-gradient(90deg, #059669, #34d399)',
+              boxShadow: '0 0 8px rgba(52, 211, 153, 0.35)',
+              transition: 'width 0.18s ease-out',
+            }}
+          />
+        </div>
+        <span
+          style={{
+            fontFamily: "'Orbitron', sans-serif",
+            fontSize: touchMode ? 11 : 13,
+            fontWeight: 900,
+            color: damageFlash ? '#fca5a5' : '#fff',
+            minWidth: 26,
+            textAlign: 'right',
+          }}
+        >
+          {health}
+        </span>
+        {combatInvincible && (
+          <span style={{ fontSize: touchMode ? 10 : 12, filter: 'drop-shadow(0 0 4px rgba(0,229,255,0.8))' }}>🛡️</span>
+        )}
+      </div>
+
+      {/* Destroyed */}
+      {destroyed && (
+        <div
+          style={{
+            ...alertBannerStyle,
+            top: '42%',
+            padding: touchMode ? '8px 18px' : '12px 28px',
+            animation: 'hudFlash 0.35s ease-in-out infinite alternate',
+          }}
+        >
+          <span style={{ fontSize: touchMode ? 20 : 28 }}>💀</span>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <span
+              style={{
+                fontFamily: "'Orbitron', sans-serif",
+                fontSize: touchMode ? 22 : 30,
+                fontWeight: 900,
+                letterSpacing: 6,
+                color: '#fecaca',
+              }}
+            >
+              DÉTRUIT
+            </span>
+            <span style={{ fontFamily: "'Inter', sans-serif", fontSize: touchMode ? 9 : 11, color: 'rgba(255,255,255,0.85)' }}>
+              Abattu — réapparition en cours…
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* Controls hint - ONLY shown in desktop keyboard mode, offset to right of minimap */}
       {!touchMode && (
         <div
@@ -558,6 +857,7 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
               <div><strong style={{ color: '#00d4ff' }}>↑</strong> — Piquer (descendre)</div>
               <div><strong style={{ color: '#00d4ff' }}>← / → ou Q / D</strong> — Roulis (virer)</div>
               <div><strong style={{ color: '#00d4ff' }}>ESPACE</strong> — Freins (au sol)</div>
+              <div><strong style={{ color: '#fbbf24' }}>F / clic gauche</strong> — Mitrailleuse</div>
               <div><strong style={{ color: '#38bdf8' }}>P</strong> — 🚗 Reprendre la voiture</div>
               <div><strong style={{ color: '#38bdf8' }}>MAJ + P</strong> — Redécoller en vol</div>
               <div><strong style={{ color: '#00d4ff' }}>M</strong> — Carte GPS</div>

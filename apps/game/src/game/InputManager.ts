@@ -56,6 +56,10 @@ export class InputManager {
   private virtualStick: VirtualStick = { x: 0, y: 0, brake: false }
   /** True while the on-screen touch controls are shown (they drive the auto-throttle). */
   private touchControlsActive = false
+  /** Machine-gun trigger from the on-screen 🔫 button. */
+  private virtualFire = false
+  /** Left mouse button held over the canvas (not over a HUD control). */
+  private mouseFire = false
 
   /**
    * Called on P (toggle car / plane) and Shift+P (take off: plane in the air).
@@ -85,7 +89,13 @@ export class InputManager {
     this.touchControlsActive = active
     if (!active) {
       this.virtualStick = { x: 0, y: 0, brake: false }
+      this.virtualFire = false
     }
+  }
+
+  /** Machine-gun trigger from the touch controls (held). */
+  setVirtualFire(on: boolean): void {
+    this.virtualFire = on === true
   }
 
   private isTyping(): boolean {
@@ -135,12 +145,32 @@ export class InputManager {
 
   private readonly onBlur = () => {
     this.keys.clear()
+    this.mouseFire = false
+  }
+
+  /** A click on a HUD control (button, link, field) must not fire the guns. */
+  private static overUI(target: EventTarget | null): boolean {
+    const el = target as Element | null
+    if (!el || typeof el.closest !== 'function') return false
+    return el.closest('button, input, textarea, select, a, [role="button"]') !== null
+  }
+
+  private readonly onMouseDown = (e: MouseEvent) => {
+    if (e.button !== 0) return
+    if (InputManager.overUI(e.target)) return
+    this.mouseFire = true
+  }
+
+  private readonly onMouseUp = (e: MouseEvent) => {
+    if (e.button === 0) this.mouseFire = false
   }
 
   constructor() {
     window.addEventListener('keydown', this.onKeyDown)
     window.addEventListener('keyup', this.onKeyUp)
     window.addEventListener('blur', this.onBlur)
+    window.addEventListener('mousedown', this.onMouseDown)
+    window.addEventListener('mouseup', this.onMouseUp)
   }
 
   /**
@@ -215,6 +245,7 @@ export class InputManager {
       k.has('KeyA') || k.has('KeyQ') || k.has('ArrowLeft') || k.has('a') || k.has('q') || k.has('arrowleft')
     const kRight = k.has('KeyD') || k.has('ArrowRight') || k.has('d') || k.has('arrowright')
     const kBrake = k.has('Space') || k.has(' ') || k.has('space')
+    const kFire = k.has('KeyF') || k.has('f')
 
     const kPitch = (kNoseUp ? 1 : 0) - (kNoseDown ? 1 : 0)
     const kRoll = (kRight ? 1 : 0) - (kLeft ? 1 : 0)
@@ -226,6 +257,7 @@ export class InputManager {
     let gpThrottleSet: number | undefined
     let gpThrottleDown = false
     let gpBrake = false
+    let gpFire = false
     const pad = this.getGamepad()
     if (pad) {
       gpRoll = deadzone(pad.axes[0])
@@ -238,6 +270,8 @@ export class InputManager {
       if (rtValue > 0.05) gpThrottleSet = clamp(rtValue, 0, 1)
       gpThrottleDown = !!lt && (lt.pressed || lt.value > 0.3)
       gpBrake = !!pad.buttons[0]?.pressed
+      // Right bumper (5) or X / square (2): machine guns.
+      gpFire = !!pad.buttons[5]?.pressed || !!pad.buttons[2]?.pressed
     }
 
     // ── Touch (virtual joystick + FREIN) ─────────────────────────────────
@@ -257,6 +291,7 @@ export class InputManager {
       roll: pick(kRoll, gpRoll, vRoll),
       yaw: clamp(gpYaw, -1, 1),
       brake: kBrake || gpBrake || vBrake,
+      fire: kFire || this.mouseFire || gpFire || (touch && this.virtualFire),
     }
 
     // Absolute throttle: only when no throttle key is held
@@ -295,6 +330,10 @@ export class InputManager {
     window.removeEventListener('keydown', this.onKeyDown)
     window.removeEventListener('keyup', this.onKeyUp)
     window.removeEventListener('blur', this.onBlur)
+    window.removeEventListener('mousedown', this.onMouseDown)
+    window.removeEventListener('mouseup', this.onMouseUp)
     this.keys.clear()
+    this.mouseFire = false
+    this.virtualFire = false
   }
 }

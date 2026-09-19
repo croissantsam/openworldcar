@@ -21,6 +21,7 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
   const [knobPos, setKnobPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
   const [isJoystickActive, setIsJoystickActive] = useState(false)
   const [isBraking, setIsBraking] = useState(false)
+  const [isFiring, setIsFiring] = useState(false)
 
   const joystickTouchId = useRef<number | null>(null)
   const brakeTouchId = useRef<number | null>(null)
@@ -55,6 +56,15 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
     engine.input.setTouchControlsActive(visible)
     return () => engine.input.setTouchControlsActive(false)
   }, [engine, visible])
+
+  // The trigger only exists in plane mode: never leave it held behind
+  useEffect(() => {
+    if (!visible || !isPlane) {
+      setIsFiring(false)
+      engine.input.setVirtualFire(false)
+    }
+    return () => engine.input.setVirtualFire(false)
+  }, [engine, visible, isPlane])
 
   useEffect(() => {
     updateBaseCenter()
@@ -225,6 +235,22 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
 
     window.addEventListener('mousemove', onMouseMove)
     window.addEventListener('mouseup', onMouseUp)
+  }
+
+  // ── Machine-gun Button (plane only) ───────────────────────────────────────
+  const handleFireStart = (e: React.TouchEvent | React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    triggerHaptic(15)
+    setIsFiring(true)
+    engine.input.setVirtualFire(true)
+  }
+
+  const handleFireEnd = (e: React.TouchEvent | React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsFiring(false)
+    engine.input.setVirtualFire(false)
   }
 
   // ── Brake Button Touch Handlers ───────────────────────────────────────────
@@ -433,6 +459,66 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
           </div>
         )}
       </div>
+
+      {/* ── Machine guns (plane mode only) ──────────────────────────────── */}
+      {isPlane && (
+        <div
+          style={{
+            position: 'absolute',
+            bottom: 'max(110px, calc(env(safe-area-inset-bottom, 0px) + 110px))',
+            right: 'max(24px, env(safe-area-inset-right, 24px))',
+            pointerEvents: 'auto',
+            touchAction: 'none',
+          }}
+        >
+          <button
+            aria-label="Mitrailleuse"
+            onTouchStart={handleFireStart}
+            onTouchEnd={handleFireEnd}
+            onTouchCancel={handleFireEnd}
+            onMouseDown={handleFireStart}
+            onMouseUp={handleFireEnd}
+            onMouseLeave={handleFireEnd}
+            style={{
+              width: 66,
+              height: 66,
+              borderRadius: '50%',
+              background: isFiring
+                ? 'radial-gradient(circle, rgba(251, 191, 36, 0.95) 0%, rgba(180, 83, 9, 0.98) 100%)'
+                : 'radial-gradient(circle, rgba(251, 191, 36, 0.18) 0%, rgba(15, 23, 42, 0.6) 100%)',
+              border: isFiring ? '2.5px solid #fbbf24' : '1.5px solid rgba(251, 191, 36, 0.55)',
+              boxShadow: isFiring
+                ? '0 0 26px rgba(251, 191, 36, 0.8), inset 0 0 12px rgba(255, 237, 160, 0.5)'
+                : '0 4px 18px rgba(0, 0, 0, 0.5), inset 0 0 8px rgba(251, 191, 36, 0.2)',
+              transform: isFiring ? 'scale(0.93)' : 'scale(1)',
+              transition: 'transform 0.08s ease, background 0.1s ease, border-color 0.1s ease',
+              color: '#ffffff',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              backdropFilter: 'blur(10px)',
+              WebkitBackdropFilter: 'blur(10px)',
+            }}
+          >
+            <span style={{ fontSize: 20, lineHeight: 1 }}>🔫</span>
+            <span
+              style={{
+                fontFamily: "'Orbitron', sans-serif",
+                fontSize: 8,
+                fontWeight: 900,
+                letterSpacing: 1.2,
+                marginTop: 2,
+                color: isFiring ? '#ffffff' : '#fbbf24',
+                textShadow: isFiring ? '0 0 8px #ffffff' : '0 0 6px rgba(251, 191, 36, 0.4)',
+              }}
+            >
+              TIR
+            </span>
+          </button>
+        </div>
+      )}
 
       {/* ── Right Thumb Zone: Sole Brake Button (FREIN) ──────────────────── */}
       <div

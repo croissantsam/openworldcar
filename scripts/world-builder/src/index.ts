@@ -24,6 +24,7 @@ import {
   normalizeRoad,
   normalizeBuilding,
   normalizePoi,
+  normalizeWaterway,
   generateChunks,
   geoBoundingBox,
   deduplicateBuildings,
@@ -77,6 +78,7 @@ async function main(): Promise<void> {
   const roads = []
   const buildings = []
   const pois = []
+  const waterways = []
 
   for (const el of osmData.elements) {
     if (el.type === 'way' && el.geometry) {
@@ -86,10 +88,21 @@ async function main(): Promise<void> {
         tags: el.tags ?? {},
         coords,
       }
+      // Try all normalizations - a way can have multiple feature types
       const road = normalizeRoad(raw)
-      if (road) { roads.push(road); continue }
+      if (road) roads.push(road)
       const building = normalizeBuilding(raw)
-      if (building) { buildings.push(building); continue }
+      if (building) buildings.push(building)
+      const waterway = normalizeWaterway(raw)
+      if (waterway) {
+        waterways.push(waterway)
+        if (waterways.length <= 5) {
+          console.log(`  Waterway ${waterway.id}: type=${waterway.type}, name=${waterway.name ?? 'none'}, points=${waterway.points.length}, isPolygon=${waterway.isPolygon}, width=${waterway.width}`)
+          if (waterway.points.length > 0) {
+            console.log(`    First point: x=${waterway.points[0]!.x.toFixed(1)}, z=${waterway.points[0]!.z.toFixed(1)}`)
+          }
+        }
+      }
     }
     if (el.type === 'node' && el.lat !== undefined && el.lon !== undefined) {
       const raw: RawOsmNode = {
@@ -105,11 +118,12 @@ async function main(): Promise<void> {
   }
 
   console.log(`🛣  Roads: ${roads.length}`)
+  console.log(`💧 Waterways: ${waterways.length}`)
   const cleanBuildings = deduplicateBuildings(buildings)
   console.log(`🏢 Buildings: ${cleanBuildings.length} (deduplicated from ${buildings.length})`)
   console.log(`📍 POIs: ${pois.length}`)
 
-  const chunkMap = generateChunks(roads, cleanBuildings, pois)
+  const chunkMap = generateChunks(roads, cleanBuildings, pois, waterways)
 
   await mkdir(out, { recursive: true })
 

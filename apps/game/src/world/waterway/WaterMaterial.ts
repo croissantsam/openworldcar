@@ -18,6 +18,9 @@ export const EMBANKMENT_EDGE_MAT = new THREE.MeshStandardMaterial({
 
 // Animated Water ShaderMaterial
 const WATER_VERT = `
+  // <common> first: logdepthbuf_vertex calls isPerspectiveMatrix(), which lives
+  // there. Without it the vertex shader fails to compile and the water is invisible.
+  #include <common>
   #include <logdepthbuf_pars_vertex>
   varying vec2 vUv;
   varying vec3 vWorldPos;

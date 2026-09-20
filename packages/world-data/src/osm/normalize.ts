@@ -259,11 +259,11 @@ export function normalizeRoad(way: RawOsmWay): Road | null {
   const isTunnel = way.tags['tunnel'] === 'yes' || way.tags['tunnel'] === 'building_passage' || layer < 0
 
   let elevationMode: RoadElevationMode = 'ground'
-  if (isBridge) elevationMode = 'bridge'
-  else if (isTunnel) elevationMode = 'tunnel'
+  if (isBridge || isTunnel) elevationMode = 'bridge'
+  // Tunnels are converted to bridges (elevationMode = 'bridge')
 
   // Bridge clearance height calculation (from pont.txt sections 6, 10, 21)
-  const bridgeHeight = isBridge ? Math.max(3.8, Math.abs(layer) * 4.5 || 4.5) : undefined
+  const bridgeHeight = (isBridge || isTunnel) ? Math.max(3.8, Math.abs(layer) * 4.5 || 4.5) : undefined
 
   const isLink = highway.endsWith('_link')
   const onewayTag = way.tags['oneway']
@@ -303,8 +303,8 @@ export function normalizeRoad(way: RawOsmWay): Road | null {
     ...(maxSpeed !== undefined ? { maxSpeed } : {}),
     ...(surface !== undefined ? { surface } : {}),
     ...(isRoundabout ? { isRoundabout: true } : {}),
-    bridge: isBridge,
-    tunnel: isTunnel,
+    bridge: isBridge || isTunnel,
+    tunnel: false,
     layer,
     elevationMode,
     ...(bridgeHeight !== undefined ? { bridgeHeight } : {}),

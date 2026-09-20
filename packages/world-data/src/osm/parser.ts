@@ -17,7 +17,7 @@ export type OverpassQuery = {
   east: number
 }
 
-/** Build an Overpass QL query for roads, buildings, and POIs in a bounding box. */
+/** Build an Overpass QL query for roads, buildings, POIs, and waterways in a bounding box. */
 function buildQuery(bbox: OverpassQuery): string {
   const { south, west, north, east } = bbox
   const bb = `${south},${west},${north},${east}`
@@ -26,6 +26,11 @@ function buildQuery(bbox: OverpassQuery): string {
 (
   way["highway"](${bb});
   way["building"](${bb});
+  way["waterway"](${bb});
+  way["natural"="water"](${bb});
+  way["water"](${bb});
+  way["landuse"="basin"](${bb});
+  way["landuse"="reservoir"](${bb});
   node["amenity"](${bb});
   node["shop"](${bb});
 );

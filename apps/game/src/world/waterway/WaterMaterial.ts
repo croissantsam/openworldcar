@@ -91,7 +91,7 @@ export function getWaterMaterial(): THREE.ShaderMaterial {
       polygonOffsetUnits: -2.0,
       transparent: true,
       depthWrite: false,
-      side: THREE.FrontSide,
+      side: THREE.DoubleSide,
     })
   }
   return _waterMaterial

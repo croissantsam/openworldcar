@@ -174,7 +174,10 @@ export class WaterwayMeshGenerator {
 
       if (i < N - 1) {
         const b = i * 2
-        ribbonIndices.push(b, b + 1, b + 2,  b + 1, b + 3, b + 2)
+        // Winding order for normals pointing UP (Y+)
+        // Triangle 1: left_i, left_{i+1}, right_i
+        // Triangle 2: left_{i+1}, right_{i+1}, right_i
+        ribbonIndices.push(b, b + 2, b + 1,  b + 2, b + 3, b + 1)
       }
     }
 

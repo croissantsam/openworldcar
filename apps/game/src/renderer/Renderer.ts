@@ -4,6 +4,17 @@
  */
 
 import * as THREE from 'three'
+import { useSettingsStore, type ViewDistanceSettings } from '../settings/SettingsStore.js'
+
+let onViewDistanceChangeCallback: ((settings: ViewDistanceSettings) => void) | null = null
+
+export function setViewDistanceChangeCallback(cb: (settings: ViewDistanceSettings) => void): void {
+  onViewDistanceChangeCallback = cb
+}
+
+function getViewDistanceSettings(): ViewDistanceSettings {
+  return useSettingsStore.getState().getEffectiveSettings()
+}
 
 export class Renderer {
   renderer: THREE.WebGLRenderer
@@ -27,17 +38,19 @@ export class Renderer {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace
     mount.appendChild(this.renderer.domElement)
 
+    const settings = getViewDistanceSettings()
+
     // Scene (Burnout Paradise sunny coastal sky & crisp horizon)
     this.scene = new THREE.Scene()
     this.scene.background = new THREE.Color(0x62aef7) // vibrant azure sky
-    this.scene.fog = new THREE.FogExp2(0x8bc0f5, 0.0005) // expansive distance fog
+    this.scene.fog = new THREE.FogExp2(0x8bc0f5, settings.fogDensity)
 
     // Camera
     this.camera = new THREE.PerspectiveCamera(
       60,
       mount.clientWidth / mount.clientHeight,
       0.5,
-      3000,
+      settings.cameraFar,
     )
     this.camera.position.set(0, 8, -20)
 
@@ -47,8 +60,29 @@ export class Renderer {
     // Ground plane (visual)
     this._createGroundMesh()
 
+    // Listen for view distance changes
+    setViewDistanceChangeCallback((newSettings) => this.applyViewDistanceSettings(newSettings))
+
     // Resize handler
     window.addEventListener('resize', this._onResize)
+  }
+
+  /** Apply new view distance settings (camera far plane, fog). */
+  applyViewDistanceSettings(settings: ViewDistanceSettings): void {
+    this.camera.far = settings.cameraFar
+    this.camera.updateProjectionMatrix()
+    if (this.scene.fog instanceof THREE.FogExp2) {
+      this.scene.fog.density = settings.fogDensity
+    }
+  }
+
+  // Resize handler
+  private _onResize = (): void => {
+    const w = window.innerWidth
+    const h = window.innerHeight
+    this.camera.aspect = w / h
+    this.camera.updateProjectionMatrix()
+    this.renderer.setSize(w, h)
   }
 
   private sun!: THREE.DirectionalLight
@@ -109,14 +143,6 @@ export class Renderer {
 
   render(): void {
     this.renderer.render(this.scene, this.camera)
-  }
-
-  private _onResize = (): void => {
-    const w = window.innerWidth
-    const h = window.innerHeight
-    this.camera.aspect = w / h
-    this.camera.updateProjectionMatrix()
-    this.renderer.setSize(w, h)
   }
 
   dispose(): void {

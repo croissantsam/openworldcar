@@ -33,11 +33,27 @@ import { ParkMeshGenerator } from './park/index.js'
 import { RoadMeshGenerator } from './RoadMeshGenerator.js'
 import { clipRoadToChunk } from './ChunkBounds.js'
 import { StreetFurnitureGenerator } from './street-furniture/index.js'
+import { useSettingsStore, type ViewDistanceSettings } from '../settings/SettingsStore.js'
 
-/** Number of chunks loaded in each direction from the player (5x5 grid = 2.5km across). */
-const LOAD_RADIUS = 2
-/** Chunks beyond this distance (in chunk units) are unloaded (4km). */
-const UNLOAD_RADIUS = 4
+/** Called when view distance settings change. */
+let onViewDistanceChangeCallback: ((settings: ViewDistanceSettings) => void) | null = null
+
+export function setViewDistanceChangeCallback(cb: (settings: ViewDistanceSettings) => void): void {
+  onViewDistanceChangeCallback = cb
+}
+
+function getViewDistanceSettings(): ViewDistanceSettings {
+  return useSettingsStore.getState().getEffectiveSettings()
+}
+
+/** Number of chunks loaded in each direction from the player. Dynamic based on view distance settings. */
+function getLoadRadius(): number {
+  return getViewDistanceSettings().loadRadius
+}
+/** Chunks beyond this distance (in chunk units) are unloaded. Dynamic based on view distance settings. */
+function getUnloadRadius(): number {
+  return getViewDistanceSettings().unloadRadius
+}
 
 /**
  * Main-thread time (ms) spent building chunk geometry inside a frame.
@@ -151,6 +167,13 @@ export class ChunkManager {
       else this.generatingChunks.delete(k)
       this.onGeneratingStatusChange?.(this.generatingChunks.size > 0)
     }
+    // Listen for view distance changes
+    setViewDistanceChangeCallback(() => this.refreshChunkLoading())
+  }
+
+  /** Force re-evaluation of chunk loading based on current view distance settings. */
+  refreshChunkLoading(): void {
+    this.lastPlayerChunk = null
   }
 
   /**
@@ -172,7 +195,7 @@ export class ChunkManager {
     }
     this.lastPlayerChunk = playerChunk
 
-    const required = surroundingChunks(playerChunk, LOAD_RADIUS)
+    const required = surroundingChunks(playerChunk, getLoadRadius())
     const requiredKeys = new Set(required.map(chunkKey))
 
     // Load required chunks that aren't already managed or known missing
@@ -188,7 +211,7 @@ export class ChunkManager {
       if (requiredKeys.has(key)) continue
       const dx = Math.abs(chunk.id.x - playerChunk.x)
       const dz = Math.abs(chunk.id.z - playerChunk.z)
-      if (Math.max(dx, dz) > UNLOAD_RADIUS) {
+      if (Math.max(dx, dz) > getUnloadRadius()) {
         this._unload(key, chunk)
       }
     }

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { worldToGeo } from '@world-drive/math'
+import { useSettingsStore, PRESETS, type ViewDistancePreset } from '../settings/SettingsStore.js'
 import type { GameEngine, VehicleMode } from '../game/GameEngine.js'
 import type { StreetInfo } from '../world/ChunkManager.js'
 import { getDistrictLabel, type WorldDestination } from '../world/destinations.js'
@@ -91,6 +92,8 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
   const [searchBarOpen, setSearchBarOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const [mapExpanded, setMapExpanded] = useState(false)
+  const [viewDistanceOpen, setViewDistanceOpen] = useState(false)
+  const viewDistance = useSettingsStore((state) => state.viewDistance)
   const [isWarping, setIsWarping] = useState(false)
   const [isGenerating, setIsGenerating] = useState(() => engine.chunkManager.isGenerating)
   const [invincibilitySec, setInvincibilitySec] = useState<number>(() =>
@@ -1317,11 +1320,11 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
                 <span style={{ fontSize: 8, color: '#94a3b8' }}>Recentrer voiture</span>
               </button>
 
-              {/* 4. Carte GPS */}
+              {/* 5. Distance de vue */}
               <button
                 onClick={() => {
                   setMenuOpen(false)
-                  setMapExpanded(true)
+                  setViewDistanceOpen(true)
                 }}
                 style={{
                   display: 'flex',
@@ -1329,7 +1332,7 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
                   alignItems: 'flex-start',
                   gap: 3,
                   background: 'rgba(255, 255, 255, 0.05)',
-                  border: '1px solid rgba(0, 212, 255, 0.3)',
+                  border: '1px solid rgba(245, 158, 11, 0.35)',
                   borderRadius: 12,
                   padding: '10px 12px',
                   cursor: 'pointer',
@@ -1337,11 +1340,87 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
                   textAlign: 'left',
                 }}
               >
-                <span style={{ fontSize: 20 }}>🗺️</span>
-                <span style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 10, fontWeight: 800, color: '#00d4ff' }}>Carte GPS</span>
-                <span style={{ fontSize: 8, color: '#94a3b8' }}>Vue aérienne</span>
+                <span style={{ fontSize: 20 }}>👁️</span>
+                <span style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 10, fontWeight: 800, color: '#fbbf24' }}>Distance</span>
+                <span style={{ fontSize: 8, color: '#94a3b8' }}>Voir plus loin</span>
               </button>
             </div>
+
+            {/* Distance de vue panel */}
+            {viewDistanceOpen && (
+              <div
+                style={{
+                  marginTop: 8,
+                  padding: '12px 16px',
+                  background: 'rgba(255, 255, 255, 0.03)',
+                  border: '1px solid rgba(0, 212, 255, 0.2)',
+                  borderRadius: 12,
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <span style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 10, fontWeight: 800, color: '#00d4ff' }}>
+                    DISTANCE DE VUE
+                  </span>
+                  <button
+                    onClick={() => setViewDistanceOpen(false)}
+                    style={{
+                      background: 'rgba(255,255,255,0.08)',
+                      border: '1px solid rgba(255,255,255,0.15)',
+                      borderRadius: 6,
+                      color: '#fff',
+                      width: 24,
+                      height: 24,
+                      cursor: 'pointer',
+                      fontSize: 12,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    ✕
+                  </button>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                  {Object.entries(PRESETS).map(([key, preset]) => (
+                    <button
+                      key={key}
+                      onClick={() => {
+                        useSettingsStore.getState().setViewDistance(key as ViewDistancePreset)
+                        setViewDistanceOpen(false)
+                      }}
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'flex-start',
+                        gap: 2,
+                        background: viewDistance === key
+                          ? 'rgba(0, 212, 255, 0.15)'
+                          : 'rgba(255, 255, 255, 0.05)',
+                        border: viewDistance === key
+                          ? '1px solid rgba(0, 212, 255, 0.6)'
+                          : '1px solid rgba(255, 255, 255, 0.1)',
+                        borderRadius: 10,
+                        padding: '8px 10px',
+                        cursor: 'pointer',
+                        color: '#ffffff',
+                        textAlign: 'left',
+                      }}
+                    >
+                      <span style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 9, fontWeight: 800, color: viewDistance === key ? '#00d4ff' : '#fbbf24' }}>
+                        {preset.label.split(' ')[0]?.toUpperCase() ?? preset.label.toUpperCase()}
+                      </span>
+                      <span style={{ fontSize: 7, color: '#94a3b8' }}>
+                        {preset.loadRadius} chunks charg\u00E9s
+                      </span>
+                    </button>
+                  ))}
+                </div>
+                <div style={{ marginTop: 8, fontSize: 8, color: '#94a3b8', lineHeight: 1.4 }}>
+                  Les changements prennent effet immédiatement. Les valeurs plus élevées
+                  augmentent la qualité visuelle mais peuvent réduire les performances.
+                </div>
+              </div>
+            )}
 
             {/* Toggle tactile / clavier */}
             <button

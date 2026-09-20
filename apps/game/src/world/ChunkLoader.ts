@@ -80,8 +80,6 @@ export function unionWorldChunk(base: WorldChunk, extra: WorldChunk): WorldChunk
     pointsOfInterest: [...base.pointsOfInterest],
     waterways: [...(base.waterways ?? [])],
     parks: [...(base.parks ?? [])],
-    railways: [...(base.railways ?? [])],
-    barriers: [...(base.barriers ?? [])],
   }
   appendMissing(out.roads, extra.roads)
   appendMissing(out.buildings, extra.buildings)
@@ -89,8 +87,6 @@ export function unionWorldChunk(base: WorldChunk, extra: WorldChunk): WorldChunk
   appendMissing(out.pointsOfInterest, extra.pointsOfInterest)
   appendMissing(out.waterways, extra.waterways)
   appendMissing(out.parks, extra.parks)
-  appendMissing(out.railways, extra.railways)
-  appendMissing(out.barriers!, extra.barriers)
   return out
 }
 
@@ -123,8 +119,6 @@ export function chunkFeatureIds(chunk: WorldChunk): string[] {
   for (const p of chunk.pointsOfInterest) ids.push('p' + p.id)
   for (const w of chunk.waterways ?? []) ids.push('w' + w.id)
   for (const k of chunk.parks ?? []) ids.push('k' + k.id)
-  for (const l of chunk.railways ?? []) ids.push('l' + l.id)
-  for (const x of chunk.barriers ?? []) ids.push('x' + x.id)
   return ids
 }
 
@@ -140,17 +134,13 @@ export function chunkDelta(known: ReadonlySet<string>, incoming: WorldChunk): Wo
     pointsOfInterest: incoming.pointsOfInterest.filter((f) => !known.has('p' + f.id)),
     waterways: (incoming.waterways ?? []).filter((f) => !known.has('w' + f.id)),
     parks: (incoming.parks ?? []).filter((f) => !known.has('k' + f.id)),
-    railways: (incoming.railways ?? []).filter((f) => !known.has('l' + f.id)),
-    barriers: (incoming.barriers ?? []).filter((f) => !known.has('x' + f.id)),
   }
   const n =
     out.roads.length +
     out.buildings.length +
     out.pointsOfInterest.length +
     out.waterways.length +
-    out.parks.length +
-    out.railways.length +
-    (out.barriers?.length ?? 0)
+    out.parks.length
   return n === 0 ? null : out
 }
 
@@ -382,10 +372,9 @@ export class ChunkLoader {
    * 0. Ground slab (bedrock sub-base)
    * 1. Waterways (rivers, canals, basins)
    * 2. Parks & green spaces
-   * 3. Railways & tramways
-   * 4. Road network (asphalt, sidewalks, lane markings)
-   * 5. Bridges & Viaducts (elevated decks & piers)
-   * 6. Buildings & 3D architecture
+   * 3. Road network (asphalt, sidewalks, lane markings)
+   * 4. Bridges & Viaducts (elevated decks & piers)
+   * 5. Buildings & 3D architecture
    */
   private _buildGroup(chunk: WorldChunk): THREE.Group {
     const group = new THREE.Group()

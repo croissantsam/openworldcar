@@ -24,7 +24,7 @@ import {
   type WorldPosition,
   type GeoPosition,
 } from '@world-drive/math'
-import type { WorldChunk, Road, Building, PointOfInterest, Waterway, Park, Railway } from '@world-drive/shared'
+import type { WorldChunk, Road, Building, PointOfInterest, Waterway, Park } from '@world-drive/shared'
 import RAPIER from '@dimforge/rapier3d-compat'
 import { ChunkLoader, unionWorldChunk, chunkFeatureIds, chunkDelta } from './ChunkLoader.js'
 import { ChunkState } from './ChunkState.js'
@@ -305,7 +305,7 @@ export class ChunkManager {
     const { managed, features, allRoads } = job
     const group = yield* this.loader.buildGroupIncremental(features, allRoads, job.mode === 'full')
 
-    // Rapier static colliders for buildings, park barriers, and roads
+    // Rapier static colliders for buildings, and roads
     if (this.world && !job.cancelled) {
       if (job.mode === 'full' || !managed.physicsBody) {
         job.body = this.world.createRigidBody(RAPIER.RigidBodyDesc.fixed())
@@ -818,7 +818,7 @@ export class ChunkManager {
     return list
   }
 
-  getActiveRailways(): Railway[] {
+  getActiveRailways(): never[] {
     return []
   }
 
@@ -911,7 +911,7 @@ function boxesOverlap(a: Box, b: Box): boolean {
  * the generators resolve from their surroundings at build time:
  *   - an elevated road continuing an existing elevated road of the same kind
  *     (the existing ramp end must become a connected span), and
- *   - a road crossing an existing park (trees and barriers are cut out around
+ *   - a road crossing an existing park (trees are cut out around
  *     roads).
  */
 function needsFullRebuild(existing: WorldChunk, delta: WorldChunk): boolean {

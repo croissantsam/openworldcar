@@ -22,7 +22,7 @@ import type { WorldPosition } from '@world-drive/math'
 import type { Road, PlayerSnapshot } from '@world-drive/shared'
 import { v4 as uuidv4 } from 'uuid'
 
-const DEFAULT_WS_URL = 'wss://openspeed.onrender.com'
+const DEFAULT_WS_URL = 'ws://localhost:3000'
 
 /**
  * A host with no scheme ("openspeed.onrender.com") is a path to `new WebSocket`,

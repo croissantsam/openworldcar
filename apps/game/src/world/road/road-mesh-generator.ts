@@ -6,7 +6,7 @@ import { checkElevationConnections, elevClass } from './materials.js'
 import { computeRoadWidth } from './road-width.js'
 import { computePolylineNormals, resamplePolyline, type Pt } from './geometry.js'
 import { generateGroundPortion, type RoadPortion, type RoadGenerateOptions } from './ground-road.js'
-import { buildBridgeDeckMesh, buildBridgeParapet, buildBridgePiers, findBridgeCrossingSegments } from './bridge.js'
+import { buildBridgeDeckMesh, buildBridgePiers } from './bridge.js'
 import { buildTunnelTrenchMask, buildTunnelTrenchWalls, buildTunnelPortals, buildTunnelTube, buildTunnelLighting } from './tunnel.js'
 import { clipGroupToCell, roadPortions, buildCellOf } from './colliders.js'
 import { getAsphaltMaterial } from './materials.js'
@@ -48,26 +48,6 @@ export class RoadMeshGenerator {
       if (N < 2) return descs
       const normals = computePolylineNormals(raisedPts)
 
-      // Find crossing segments for parapet suppression in colliders too
-      const otherBridgePts: Pt[][] = []
-      if (allRoads) {
-        for (const otherRoad of allRoads) {
-          if (otherRoad.id === road.id) continue
-          if (otherRoad.elevationMode === 'bridge' || otherRoad.bridge) {
-            const { connectsStart: oStart, connectsEnd: oEnd } = checkElevationConnections(otherRoad, allRoads)
-            const otherHeight = otherRoad.bridgeHeight ?? (otherRoad.layer > 1 ? otherRoad.layer * 4.5 : 4.5)
-            const { points: otherRaisedPts } = computeElevatedBridgePoints(
-              otherRoad.points,
-              otherHeight,
-              oStart,
-              oEnd,
-            )
-            otherBridgePts.push(otherRaisedPts)
-          }
-        }
-      }
-      const crossingSegments = findBridgeCrossingSegments(raisedPts, otherBridgePts)
-
       const deckVerts: number[] = []
       const deckIdx: number[] = []
 
@@ -97,54 +77,6 @@ export class RoadMeshGenerator {
           new Uint32Array(deckIdx),
         ).setFriction(0.3).setRestitution(0.0)
         descs.push(deckCol)
-      }
-
-      const parapetVerts: number[] = []
-      const parapetIdx: number[] = []
-      const parapetH = 1.2
-
-      function isSuppressed(i: number): boolean {
-        for (const [start, end] of crossingSegments) {
-          if (i >= start && i < end) return true
-        }
-        return false
-      }
-
-      for (let i = 0; i < N; i++) {
-        if (isSuppressed(i)) continue
-
-        const curr = raisedPts[i]!
-        const norm = normals[i]!
-        const nx = norm.nx
-        const nz = norm.nz
-        const miter = norm.miter
-        const pW = (halfW + 0.15) * miter
-
-        parapetVerts.push(
-          curr.x + nx * pW, curr.y, curr.z + nz * pW,
-          curr.x + nx * pW, curr.y + parapetH, curr.z + nz * pW,
-        )
-        parapetVerts.push(
-          curr.x - nx * pW, curr.y, curr.z - nz * pW,
-          curr.x - nx * pW, curr.y + parapetH, curr.z - nz * pW,
-        )
-
-        if (i < N - 1 && !isSuppressed(i + 1)) {
-          const lb = (parapetVerts.length / 3) - 4
-          parapetIdx.push(lb, lb + 1, lb + 4, lb + 1, lb + 5, lb + 4)
-          parapetIdx.push(lb, lb + 4, lb + 1, lb + 1, lb + 4, lb + 5)
-          const rb = lb + 2
-          parapetIdx.push(rb, rb + 1, rb + 4, rb + 1, rb + 5, rb + 4)
-          parapetIdx.push(rb, rb + 4, rb + 1, rb + 1, rb + 4, rb + 5)
-        }
-      }
-
-      if (parapetVerts.length >= 9 && parapetIdx.length >= 3) {
-        const parapetCol = RAPIER.ColliderDesc.trimesh(
-          new Float32Array(parapetVerts),
-          new Uint32Array(parapetIdx),
-        ).setFriction(0.1).setRestitution(0.1)
-        descs.push(parapetCol)
       }
     } else if (road.elevationMode === 'tunnel' || road.tunnel) {
       const { halfW } = computeRoadWidth(road)
@@ -335,32 +267,6 @@ export class RoadMeshGenerator {
 
     const deckMesh = buildBridgeDeckMesh(raisedPts, halfW, 0.85)
     if (deckMesh) group.add(deckMesh)
-
-    // Find other bridge roads that cross this one
-    const otherBridgePts: Pt[][] = []
-    if (allRoads) {
-      for (const otherRoad of allRoads) {
-        if (otherRoad.id === road.id) continue
-        if (otherRoad.elevationMode === 'bridge' || otherRoad.bridge) {
-          const { connectsStart: oStart, connectsEnd: oEnd } = checkElevationConnections(otherRoad, allRoads)
-          const otherHeight = otherRoad.bridgeHeight ?? (otherRoad.layer > 1 ? otherRoad.layer * 4.5 : 4.5)
-          const { points: otherRaisedPts } = computeElevatedBridgePoints(
-            otherRoad.points,
-            otherHeight,
-            oStart,
-            oEnd,
-          )
-          otherBridgePts.push(otherRaisedPts)
-        }
-      }
-    }
-    const crossingSegments = findBridgeCrossingSegments(raisedPts, otherBridgePts)
-
-    const parapetH = 1.1
-    const leftParapet = buildBridgeParapet(raisedPts, halfW + 0.18, parapetH, crossingSegments)
-    group.add(leftParapet)
-    const rightParapet = buildBridgeParapet(raisedPts, -(halfW + 0.18), parapetH, crossingSegments)
-    group.add(rightParapet)
 
     const piers = buildBridgePiers(raisedPts, halfW, L, R)
     if (piers) group.add(piers)

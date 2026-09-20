@@ -105,8 +105,6 @@ export function generateLiveChunk(chunkId: ChunkId, origin: GeoPosition): WorldC
     pointsOfInterest: pois,
     waterways: [],
     parks: [],
-    railways: [],
-    barriers: [],
   }
 }
 

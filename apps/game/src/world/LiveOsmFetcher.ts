@@ -3,7 +3,7 @@
  * directly from OpenStreetMap on the fly.
  */
 
-import type { WorldChunk, Road, Building, Waterway, Park, Railway, Barrier, PointOfInterest, PoiKind, PoiCategory, RoadCrossing } from '@world-drive/shared'
+import type { WorldChunk, Road, Building, Waterway, Park, PointOfInterest, PoiKind, PoiCategory, RoadCrossing } from '@world-drive/shared'
 import {
   type GeoPosition,
   type WorldPosition,
@@ -71,9 +71,6 @@ function poiKindOf(tags: Record<string, string>): PoiKind | null {
   if (hw === 'bus_stop' || (tags['public_transport'] === 'platform' && tags['bus'] === 'yes')) return 'bus_stop'
   if (hw === 'crossing') return 'crossing'
   if (hw === 'traffic_signals') return 'traffic_signals'
-  if (tags['barrier'] === 'bollard') return 'bollard'
-  const rw = tags['railway']
-  if (rw === 'subway_entrance' || rw === 'train_station_entrance') return 'subway_entrance'
   if (tags['emergency'] === 'fire_hydrant') return 'fire_hydrant'
   if (tags['advertising']) return 'advertising'
   if (tags['entrance']) return 'entrance'
@@ -118,8 +115,6 @@ function parseOsmXml(xmlText: string): {
   buildings: Building[]
   waterways: Waterway[]
   parks: Park[]
-  railways: Railway[]
-  barriers: Barrier[]
   /** Nodes that carry at least one tag, with decoded tag values. */
   taggedNodes: RawOsmNode[]
   /** All node coordinates by id ([lon, lat]). */
@@ -157,8 +152,6 @@ function parseOsmXml(xmlText: string): {
   const buildings: Building[] = []
   const waterways: Waterway[] = []
   const parks: Park[] = []
-  const railways: Railway[] = []
-  const barriers: Barrier[] = []
   /** Every way's ordered node ids (tagged or not): multipolygon rings are stitched from these. */
   const wayNodeRefs = new Map<string, string[]>()
 
@@ -233,7 +226,7 @@ function parseOsmXml(xmlText: string): {
   // neighbours instead of a flat default (no more 2-storey stubs in a 7-storey street).
   fillMissingHeights(dedupedBuildings)
 
-  return { roads, buildings: dedupedBuildings, waterways, parks, railways, barriers, taggedNodes, nodes, wayNodeRefs }
+  return { roads, buildings: dedupedBuildings, waterways, parks, taggedNodes, nodes, wayNodeRefs }
 }
 
 /** Project and classify tagged nodes into street-level POIs (world origin must be set). */
@@ -309,13 +302,13 @@ export async function fetchOsmChunksForArea(
   const xmlText = await fetchOsmXml(bbox, signal)
   if (!xmlText || xmlText.length < 50) return null
 
-  const { roads, buildings, waterways, parks, railways, barriers, taggedNodes } = parseOsmXml(xmlText)
+  const { roads, buildings, waterways, parks, taggedNodes } = parseOsmXml(xmlText)
   const pois = poisFromNodes(taggedNodes)
   console.info(`[LiveOsmFetcher] ${taggedNodes.length} tagged nodes parsed → ${pois.length} POIs (${roads.length} roads, ${buildings.length} buildings)`)
   // Genuinely empty area (no roads): an empty map. A failed download stays null.
   if (roads.length === 0) return new Map()
 
-  return generateChunks(roads, buildings, pois, waterways, parks, railways, barriers)
+  return generateChunks(roads, buildings, pois, waterways, parks)
 }
 
 export interface RealOsmAreaResult {
@@ -354,8 +347,8 @@ export async function fetchRealOsmArea(
   // Ensure coordinate projection origin is set
   setWorldOrigin(origin)
 
-  // 3. Parse ways into roads, buildings, waterways, parks, railways and barriers
-  const { roads, buildings, waterways, parks, railways, barriers, taggedNodes } = parseOsmXml(xmlText)
+  // 3. Parse ways into roads, buildings, waterways, parks
+  const { roads, buildings, waterways, parks, taggedNodes } = parseOsmXml(xmlText)
   const pois = poisFromNodes(taggedNodes)
   console.info(`[LiveOsmFetcher] ${taggedNodes.length} tagged nodes parsed → ${pois.length} POIs (${roads.length} roads, ${buildings.length} buildings)`)
 
@@ -364,7 +357,7 @@ export async function fetchRealOsmArea(
   }
 
   // 4. Partition into chunk grid
-  const chunks = generateChunks(roads, buildings, pois, waterways, parks, railways, barriers)
+  const chunks = generateChunks(roads, buildings, pois, waterways, parks)
 
   // 5. Find the best on-road spawn point closest to preferredSpawn or world (0, 0)
   let bestDistSq = Infinity

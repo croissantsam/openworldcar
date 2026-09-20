@@ -4,13 +4,12 @@
 
 import type {
   Road, RoadElevationMode, Building, PointOfInterest, HighwayType, RoadSurface, BuildingType, RoofShape,
-  PoiCategory, Waterway, WaterwayType, Park, ParkType, Railway, RailwayType,
-  Barrier, BarrierType,
+  PoiCategory, Waterway, WaterwayType, Park, ParkType,
 } from '@world-drive/shared'
 import type { WorldPosition } from '@world-drive/math'
 import { lonLatArrayToWorld } from '../geo/projection.js'
 import {
-  isWantedHighway, isWantedBuilding, isWantedPoi, isWantedPark, isWantedRailway, isWantedBarrier,
+  isWantedHighway, isWantedBuilding, isWantedPoi, isWantedPark,
   type OsmTags,
 } from './filter.js'
 
@@ -742,12 +741,4 @@ export function normalizePark(way: RawOsmWay): Park | null {
     ...(name !== undefined ? { name } : {}),
     polygon: points,
   }
-}
-
-export function normalizeRailway(_way: RawOsmWay): Railway | null {
-  return null
-}
-
-export function normalizeBarrier(_way: RawOsmWay): Barrier | null {
-  return null
 }

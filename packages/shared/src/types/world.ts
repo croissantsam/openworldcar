@@ -279,28 +279,6 @@ export type Park = {
   polygon: WorldPosition[]
 }
 
-// ─── Railway ─────────────────────────────────────────────────────────────────
-
-export type RailwayType = 'rail' | 'tram' | 'light_rail' | 'subway' | 'monorail' | 'narrow_gauge'
-
-export type Railway = {
-  id: string
-  type: RailwayType
-  name?: string
-  points: WorldPosition[]
-}
-
-// ─── Barrier ─────────────────────────────────────────────────────────────────
-
-export type BarrierType = 'wall' | 'fence' | 'hedge' | 'guard_rail'
-
-export type Barrier = {
-  id: string
-  type: BarrierType
-  height?: number
-  points: WorldPosition[]
-}
-
 // ─── Chunk ───────────────────────────────────────────────────────────────────
 
 export type WorldChunk = {
@@ -310,8 +288,6 @@ export type WorldChunk = {
   pointsOfInterest: PointOfInterest[]
   waterways: Waterway[]
   parks: Park[]
-  railways: Railway[]
-  barriers?: Barrier[]
 }
 
 

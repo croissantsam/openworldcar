@@ -133,22 +133,3 @@ export function isWantedPark(tags: OsmTags): boolean {
   if (tags['amenity'] === 'grave_yard') return true
   return false
 }
-
-/** Railway types we want to render (only above-ground surface railways like tramways). */
-const WANTED_RAILWAYS = new Set([
-  'rail',
-  'tram',
-  'light_rail',
-  'monorail',
-  'narrow_gauge',
-])
-
-export function isWantedRailway(_tags: OsmTags): boolean {
-  // Railways/train tracks disabled per user request
-  return false
-}
-
-export function isWantedBarrier(_tags: OsmTags): boolean {
-  // Barriers/fences/walls disabled per user request
-  return false
-}

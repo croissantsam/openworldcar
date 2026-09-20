@@ -9,6 +9,7 @@ import {
   type ChunkId,
 } from '@world-drive/math'
 import type { Road, Building, PointOfInterest, WorldChunk, Waterway, Park, Railway, Barrier } from '@world-drive/shared'
+import { filterBuildingsOverlappingRoads } from './building-filter.js'
 
 function chunksForLine(points: { x: number; y: number; z: number }[], level: number): ChunkId[] {
   const seen = new Set<string>()
@@ -52,7 +53,9 @@ export function generateChunks(
     }
   }
 
-  for (const building of buildings) {
+  const filteredBuildings = filterBuildingsOverlappingRoads(buildings, roads)
+
+  for (const building of filteredBuildings) {
     if (building.footprint.length > 0) {
       const chunkId = worldToChunk(building.footprint[0]!, level)
       getOrCreate(chunkId).buildings.push(building)

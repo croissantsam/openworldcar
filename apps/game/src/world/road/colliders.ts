@@ -372,15 +372,22 @@ export function clipGroupToCell(group: THREE.Group, cell: { x: number; z: number
     m.geometry = clipped
   })
   for (const m of remove) m.parent?.remove(m)
+  // Collect first, detach after: Object3D.traverse caches children.length before
+  // it recurses, so removing a child from inside the callback makes it read past
+  // the end of the shrunken array and call .traverse on undefined.
   let changed = true
   while (changed) {
     changed = false
+    const empty: THREE.Object3D[] = []
     group.traverse((o) => {
       if (o !== group && !(o as THREE.Mesh).isMesh && o.children.length === 0 && o.parent) {
-        o.parent.remove(o)
-        changed = true
+        empty.push(o)
       }
     })
+    for (const o of empty) {
+      o.parent?.remove(o)
+      changed = true
+    }
   }
   return group.children.length > 0 ? group : null
 }

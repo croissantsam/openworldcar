@@ -29,10 +29,10 @@ import RAPIER from '@dimforge/rapier3d-compat'
 import { ChunkLoader, unionWorldChunk, chunkFeatureIds, chunkDelta } from './ChunkLoader.js'
 import { ChunkState } from './ChunkState.js'
 import { BuildingMeshGenerator } from './BuildingMeshGenerator.js'
-import { ParkMeshGenerator } from './ParkMeshGenerator.js'
+import { ParkMeshGenerator } from './park/index.js'
 import { RoadMeshGenerator } from './RoadMeshGenerator.js'
 import { clipRoadToChunk } from './ChunkBounds.js'
-import { StreetFurnitureGenerator } from './StreetFurnitureGenerator.js'
+import { StreetFurnitureGenerator } from './street-furniture/index.js'
 
 /** Number of chunks loaded in each direction from the player (5x5 grid = 2.5km across). */
 const LOAD_RADIUS = 2

@@ -10,178 +10,8 @@
 
 import * as THREE from 'three'
 import type { Waterway } from '@world-drive/shared'
-
-// ── Materials ──────────────────────────────────────────────────────────────
-
-// Street-level stone parapet / balustrade
-const PARAPET_MAT = new THREE.MeshStandardMaterial({
-  color: 0xb5afa0, // Warm Parisian limestone parapet coping
-  roughness: 0.84,
-  metalness: 0.04,
-  side: THREE.DoubleSide,
-})
-
-// Embankment curb edging along the water's edge
-const EMBANKMENT_EDGE_MAT = new THREE.MeshStandardMaterial({
-  color: 0x6e6962, // Aged Parisian river quay stone
-  roughness: 0.88,
-  metalness: 0.04,
-  side: THREE.DoubleSide,
-})
-
-// ── Animated Water ShaderMaterial ──────────────────────────────────────────
-const WATER_VERT = `
-  #include <logdepthbuf_pars_vertex>
-  varying vec2 vUv;
-  varying vec3 vWorldPos;
-  void main() {
-    vUv = uv;
-    vWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-    #include <logdepthbuf_vertex>
-  }
-`
-const WATER_FRAG = `
-  #include <logdepthbuf_pars_fragment>
-  uniform float uTime;
-  varying vec2 vUv;
-  varying vec3 vWorldPos;
-
-  float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-
-  float noise(vec2 p) {
-    vec2 i = floor(p);
-    vec2 f = fract(p);
-    f = f * f * (3.0 - 2.0 * f);
-    return mix(
-      mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x),
-      mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x),
-      f.y
-    );
-  }
-
-  void main() {
-    #include <logdepthbuf_fragment>
-
-    // Coherent world-space flowing ripples
-    vec2 p = vWorldPos.xz * 0.14;
-    float n1 = noise(p * 3.2 + vec2(uTime * 0.35, uTime * 0.12));
-    float n2 = noise(p * 6.8 - vec2(uTime * 0.22, uTime * 0.28));
-
-    vec3 deepWater     = vec3(0.03, 0.15, 0.28); // Deep Seine river teal
-    vec3 midWater      = vec3(0.08, 0.34, 0.50); // Sunny river surface
-    vec3 foamHighlight = vec3(0.85, 0.95, 1.00); // Crisp wave foam
-
-    float ripple = n1 * 0.6 + n2 * 0.4;
-    vec3 color = mix(deepWater, midWater, ripple * 0.7);
-
-    // Subtle foam on wave crests
-    float peak = pow(max(0.0, n1 * n2), 2.2);
-    color = mix(color, foamHighlight, peak * 0.45);
-
-    // Dynamic sun specular glint
-    float glint = pow(max(0.0, n2), 6.5) * 0.45;
-    color += vec3(glint);
-
-    gl_FragColor = vec4(color, 0.96);
-  }
-`
-
-let _waterMaterial: THREE.ShaderMaterial | null = null
-let _clock: THREE.Clock | null = null
-
-function getWaterMaterial(): THREE.ShaderMaterial {
-  if (!_waterMaterial) {
-    _clock = new THREE.Clock()
-    _waterMaterial = new THREE.ShaderMaterial({
-      vertexShader: WATER_VERT,
-      fragmentShader: WATER_FRAG,
-      uniforms: { uTime: { value: 0 } },
-      polygonOffset: true,
-      polygonOffsetFactor: -1.5,
-      polygonOffsetUnits: -1.5,
-      side: THREE.DoubleSide,
-    })
-  }
-  return _waterMaterial
-}
-
-/**
- * Tick the water animation — call once per frame.
- */
-export function tickWater(): void {
-  if (_waterMaterial && _clock) {
-    _waterMaterial.uniforms['uTime']!.value = _clock.getElapsedTime()
-  }
-}
-
-/**
- * Helper to push an oriented 3D cuboid into vertex/normal/index arrays.
- */
-function addOrientedBox(
-  posList: number[],
-  normList: number[],
-  idxList: number[],
-  cx: number,
-  cz: number,
-  yMin: number,
-  yMax: number,
-  halfLen: number,
-  halfWidth: number,
-  ux: number,
-  uz: number,
-  nx: number,
-  nz: number,
-) {
-  const baseIdx = posList.length / 3
-
-  const c0x = cx - ux * halfLen - nx * halfWidth
-  const c0z = cz - uz * halfLen - nz * halfWidth
-
-  const c1x = cx + ux * halfLen - nx * halfWidth
-  const c1z = cz + uz * halfLen - nz * halfWidth
-
-  const c2x = cx + ux * halfLen + nx * halfWidth
-  const c2z = cz + uz * halfLen + nz * halfWidth
-
-  const c3x = cx - ux * halfLen + nx * halfWidth
-  const c3z = cz - uz * halfLen + nz * halfWidth
-
-  // Face 0: Top (+Y)
-  posList.push(c0x, yMax, c0z,  c1x, yMax, c1z,  c2x, yMax, c2z,  c3x, yMax, c3z)
-  normList.push(0, 1, 0,  0, 1, 0,  0, 1, 0,  0, 1, 0)
-  idxList.push(baseIdx, baseIdx + 1, baseIdx + 2, baseIdx, baseIdx + 2, baseIdx + 3)
-
-  // Face 1: Bottom (-Y)
-  const b1 = baseIdx + 4
-  posList.push(c3x, yMin, c3z,  c2x, yMin, c2z,  c1x, yMin, c1z,  c0x, yMin, c0z)
-  normList.push(0, -1, 0,  0, -1, 0,  0, -1, 0,  0, -1, 0)
-  idxList.push(b1, b1 + 1, b1 + 2, b1, b1 + 2, b1 + 3)
-
-  // Face 2: Side +N
-  const b2 = baseIdx + 8
-  posList.push(c2x, yMin, c2z,  c3x, yMin, c3z,  c3x, yMax, c3z,  c2x, yMax, c2z)
-  normList.push(nx, 0, nz,  nx, 0, nz,  nx, 0, nz,  nx, 0, nz)
-  idxList.push(b2, b2 + 1, b2 + 2, b2, b2 + 2, b2 + 3)
-
-  // Face 3: Side -N
-  const b3 = baseIdx + 12
-  posList.push(c0x, yMin, c0z,  c1x, yMin, c1z,  c1x, yMax, c1z,  c0x, yMax, c0z)
-  normList.push(-nx, 0, -nz,  -nx, 0, -nz,  -nx, 0, -nz,  -nx, 0, -nz)
-  idxList.push(b3, b3 + 1, b3 + 2, b3, b3 + 2, b3 + 3)
-
-  // Face 4: End +U
-  const b4 = baseIdx + 16
-  posList.push(c1x, yMin, c1z,  c2x, yMin, c2z,  c2x, yMax, c2z,  c1x, yMax, c1z)
-  normList.push(ux, 0, uz,  ux, 0, uz,  ux, 0, uz,  ux, 0, uz)
-  idxList.push(b4, b4 + 1, b4 + 2, b4, b4 + 2, b4 + 3)
-
-  // Face 5: End -U
-  const b5 = baseIdx + 20
-  posList.push(c3x, yMin, c3z,  c0x, yMin, c0z,  c0x, yMax, c0z,  c3x, yMax, c3z)
-  normList.push(-ux, 0, -uz,  -ux, 0, -uz,  -ux, 0, -uz,  -ux, 0, -uz)
-  idxList.push(b5, b5 + 1, b5 + 2, b5, b5 + 2, b5 + 3)
-}
+import { PARAPET_MAT, EMBANKMENT_EDGE_MAT, getWaterMaterial } from './WaterMaterial.js'
+import { addOrientedBox } from './helpers.js'
 
 export class WaterwayMeshGenerator {
   /**
@@ -211,11 +41,26 @@ export class WaterwayMeshGenerator {
         const waterGeo = new THREE.ShapeGeometry(shape)
         waterGeo.rotateX(-Math.PI / 2)
         waterGeo.translate(0, WATER_Y, 0)
+        
+        // Compute local UVs centered on the shape for stable noise at any world position
         const pos = waterGeo.attributes['position'] as THREE.BufferAttribute
         const uvs = new Float32Array(pos.count * 2)
+        let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity
         for (let i = 0; i < pos.count; i++) {
-          uvs[i * 2] = pos.getX(i) * 0.05
-          uvs[i * 2 + 1] = pos.getZ(i) * 0.05
+          const x = pos.getX(i)
+          const z = pos.getZ(i)
+          if (x < minX) minX = x
+          if (x > maxX) maxX = x
+          if (z < minZ) minZ = z
+          if (z > maxZ) maxZ = z
+        }
+        const rangeX = maxX - minX
+        const rangeZ = maxZ - minZ
+        for (let i = 0; i < pos.count; i++) {
+          const x = pos.getX(i)
+          const z = pos.getZ(i)
+          uvs[i * 2] = rangeX > 0 ? (x - minX) / rangeX : 0.5
+          uvs[i * 2 + 1] = rangeZ > 0 ? (z - minZ) / rangeZ : 0.5
         }
         waterGeo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2))
         waterGeo.computeVertexNormals()

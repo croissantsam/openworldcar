@@ -22,7 +22,7 @@ export type PlayerState = {
   steering?: number
   speed?: number
   /** Vehicle reported by the client ('car' when absent). */
-  vehicle?: 'car' | 'plane'
+  vehicle?: 'car' | 'plane' | 'foot'
   /** Current health, [0, MAX_HEALTH]. */
   health: number
 }

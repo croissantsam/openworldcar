@@ -52,6 +52,9 @@ function finiteOr(v: number, fallback: number): number {
   return Number.isFinite(v) ? v : fallback
 }
 
+/** Where the chosen character is remembered between sessions. */
+const CHARACTER_KEY = 'worlddrive.character'
+
 /** Machine-gun readout (plane mode). */
 type GunReadout = {
   ammo: number
@@ -72,6 +75,9 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
   const [vehicleMode, setVehicleMode] = useState<VehicleMode>(() => engine.vehicleMode)
   const [flight, setFlight] = useState<FlightReadout>(FLIGHT_READOUT_EMPTY)
   const [gun, setGun] = useState<GunReadout | null>(null)
+  const [foot, setFoot] = useState<{ kmh: number; running: boolean } | null>(null)
+  const [characterType, setCharacterType] = useState<'woman' | 'man'>(() => engine.characterType)
+  const [characterChoiceOpen, setCharacterChoiceOpen] = useState(false)
   const [health, setHealth] = useState<number>(100)
   const [maxHealth, setMaxHealth] = useState<number>(100)
   const [combatInvincible, setCombatInvincible] = useState(false)
@@ -160,6 +166,20 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
 
     engine.onVehicleModeChanged = (mode) => {
       setVehicleMode(mode)
+      if (mode !== 'foot') return
+      // First time on foot: ask who the player is, then remember it.
+      let stored: string | null = null
+      try {
+        stored = window.localStorage.getItem(CHARACTER_KEY)
+      } catch {
+        stored = null
+      }
+      if (stored === 'woman' || stored === 'man') {
+        engine.setCharacterType(stored)
+        setCharacterType(stored)
+      } else {
+        setCharacterChoiceOpen(true)
+      }
     }
 
     // ── Combat feedback ───────────────────────────────────────────────────
@@ -263,6 +283,16 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
         : null
       setGun((prev) => (sameGun(prev, nextGun) ? prev : nextGun))
 
+      const footState = engine.getFootState()
+      const nextFoot = footState
+        ? { kmh: Math.round(footState.speed * 3.6), running: footState.running }
+        : null
+      setFoot((prev) =>
+        prev === nextFoot || (prev && nextFoot && prev.kmh === nextFoot.kmh && prev.running === nextFoot.running)
+          ? prev
+          : nextFoot,
+      )
+
       const cs = engine.getCombatState()
       setHealth(Math.max(0, Math.round(finiteOr(cs.health, 100))))
       setMaxHealth(Math.max(1, Math.round(finiteOr(cs.maxHealth, 100))))
@@ -306,10 +336,28 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
   }
 
   const isPlane = vehicleMode === 'plane'
+  const isFoot = vehicleMode === 'foot'
+  const isCar = vehicleMode === 'car'
 
   const toggleVehicle = () => {
     engine.togglePlane()
     setVehicleMode(engine.vehicleMode)
+  }
+
+  const toggleFoot = () => {
+    engine.toggleFoot()
+    setVehicleMode(engine.vehicleMode)
+  }
+
+  const chooseCharacter = (type: 'woman' | 'man') => {
+    engine.setCharacterType(type)
+    setCharacterType(type)
+    try {
+      window.localStorage.setItem(CHARACTER_KEY, type)
+    } catch {
+      // Private window / blocked storage: the choice just is not remembered.
+    }
+    setCharacterChoiceOpen(false)
   }
 
   const vsColor =
@@ -677,7 +725,7 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
       )}
 
       {/* Speedometer - Minimalist, modern glass badge directly above the FREIN button */}
-      {!isPlane && (
+      {isCar && (
       <div
         style={{
           position: 'absolute',
@@ -858,7 +906,17 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
             border: '1px solid rgba(255,255,255,0.08)',
           }}
         >
-          {isPlane ? (
+          {isFoot ? (
+            <>
+              <div><strong style={{ color: '#00d4ff' }}>W / Z</strong> — Avancer</div>
+              <div><strong style={{ color: '#00d4ff' }}>S</strong> — Reculer</div>
+              <div><strong style={{ color: '#00d4ff' }}>A / Q — D</strong> — Pas de côté</div>
+              <div><strong style={{ color: '#00d4ff' }}>← / →</strong> — Pivoter</div>
+              <div><strong style={{ color: '#fbbf24' }}>MAJ</strong> — Courir</div>
+              <div><strong style={{ color: '#38bdf8' }}>E</strong> — 🚗 Remonter en voiture</div>
+              <div><strong style={{ color: '#00d4ff' }}>M</strong> — Carte GPS</div>
+            </>
+          ) : isPlane ? (
             <>
               <div><strong style={{ color: '#00d4ff' }}>Z / W</strong> — Gaz +</div>
               <div><strong style={{ color: '#00d4ff' }}>S</strong> — Gaz −</div>
@@ -880,6 +938,7 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
               <div><strong style={{ color: '#00d4ff' }}>ESPACE</strong> — Frein à main</div>
               <div><strong style={{ color: '#00d4ff' }}>M</strong> — Carte GPS</div>
               <div><strong style={{ color: '#38bdf8' }}>P</strong> — ✈️ Prendre l’avion</div>
+              <div><strong style={{ color: '#38bdf8' }}>E</strong> — 🚶 Descendre à pied</div>
               <div><strong style={{ color: '#38bdf8' }}>T</strong> — 🌍 Voyager dans le monde</div>
             </>
           )}
@@ -1317,6 +1376,31 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
                 <span style={{ fontSize: 8, color: '#94a3b8' }}>Recentrer voiture</span>
               </button>
 
+              {/* 3b. Personnage */}
+              <button
+                onClick={() => {
+                  setMenuOpen(false)
+                  setCharacterChoiceOpen(true)
+                }}
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'flex-start',
+                  gap: 3,
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  border: '1px solid rgba(43, 199, 185, 0.35)',
+                  borderRadius: 12,
+                  padding: '10px 12px',
+                  cursor: 'pointer',
+                  color: '#ffffff',
+                  textAlign: 'left',
+                }}
+              >
+                <span style={{ fontSize: 20 }}>{characterType === 'woman' ? '👩' : '👨'}</span>
+                <span style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 10, fontWeight: 800, color: '#2bc7b9' }}>Personnage</span>
+                <span style={{ fontSize: 8, color: '#94a3b8' }}>{characterType === 'woman' ? 'Nova' : 'Atlas'}</span>
+              </button>
+
               {/* 4. Carte GPS */}
               <button
                 onClick={() => {
@@ -1573,6 +1657,172 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
       />
 
       {/* Mobile Touch Controls Overlay (Joystick + Brake) */}
+      {/* ── On foot: pace readout, same glass language as the speedometer ── */}
+      {isFoot && foot && (
+        <div
+          style={{
+            position: 'absolute',
+            bottom: touchMode ? 'max(110px, env(safe-area-inset-bottom, 110px))' : 28,
+            right: touchMode ? 'max(24px, env(safe-area-inset-right, 24px))' : 32,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            background: 'rgba(10, 16, 28, 0.7)',
+            backdropFilter: 'blur(10px)',
+            WebkitBackdropFilter: 'blur(10px)',
+            border: '1px solid rgba(0, 212, 255, 0.3)',
+            borderRadius: 14,
+            padding: '4px 12px',
+            pointerEvents: 'none',
+            userSelect: 'none',
+            zIndex: 35,
+            boxShadow: '0 4px 16px rgba(0, 0, 0, 0.4)',
+          }}
+        >
+          <span style={{ fontSize: 18, lineHeight: 1 }}>{foot.running ? '🏃' : '🚶'}</span>
+          <span
+            style={{
+              fontFamily: "'Orbitron', sans-serif",
+              fontSize: 26,
+              fontWeight: 900,
+              color: '#ffffff',
+              letterSpacing: 1,
+              textShadow: '0 0 12px rgba(0, 212, 255, 0.5)',
+            }}
+          >
+            {foot.kmh}
+          </span>
+          <span
+            style={{
+              fontFamily: "'Orbitron', sans-serif",
+              fontSize: 9,
+              fontWeight: 700,
+              letterSpacing: 1.4,
+              color: foot.running ? '#fbbf24' : '#7dd3fc',
+            }}
+          >
+            KM/H
+            <br />
+            {foot.running ? 'COURSE' : 'MARCHE'}
+          </span>
+        </div>
+      )}
+
+      {/* ── Step out / get back in ─────────────────────────────────────── */}
+      {!isPlane && (
+        <button
+          onClick={toggleFoot}
+          title={isFoot ? 'Remonter en voiture (E)' : 'Descendre à pied (E)'}
+          style={{
+            position: 'absolute',
+            top: isMobileLandscape ? 'max(8px, env(safe-area-inset-top, 8px))' : 16,
+            right: isMobileLandscape ? 'max(150px, env(safe-area-inset-right, 150px))' : 182,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            background: isFoot ? 'rgba(0, 60, 90, 0.78)' : 'rgba(10, 16, 28, 0.75)',
+            backdropFilter: 'blur(12px)',
+            WebkitBackdropFilter: 'blur(12px)',
+            border: isFoot ? '1px solid rgba(0, 212, 255, 0.6)' : '1px solid rgba(255, 255, 255, 0.18)',
+            color: isFoot ? '#7dd3fc' : '#e2e8f0',
+            borderRadius: 12,
+            padding: isMobileLandscape ? '5px 9px' : '7px 12px',
+            cursor: 'pointer',
+            zIndex: 40,
+            boxShadow: '0 4px 16px rgba(0, 0, 0, 0.4)',
+          }}
+        >
+          <span style={{ fontSize: isMobileLandscape ? 15 : 17, lineHeight: 1 }}>{isFoot ? '🚗' : '🚶'}</span>
+          <span
+            style={{
+              fontFamily: "'Orbitron', sans-serif",
+              fontSize: isMobileLandscape ? 9 : 10,
+              fontWeight: 800,
+              letterSpacing: 1.1,
+            }}
+          >
+            {isFoot ? 'VOITURE' : 'À PIED'}
+          </span>
+        </button>
+      )}
+
+      {/* ── Who are you? Asked once, then remembered ───────────────────── */}
+      {characterChoiceOpen && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 0, 0, 0.7)',
+            backdropFilter: 'blur(14px)',
+            WebkitBackdropFilter: 'blur(14px)',
+            zIndex: 200,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 22,
+            padding: 20,
+          }}
+        >
+          <div
+            style={{
+              fontFamily: "'Orbitron', sans-serif",
+              fontSize: 20,
+              fontWeight: 900,
+              letterSpacing: 2,
+              color: '#ffffff',
+              textShadow: '0 0 18px rgba(0, 212, 255, 0.5)',
+              textAlign: 'center',
+            }}
+          >
+            QUI ÊTES-VOUS ?
+          </div>
+          <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', justifyContent: 'center' }}>
+            {([
+              { type: 'woman' as const, name: 'NOVA', emoji: '👩', accent: '#2bc7b9' },
+              { type: 'man' as const, name: 'ATLAS', emoji: '👨', accent: '#f2a344' },
+            ]).map((c) => (
+              <button
+                key={c.type}
+                onClick={() => chooseCharacter(c.type)}
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: 10,
+                  width: 150,
+                  padding: '22px 16px',
+                  background:
+                    characterType === c.type ? `${c.accent}22` : 'rgba(10, 16, 28, 0.85)',
+                  border: `2px solid ${characterType === c.type ? c.accent : 'rgba(255,255,255,0.15)'}`,
+                  borderRadius: 18,
+                  cursor: 'pointer',
+                  color: '#ffffff',
+                  boxShadow:
+                    characterType === c.type ? `0 0 26px ${c.accent}66` : '0 6px 20px rgba(0,0,0,0.5)',
+                }}
+              >
+                <span style={{ fontSize: 44, lineHeight: 1 }}>{c.emoji}</span>
+                <span
+                  style={{
+                    fontFamily: "'Orbitron', sans-serif",
+                    fontSize: 13,
+                    fontWeight: 900,
+                    letterSpacing: 2,
+                    color: c.accent,
+                  }}
+                >
+                  {c.name}
+                </span>
+              </button>
+            ))}
+          </div>
+          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', textAlign: 'center' }}>
+            Vous pourrez changer à tout moment dans le menu ☰
+          </div>
+        </div>
+      )}
+
       <TouchControls engine={engine} visible={touchMode} vehicleMode={vehicleMode} />
 
       {/* Mobile Orientation Prompt (when in portrait mode) */}

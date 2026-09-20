@@ -22,7 +22,7 @@ export type PlayerStateUpdate = {
   speed?: number
   timestamp?: number
   /** Vehicle the player is driving. Absent = 'car' (older clients). */
-  vehicle?: 'car' | 'plane'
+  vehicle?: 'car' | 'plane' | 'foot'
 }
 
 export type ClientMessage =

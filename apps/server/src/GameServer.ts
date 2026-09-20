@@ -109,7 +109,10 @@ export class GameServer {
           invincibleUntil: s.invincibleUntil,
           health: s.state.health,
           // Only sent for planes: absent = car, as older clients expect
-          ...(s.state.vehicle === 'plane' ? { vehicle: 'plane' as const } : {}),
+          // Omitted for 'car', so older clients keep reading a car.
+          ...(s.state.vehicle === 'plane' || s.state.vehicle === 'foot'
+            ? { vehicle: s.state.vehicle }
+            : {}),
         }
       })
 

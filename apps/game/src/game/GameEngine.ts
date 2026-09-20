@@ -25,6 +25,9 @@ import { PlayerPlane, type PlaneState, type FlightInput } from '../vehicles/Play
 import { PlaneGun } from '../vehicles/PlaneGun.js'
 import { CombatSystem, MAX_HEALTH } from './CombatSystem.js'
 import { FlightCamera } from '../camera/FlightCamera.js'
+import { PlayerCharacter, type CharacterInput } from '../characters/PlayerCharacter.js'
+import type { CharacterType } from '../characters/ActionCharacter.js'
+import { FootCamera } from '../camera/FootCamera.js'
 import { ChunkManager, type StreetInfo } from '../world/ChunkManager.js'
 import { NPCManager } from '../vehicles/NPCManager.js'
 import { RemotePlayerManager } from '../vehicles/RemotePlayerManager.js'
@@ -80,7 +83,7 @@ const DROP_ROAD_RANK: Record<string, number> = {
   motorway: 3,
 }
 
-export type VehicleMode = 'car' | 'plane'
+export type VehicleMode = 'car' | 'plane' | 'foot'
 
 export type DebugStats = {
   fps: number
@@ -114,6 +117,10 @@ export class GameEngine {
 
   // ─── Plane (created on first use) ──────────────────────────────────────────
   private plane: PlayerPlane | null = null
+  // ─── On foot (created on first use) ────────────────────────────────────
+  private human: PlayerCharacter | null = null
+  private footCamera: FootCamera | null = null
+  private _characterType: CharacterType = 'woman'
   private planeGun: PlaneGun | null = null
   private combat: CombatSystem | null = null
   private flightCamera: FlightCamera | null = null
@@ -232,6 +239,10 @@ export class GameEngine {
     }
 
     // P: car <-> plane, Shift+P: plane directly in the air
+    this.input.onFootToggle = () => {
+      this.toggleFoot()
+    }
+
     this.input.onVehicleToggle = (airborne) => {
       if (airborne) {
         this.enterPlane({ airborne: true })
@@ -368,11 +379,17 @@ export class GameEngine {
     const rawInput = this.input.getInput()
     const plane = this._vehicleMode === 'plane' ? this.plane : null
     const flightInput = plane ? this.input.getFlightInput() : null
+    const human = this._vehicleMode === 'foot' ? this.human : null
+    const walkInput: CharacterInput | null = human ? this.input.getWalkInput() : null
 
     // ── Fixed timestep physics ─────────────────────────────────────────────
     while (this.accumulator >= FIXED_DT) {
       if (plane && flightInput) {
         plane.step(flightInput, FIXED_DT)
+      } else if (human && walkInput) {
+        // The character queries the world rather than being solved in it,
+        // so it steps before world.step() like the plane does.
+        human.step(walkInput, FIXED_DT)
       } else {
         this.playerCar.applyInput(rawInput, FIXED_DT)
       }
@@ -392,6 +409,24 @@ export class GameEngine {
         this.lastSafePlaneGround = groundBelow(pos, plane.getState().altitudeAGL)
         const yaw = plane.getYaw()
         if (Number.isFinite(yaw)) this.lastSafePlaneYaw = yaw
+      }
+    } else if (human) {
+      // ── On foot: the same water / fell-through-the-world safety net ──────
+      pos = human.getPosition()
+      if (!isFiniteVec(pos) || pos.y < -15.0) {
+        this._recoverHuman()
+        pos = this.getPlayerPosition()
+      } else {
+        const inTunnel = this.chunkManager?.isPointNearTunnel(pos.x, pos.z) ?? false
+        if (!inTunnel && this._isCarInWater(pos)) {
+          this.impactFX?.triggerWaterSplash(pos)
+          this.footCamera?.addTrauma(0.6)
+          this._recoverHuman()
+          pos = this.getPlayerPosition()
+        } else if (pos.y >= -7.0) {
+          this.lastSafePos = { x: pos.x, y: pos.y + CAR_RIDE_HEIGHT, z: pos.z }
+          this.lastSafeYaw = human.getYaw()
+        }
       }
     } else {
       // ── Water Plunge & Falling Respawn ────────────────────────────────────
@@ -430,6 +465,18 @@ export class GameEngine {
           steering: 0,
           speed: Math.hypot(v.x, v.y, v.z),
           vehicle: 'plane',
+        })
+      } else if (this._vehicleMode === 'foot' && this.human) {
+        const h = this.human
+        const yaw = h.getYaw()
+        const v = h.getVelocity()
+        this.gameClient.sendState({
+          position: h.getPosition(),
+          rotation: { x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) },
+          velocity: v,
+          steering: 0,
+          speed: Math.hypot(v.x, v.z),
+          vehicle: 'foot',
         })
       } else {
         const carPos = this.playerCar.getPosition()
@@ -479,6 +526,12 @@ export class GameEngine {
       // Guns after syncMesh: the muzzles follow the pose that is drawn
       this._updateGun(delta, this.plane, flightInput)
       this.flightCamera.update(delta)
+    } else if (this._vehicleMode === 'foot' && human && this.footCamera) {
+      this._updateGun(delta, null, null)
+      human.syncMesh(Math.min(1, Math.max(0, this.accumulator / FIXED_DT)), delta)
+      this.footCamera.update(delta)
+      // The car is parked and visible: keep its mesh where its body sits.
+      this.playerCar.syncMesh(delta)
     } else {
       // Car mode: the guns never fire, but their tracers finish and cool down
       this._updateGun(delta, null, null)
@@ -533,8 +586,152 @@ export class GameEngine {
     if (this._vehicleMode === 'plane') {
       this.exitPlane()
     } else {
+      // On foot: get back in the car first, then take off from there.
+      if (this._vehicleMode === 'foot') this.exitFoot()
       this.enterPlane(opts)
     }
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // On foot
+  // ───────────────────────────────────────────────────────────────────────────
+
+  get characterType(): CharacterType {
+    return this._characterType
+  }
+
+  /** Choose Nova or Atlas. Takes effect immediately, even while walking. */
+  setCharacterType(type: CharacterType): void {
+    if (type !== 'man' && type !== 'woman') return
+    this._characterType = type
+    this.human?.setType(type)
+  }
+
+  /** Walk away from the car (or land the plane first), or get back in. */
+  toggleFoot(): void {
+    if (this._vehicleMode === 'foot') this.exitFoot()
+    else this.enterFoot()
+  }
+
+  /**
+   * Step out. The character appears just beside the car, the car keeps all its
+   * state with its body disabled, exactly as when the plane is taken.
+   * Returns false if the character could not be placed.
+   */
+  enterFoot(): boolean {
+    if (this.disposed || !this.world || !this.playerCar) return false
+    if (this._vehicleMode === 'foot') return true
+    // From the plane: land first, so there is always a car to come back to.
+    if (this._vehicleMode === 'plane') this.exitPlane()
+
+    const car = this.playerCar
+    const c = car.getPosition()
+    const heading = car.getYaw()
+    if (!isFiniteVec(c) || !Number.isFinite(heading)) return false
+
+    // A step to the driver's side, so the character is not inside the car.
+    const side = heading + Math.PI / 2
+    const ground: WorldPosition = {
+      x: c.x + Math.sin(side) * 1.6,
+      y: Math.max(0, c.y - CAR_RIDE_HEIGHT),
+      z: c.z + Math.cos(side) * 1.6,
+    }
+
+    let human: PlayerCharacter
+    try {
+      human = this._ensureHuman()
+      human.spawn(ground, heading)
+    } catch (err) {
+      console.error('[GameEngine] Could not spawn the character:', err)
+      try {
+        this.human?.despawn()
+      } catch {
+        // ignore
+      }
+      return false
+    }
+
+    // Park the car: keep its state, take it out of the simulation.
+    const body = car.getRigidBody()
+    body.setLinvel({ x: 0, y: 0, z: 0 }, false)
+    body.setAngvel({ x: 0, y: 0, z: 0 }, false)
+    body.setEnabled(false)
+    car.getMesh().visible = true // the parked car stays visible on the street
+
+    const cam = this.renderer.camera
+    this.savedCameraSettings = { fov: cam.fov, near: cam.near, far: cam.far }
+    this.footCamera = new FootCamera(cam, human)
+    this.footCamera.snap()
+
+    this._vehicleMode = 'foot'
+    this.onVehicleModeChanged?.('foot')
+    return true
+  }
+
+  /** Get back in the car. It is wherever it was parked. */
+  exitFoot(): void {
+    if (this._vehicleMode !== 'foot') return
+    try {
+      this.human?.despawn()
+    } catch (err) {
+      console.warn('[GameEngine] character.despawn failed:', err)
+    }
+    this.footCamera?.dispose()
+    this.footCamera = null
+
+    const body = this.playerCar.getRigidBody()
+    body.setEnabled(true)
+    this.playerCar.getMesh().visible = true
+
+    const cam = this.renderer.camera
+    if (this.savedCameraSettings) {
+      cam.fov = this.savedCameraSettings.fov
+      cam.near = this.savedCameraSettings.near
+      cam.far = this.savedCameraSettings.far
+      this.savedCameraSettings = null
+    }
+    cam.up.set(0, 1, 0)
+    cam.updateProjectionMatrix()
+
+    this._vehicleMode = 'car'
+    this.onVehicleModeChanged?.('car')
+    this._snapCarCamera()
+  }
+
+  /**
+   * The character fell out of the world or walked into the water: put it back
+   * on the last safe street, the way the car recovers.
+   */
+  private _recoverHuman(): void {
+    const h = this.human
+    if (!h) return
+    const ground: WorldPosition = {
+      x: this.lastSafePos.x,
+      y: Math.max(0, this.lastSafePos.y - CAR_RIDE_HEIGHT),
+      z: this.lastSafePos.z,
+    }
+    try {
+      h.spawn(ground, this.lastSafeYaw)
+    } catch (err) {
+      console.warn('[GameEngine] character respawn failed, back to the car:', err)
+      this.exitFoot()
+      return
+    }
+    this.footCamera?.snap()
+    this.gameClient?.sendRespawn()
+  }
+
+  private _ensureHuman(): PlayerCharacter {
+    if (this.human) return this.human
+    const h = new PlayerCharacter(this.world, this.renderer.scene, this._characterType)
+    h.onFatalFall = () => {
+      // A long drop is lethal, the one hazard that does not need another player.
+      if (this._vehicleMode !== 'foot') return
+      if (this.destroyedUntil > performance.now()) return
+      this._destroyLocalPlayer('chute')
+    }
+    this.human = h
+    return h
   }
 
   /**
@@ -870,6 +1067,11 @@ export class GameEngine {
         console.warn('[GameEngine] Respawn of the destroyed plane failed:', err)
         this._recoverPlane()
       }
+    } else if (this._vehicleMode === 'foot') {
+      // Shot down on foot: the character drops and gets back up on the
+      // nearest safe street, with the server's fresh spawn protection.
+      this.footCamera?.addTrauma(1)
+      this._recoverHuman()
     } else {
       this.camera?.addTrauma(1)
       this.respawnPlayer()
@@ -885,6 +1087,10 @@ export class GameEngine {
   getPlayerPosition(): WorldPosition {
     if (this._vehicleMode === 'plane' && this.plane) {
       const p = this.plane.getPosition()
+      if (isFiniteVec(p)) return p
+    }
+    if (this._vehicleMode === 'foot' && this.human) {
+      const p = this.human.getPosition()
       if (isFiniteVec(p)) return p
     }
     return this.playerCar.getPosition()
@@ -903,6 +1109,10 @@ export class GameEngine {
       const yaw = this.plane.getYaw()
       if (Number.isFinite(yaw)) return new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw))
     }
+    if (this._vehicleMode === 'foot' && this.human) {
+      const yaw = this.human.getYaw()
+      if (Number.isFinite(yaw)) return new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw))
+    }
     return this.playerCar.getHeadingVector()
   }
 
@@ -913,6 +1123,10 @@ export class GameEngine {
       if (isFiniteVec(v)) return v
       return { x: 0, y: 0, z: 0 }
     }
+    if (this._vehicleMode === 'foot' && this.human) {
+      const v = this.human.getVelocity()
+      return isFiniteVec(v) ? v : { x: 0, y: 0, z: 0 }
+    }
     return this.playerCar.getVelocity()
   }
 
@@ -922,7 +1136,17 @@ export class GameEngine {
       const v = this.getPlayerVelocity()
       return Math.hypot(v.x, v.y, v.z)
     }
+    if (this._vehicleMode === 'foot' && this.human) {
+      return this.human.getState().speed
+    }
     return this.playerCar.getSpeed()
+  }
+
+  /** Walking readout (speed, running, grounded), or null outside foot mode. */
+  getFootState(): { speed: number; running: boolean; grounded: boolean } | null {
+    if (this._vehicleMode !== 'foot' || !this.human) return null
+    const st = this.human.getState()
+    return { speed: st.speed, running: st.running, grounded: st.grounded }
   }
 
   /** Flight instruments, or null when driving the car. */
@@ -1208,6 +1432,10 @@ export class GameEngine {
     this.chunkManager?.dispose()
     this.flightCamera?.dispose()
     this.flightCamera = null
+    this.footCamera?.dispose()
+    this.footCamera = null
+    this.human?.dispose()
+    this.human = null
     this.planeGun?.dispose()
     this.planeGun = null
     this.combat?.dispose()

@@ -1,11 +1,14 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react'
-import type { GameEngine } from '../game/GameEngine.js'
+import type { GameEngine, VehicleMode } from '../game/GameEngine.js'
 
 interface TouchControlsProps {
   engine: GameEngine
   visible?: boolean
-  /** Plane mode: the joystick flies (X = roll, Y = pitch), FREIN = brakes + idle throttle. */
-  vehicleMode?: 'car' | 'plane'
+  /**
+   * Plane: the joystick flies (X = roll, Y = pitch), FREIN = brakes + idle throttle.
+   * Foot: the joystick walks (X = strafe, Y = forward), FREIN = run.
+   */
+  vehicleMode?: VehicleMode
 }
 
 const MAX_RADIUS = 34 // Max pixel travel for the smaller joystick knob
@@ -17,6 +20,7 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
   vehicleMode = 'car',
 }) => {
   const isPlane = vehicleMode === 'plane'
+  const isFoot = vehicleMode === 'foot'
   // Joystick knob offset from base center
   const [knobPos, setKnobPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
   const [isJoystickActive, setIsJoystickActive] = useState(false)
@@ -572,7 +576,7 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
               textShadow: isBraking ? '0 0 8px #ffffff' : '0 0 6px rgba(239, 68, 68, 0.4)',
             }}
           >
-            FREIN
+            {isFoot ? 'COURIR' : 'FREIN'}
           </span>
           {isPlane && (
             <span

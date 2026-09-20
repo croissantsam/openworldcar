@@ -15,6 +15,7 @@ import {
   AIRPLANE_FUSELAGE_Y,
 } from './AirplaneModel.js'
 import type { WorldPosition } from '@world-drive/math'
+import { createActionCharacter, type ActionCharacter, type CharacterType } from '../characters/ActionCharacter.js'
 
 const MAX_HEALTH = 100
 /** Health below which a remote vehicle trails smoke. */
@@ -31,7 +32,7 @@ const HITBOX_GROUPS = (0x0008 << 16) | 0x0000
 const MAX_SMOKE_PUFFS = 12
 const SMOKE_INTERVAL = 0.085
 
-type RemoteVehicle = 'car' | 'plane'
+type RemoteVehicle = 'car' | 'plane' | 'foot'
 type AirplaneVisual = ReturnType<typeof createTwoSeatAirplane>
 
 /**
@@ -42,6 +43,19 @@ type AirplaneVisual = ReturnType<typeof createTwoSeatAirplane>
  */
 const CAR_NAMETAG_Y = 2.2
 const PLANE_NAMETAG_Y = 3.6
+const FOOT_NAMETAG_Y = 2.4
+
+/** A walking remote below this speed stands still, above it walks. */
+const FOOT_WALK_SPEED = 0.35
+/** Above this it runs. */
+const FOOT_RUN_SPEED = 3.2
+/** Speeds the Walk / Run clips were authored for, to keep the feet planted. */
+const FOOT_WALK_CLIP = 1.45
+const FOOT_RUN_CLIP = 4.5
+/** Hitbox for a person: a box around the torso and legs. */
+const FOOT_HALF_W = 0.42
+const FOOT_HALF_H = 0.98
+const FOOT_HALF_D = 0.34
 
 // Visual dimensions matching PlayerCar
 const CAR_W = 2.0
@@ -185,6 +199,8 @@ type RemotePlayer = {
   carVisual: THREE.Group
   /** Plane model, created the first time this player flies. */
   planeVisual: { container: THREE.Group; model: AirplaneVisual } | null
+  /** Walking character, built the first time this player goes on foot. */
+  footVisual: { container: THREE.Group; character: ActionCharacter } | null
   vehicle: RemoteVehicle
   nametag: THREE.Sprite
   /** Last reported speed (m/s), for the propeller. */
@@ -265,7 +281,9 @@ export class RemotePlayerManager {
       }
 
       // Absent = car (older clients / servers)
-      const vehicle: RemoteVehicle = snap.vehicle === 'plane' ? 'plane' : 'car'
+      // Absent or unknown = car, so an older server still reads as before.
+      const vehicle: RemoteVehicle =
+        snap.vehicle === 'plane' || snap.vehicle === 'foot' ? snap.vehicle : 'car'
       if (vehicle !== player.vehicle) this._setVehicle(player, vehicle)
       const v = snap.velocity
       const speed = v ? Math.hypot(v.x, v.y, v.z) : 0
@@ -312,6 +330,21 @@ export class RemotePlayerManager {
       }
 
       // ── Plane propeller ─────────────────────────────────────────────────
+      if (player.vehicle === 'foot' && player.footVisual) {
+        const c = player.footVisual.character
+        const speed = player.lastSpeed
+        if (speed < FOOT_WALK_SPEED) {
+          c.play('Idle')
+          c.mixer.timeScale = 1
+        } else if (speed < FOOT_RUN_SPEED) {
+          c.play('Walk')
+          c.mixer.timeScale = Math.max(0.45, Math.min(1.9, speed / FOOT_WALK_CLIP))
+        } else {
+          c.play('Run')
+          c.mixer.timeScale = Math.max(0.55, Math.min(1.7, speed / FOOT_RUN_CLIP))
+        }
+        c.update(Math.min(0.1, Math.max(0, dt)))
+      }
       if (player.vehicle === 'plane' && player.planeVisual) {
         const rpm = 520 + Math.min(70, player.lastSpeed) * 13
         player.planeVisual.model.update(Math.min(0.1, Math.max(0, dt)), rpm)
@@ -377,6 +410,8 @@ export class RemotePlayerManager {
       this.scene.remove(player.mesh)
       player.planeVisual?.model.dispose()
       player.planeVisual = null
+      player.footVisual?.character.dispose()
+      player.footVisual = null
       this._disposeDamageVisuals(player)
       if (player.collider) this.colliderToPlayer.delete(player.collider.handle)
       if (player.hitCollider) this.colliderToPlayer.delete(player.hitCollider.handle)
@@ -446,17 +481,36 @@ export class RemotePlayerManager {
         console.warn('[RemotePlayerManager] Could not build the plane model:', err)
       }
     }
+    if (vehicle === 'foot' && !player.footVisual) {
+      try {
+        // The rig faces +Z like the network rotation, so no extra turn.
+        const type: CharacterType = hashId(player.id) % 2 === 0 ? 'woman' : 'man'
+        const character = createActionCharacter({ type, name: `Remote_${hashId(player.id)}` })
+        character.setAccent(player.paletteHex)
+        const container = new THREE.Group()
+        container.name = `remote_foot_${player.id}`
+        container.add(character.group)
+        player.mesh.add(container)
+        player.footVisual = { container, character }
+      } catch (err) {
+        console.warn('[RemotePlayerManager] Could not build the character:', err)
+      }
+    }
+
     const flying = vehicle === 'plane' && player.planeVisual !== null
-    player.carVisual.visible = !flying
+    const walking = vehicle === 'foot' && player.footVisual !== null
+    player.carVisual.visible = !flying && !walking
     if (player.planeVisual) player.planeVisual.container.visible = flying
-    player.nametag.position.y = flying ? PLANE_NAMETAG_Y : CAR_NAMETAG_Y
-    // No car collider while flying
-    if (vehicle === 'plane') {
+    if (player.footVisual) player.footVisual.container.visible = walking
+    const tagY = flying ? PLANE_NAMETAG_Y : walking ? FOOT_NAMETAG_Y : CAR_NAMETAG_Y
+    player.nametag.position.y = tagY
+    // No car collider while flying or walking
+    if (vehicle !== 'car') {
       player.collider?.setEnabled(false)
       player.colliderWasEnabled = false
     }
     if (player.healthBar) {
-      player.healthBar.sprite.position.y = (flying ? PLANE_NAMETAG_Y : CAR_NAMETAG_Y) - 0.42
+      player.healthBar.sprite.position.y = tagY - 0.42
     }
     this._rebuildHitCollider(player)
   }
@@ -477,8 +531,15 @@ export class RemotePlayerManager {
       player.vehicle === 'plane'
         ? RAPIER.ColliderDesc.cuboid(AIRPLANE_WINGTIP_X + 0.1, 1.35, AIRPLANE_LENGTH / 2)
             .setTranslation(0, AIRPLANE_FUSELAGE_Y, 0)
-        : RAPIER.ColliderDesc.cuboid(CAR_W / 2 + 0.05, CAR_H / 2 + 0.1, CAR_L / 2 + 0.05)
-            .setTranslation(0, CAR_H / 2, 0)
+        : player.vehicle === 'foot'
+          ? // The network position is the feet, so the box sits above it.
+            RAPIER.ColliderDesc.cuboid(FOOT_HALF_W, FOOT_HALF_H, FOOT_HALF_D).setTranslation(
+              0,
+              FOOT_HALF_H,
+              0,
+            )
+          : RAPIER.ColliderDesc.cuboid(CAR_W / 2 + 0.05, CAR_H / 2 + 0.1, CAR_L / 2 + 0.05)
+              .setTranslation(0, CAR_H / 2, 0)
     desc.setCollisionGroups(HITBOX_GROUPS).setSolverGroups(HITBOX_GROUPS)
     const col = this.world.createCollider(desc, player.body)
     player.hitCollider = col
@@ -490,8 +551,10 @@ export class RemotePlayerManager {
     // Destroyed: hide the vehicle for a short while
     const hidden = player.hiddenUntil > nowMs
     const flying = player.vehicle === 'plane' && player.planeVisual !== null
-    player.carVisual.visible = !hidden && !flying
+    const walking = player.vehicle === 'foot' && player.footVisual !== null
+    player.carVisual.visible = !hidden && !flying && !walking
     if (player.planeVisual) player.planeVisual.container.visible = !hidden && flying
+    if (player.footVisual) player.footVisual.container.visible = !hidden && walking
 
     // Health bar (only below full health, and never while hidden)
     if (player.healthBar) {
@@ -699,6 +762,7 @@ export class RemotePlayerManager {
       mesh: root,
       carVisual: group,
       planeVisual: null,
+      footVisual: null,
       vehicle: 'car',
       nametag,
       lastSpeed: 0,
@@ -723,7 +787,7 @@ export class RemotePlayerManager {
       colliderWasEnabled: true,
     }
     this._rebuildHitCollider(player)
-    if (snap.vehicle === 'plane') this._setVehicle(player, 'plane')
+    if (snap.vehicle === 'plane' || snap.vehicle === 'foot') this._setVehicle(player, snap.vehicle)
     return player
   }
 
@@ -740,6 +804,8 @@ export class RemotePlayerManager {
       this.scene.remove(player.mesh)
       player.planeVisual?.model.dispose()
       player.planeVisual = null
+      player.footVisual?.character.dispose()
+      player.footVisual = null
       this._disposeDamageVisuals(player)
       player.hitCollider = null
       if (player.body && this.world) {

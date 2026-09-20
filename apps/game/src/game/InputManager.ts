@@ -1,12 +1,13 @@
 /**
  * InputManager — keyboard / gamepad / touch input state.
  *
- * Provides a normalised PlayerInput snapshot every frame (car), and a
- * FlightInput snapshot (plane).
+ * Provides a normalised PlayerInput snapshot every frame (car), a FlightInput
+ * snapshot (plane) and a CharacterInput snapshot (on foot).
  * Does NOT send to the server; that's the networking layer's job.
  */
 
 import type { FlightInput } from '../vehicles/PlayerPlane.js'
+import type { CharacterInput } from '../characters/PlayerCharacter.js'
 
 export type RawInput = {
   /** [0, 1] */
@@ -66,6 +67,9 @@ export class InputManager {
    * Set by the GameEngine.
    */
   onVehicleToggle: ((airborne: boolean) => void) | null = null
+
+  /** Called on E: step out of the vehicle, or get back in. */
+  onFootToggle: (() => void) | null = null
 
   /**
    * Set virtual touch/mobile inputs.
@@ -133,6 +137,17 @@ export class InputManager {
       (e.code === 'KeyP' || e.key === 'p' || e.key === 'P')
     ) {
       this.onVehicleToggle?.(e.shiftKey)
+    }
+
+    // E: step out on foot, or get back in.
+    if (
+      !e.repeat &&
+      !e.ctrlKey &&
+      !e.metaKey &&
+      !e.altKey &&
+      (e.code === 'KeyE' || e.key === 'e' || e.key === 'E')
+    ) {
+      this.onFootToggle?.()
     }
   }
 
@@ -317,6 +332,58 @@ export class InputManager {
     return input
   }
 
+  /**
+   * Walking controls (on foot). Keyboard first, then gamepad, then touch.
+   *
+   * W/Z forward, S back, A/Q and D strafe, ← / → turn, Shift to run.
+   * Turning with the arrows rather than the mouse keeps the pointer free for
+   * the HUD, and matches how the car and the plane are already steered.
+   */
+  getWalkInput(): CharacterInput {
+    const k = this.keys
+    const kFwd = k.has('KeyW') || k.has('KeyZ') || k.has('w') || k.has('z')
+    const kBack = k.has('KeyS') || k.has('s')
+    const kLeft = k.has('KeyA') || k.has('KeyQ') || k.has('a') || k.has('q')
+    const kRight = k.has('KeyD') || k.has('d')
+    const kTurnLeft = k.has('ArrowLeft') || k.has('arrowleft')
+    const kTurnRight = k.has('ArrowRight') || k.has('arrowright')
+    const kRun =
+      k.has('ShiftLeft') || k.has('ShiftRight') || k.has('Shift') || k.has('shift')
+
+    let forward = (kFwd ? 1 : 0) - (kBack ? 1 : 0)
+    let right = (kRight ? 1 : 0) - (kLeft ? 1 : 0)
+    let turn = (kTurnRight ? 1 : 0) - (kTurnLeft ? 1 : 0)
+    let run = kRun
+
+    const pad = this.getGamepad()
+    if (pad) {
+      const ax = deadzone(pad.axes[0])
+      const ay = deadzone(pad.axes[1])
+      if (forward === 0 && ay !== 0) forward = -ay
+      if (right === 0 && ax !== 0) right = ax
+      const rx = deadzone(pad.axes[2])
+      if (turn === 0 && rx !== 0) turn = rx
+      // Left stick click or the right trigger: run.
+      const rt = pad.buttons[7]
+      run = run || !!pad.buttons[10]?.pressed || (!!rt && (rt.pressed || rt.value > 0.5))
+    }
+
+    if (this.touchControlsActive) {
+      const s = this.virtualStick
+      if (forward === 0 && s.y !== 0) forward = -s.y
+      if (right === 0 && s.x !== 0) right = s.x
+      // The FREIN button becomes the run button on foot.
+      run = run || s.brake
+    }
+
+    return {
+      forward: clamp(forward, -1, 1),
+      right: clamp(right, -1, 1),
+      turn: clamp(turn, -1, 1),
+      run,
+    }
+  }
+
   private getGamepad(): Gamepad | null {
     if (typeof navigator === 'undefined' || typeof navigator.getGamepads !== 'function') return null
     let pads: (Gamepad | null)[]
@@ -339,6 +406,7 @@ export class InputManager {
     if (this.disposed) return
     this.disposed = true
     this.onVehicleToggle = null
+    this.onFootToggle = null
     window.removeEventListener('keydown', this.onKeyDown)
     window.removeEventListener('keyup', this.onKeyUp)
     window.removeEventListener('blur', this.onBlur)

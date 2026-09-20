@@ -13,7 +13,7 @@ export type PlayerSnapshot = {
   /** Timestamp (ms) until which the player is invincible against collisions with other players. */
   invincibleUntil?: number
   /** Vehicle the player is driving. Absent = 'car' (older servers / clients). */
-  vehicle?: 'car' | 'plane'
+  vehicle?: 'car' | 'plane' | 'foot'
   /** Current health [0, 100]. Absent = full health (older servers). */
   health?: number
 }

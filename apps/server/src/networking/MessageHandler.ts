@@ -42,7 +42,9 @@ export class MessageHandler {
         session.state.steering = msg.state.steering ?? 0
         session.state.speed = msg.state.speed ?? 0
         // Older clients do not send the field: they drive a car
-        session.state.vehicle = msg.state.vehicle === 'plane' ? 'plane' : 'car'
+        // Three known values; anything else is an older or hostile client: car.
+        session.state.vehicle =
+          msg.state.vehicle === 'plane' || msg.state.vehicle === 'foot' ? msg.state.vehicle : 'car'
         session.lastProcessedSeq = msg.seq
         this.server.updatePlayerState(session.id, msg.state)
         break

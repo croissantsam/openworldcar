@@ -347,7 +347,7 @@ export class ChunkManager {
         if (n >= COLLIDERS_PER_SLICE) { n = 0; yield }
       }
       for (const park of features.parks ?? []) {
-        for (const desc of ParkMeshGenerator.createColliderDescs(park, allRoads, features.pointsOfInterest ?? [])) add(desc)
+        for (const desc of ParkMeshGenerator.createColliderDescs(park, allRoads, features.pointsOfInterest ?? [], managed.id)) add(desc)
         if (n >= COLLIDERS_PER_SLICE) { n = 0; yield }
       }
       for (const road of features.roads) {

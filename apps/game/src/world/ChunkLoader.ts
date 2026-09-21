@@ -278,7 +278,7 @@ export class ChunkLoader {
     const chunkPois = chunk.pointsOfInterest ?? []
     for (const park of chunk.parks ?? []) {
       yield estimateParkMs(park)
-      const parkGroup = ParkMeshGenerator.generate(park, allRoads as Road[], chunkPois)
+      const parkGroup = ParkMeshGenerator.generate(park, allRoads as Road[], chunkPois, chunk.id)
       if (parkGroup) group.add(parkGroup)
     }
     const pois = chunk.pointsOfInterest ?? []
@@ -399,7 +399,7 @@ export class ChunkLoader {
 
     // 2. Parks & Gardens (lush green lawns and 3D trees)
     for (const park of chunk.parks ?? []) {
-      const parkGroup = ParkMeshGenerator.generate(park, chunk.roads)
+      const parkGroup = ParkMeshGenerator.generate(park, chunk.roads, undefined, chunk.id)
       if (parkGroup) group.add(parkGroup)
     }
 

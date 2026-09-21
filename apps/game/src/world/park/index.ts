@@ -18,9 +18,17 @@ export {
 } from './ParkMaterials.js'
 export {
   isPointInPolygon,
+  isPointInRect,
   buildRoadObstacles,
   isPointInRoadObstacles,
   collectRealTrees,
   nearRealTree,
+  computeTreePlacements,
+  chunkBounds,
+  clipPolygonToRect,
+  polygonArea,
+  polygonCentroid,
   type RoadObstacleSeg,
+  type TreePlacement,
+  type Rect,
 } from './ParkHelpers.js'

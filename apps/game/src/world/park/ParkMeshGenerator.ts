@@ -13,25 +13,39 @@
 
 import * as THREE from 'three'
 import RAPIER from '@dimforge/rapier3d-compat'
-import type { Park, ParkType, PointOfInterest, Road } from '@world-drive/shared'
+import type { ChunkId } from '@world-drive/math'
+import type { Park, PointOfInterest, Road } from '@world-drive/shared'
 import { PARK_MATS, TRUNK_MAT, PATH_GRAVEL_MAT } from './ParkMaterials.js'
 import { getPlataneTemplate, getLindenTemplate, getOrnamentalTemplate } from './TreeTemplates.js'
 import { getBenchTemplate } from './BenchTemplate.js'
 import { getShrubTemplate } from './ShrubTemplate.js'
 import {
   isPointInPolygon,
+  isPointInRect,
   buildRoadObstacles,
   isPointInRoadObstacles,
-  collectRealTrees,
-  nearRealTree,
+  computeTreePlacements,
+  chunkBounds,
+  clipPolygonToRect,
+  polygonArea,
+  polygonCentroid,
 } from './ParkHelpers.js'
 
 export class ParkMeshGenerator {
   /**
    * Generate a 3D park group with rich procedural lawn, realistic tree archetypes,
    * benches, flowerbeds, and walking paths (without any blocking fences or barriers).
+   *
+   * The same park object lives in every chunk its polygon touches: `ownerChunk`
+   * restricts this build to that chunk's cell (clipped lawn, owned trees only,
+   * centroid-owned overlays) so geometry and colliders are never duplicated.
    */
-  static generate(park: Park, roads?: Road[], pois?: PointOfInterest[]): THREE.Group | null {
+  static generate(
+    park: Park,
+    roads?: Road[],
+    pois?: PointOfInterest[],
+    ownerChunk?: ChunkId,
+  ): THREE.Group | null {
     const pts = park.polygon
     if (pts.length < 3) return null
 
@@ -58,15 +72,25 @@ export class ParkMeshGenerator {
     const group = new THREE.Group()
     group.userData['parkId'] = park.id
 
+    // ── Single-owner partitioning: this chunk only builds its own cell ──────
+    const ownerRect = ownerChunk ? chunkBounds(ownerChunk) : null
+    // Overlays and the central path are built once, by the centroid's chunk.
+    const centroid = polygonCentroid(pts)
+    const ownsOverlays = !ownerRect || isPointInRect(centroid.x, centroid.z, ownerRect)
+
     // ── 1. Park Lawn Surface ────────────────────────────────────────────────
     // Placed at y = 0.022m (cleanly above urban slab at 0.001m, and flush/below road asphalt at 0.028m).
     // In Three.js, Shape is constructed in 2D (x, y). When rotateX(-PI/2) is applied,
     // (x, y, 0) -> (x, 0, -y). Therefore, to get world (x, 0, z), we must pass (x, -z) to Shape!
+    // The lawn is clipped to the owner chunk: adjacent chunks share only an
+    // edge, never an overlapping surface (no z-fighting).
+    const lawnPts = ownerRect ? clipPolygonToRect(cleanPts, ownerRect) : cleanPts
+    if (lawnPts.length >= 3 && polygonArea(lawnPts) > 0.01) {
     try {
       const shape = new THREE.Shape()
-      shape.moveTo(cleanPts[0]!.x, -cleanPts[0]!.z)
-      for (let i = 1; i < cleanPts.length; i++) {
-        shape.lineTo(cleanPts[i]!.x, -cleanPts[i]!.z)
+      shape.moveTo(lawnPts[0]!.x, -lawnPts[0]!.z)
+      for (let i = 1; i < lawnPts.length; i++) {
+        shape.lineTo(lawnPts[i]!.x, -lawnPts[i]!.z)
       }
       shape.closePath()
 
@@ -95,9 +119,12 @@ export class ParkMeshGenerator {
     } catch (err) {
       console.warn(`[ParkMeshGenerator] Failed to triangulate park ${park.id}:`, err)
     }
+    }
 
-    // ── 2. Type-specific overlays (Cemetery, Parking lot, Pitch) ───────────
-    if (park.type === 'cemetery') {
+    // ── 2. Type-specific overlays (Cemetery, Parking lot, Pitch) ────────────
+    // Built once by the centroid's chunk (positions are seeded from the park
+    // id, so unowned chunks would stack identical copies).
+    if (ownsOverlays && park.type === 'cemetery') {
       let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity
       for (const p of pts) { minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x); minZ = Math.min(minZ, p.z); maxZ = Math.max(maxZ, p.z) }
       const w = maxX - minX; const d = maxZ - minZ
@@ -121,7 +148,7 @@ export class ParkMeshGenerator {
       }
     }
 
-    if (park.type === 'parking_lot') {
+    if (ownsOverlays && park.type === 'parking_lot') {
       let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity
       for (const p of pts) { minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x); minZ = Math.min(minZ, p.z); maxZ = Math.max(maxZ, p.z) }
       const lineMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.4, emissive: 0xffffff, emissiveIntensity: 0.08, polygonOffset: true, polygonOffsetFactor: 2.0, polygonOffsetUnits: 2.0 })
@@ -137,7 +164,7 @@ export class ParkMeshGenerator {
       }
     }
 
-    if (park.type === 'pitch') {
+    if (ownsOverlays && park.type === 'pitch') {
       let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity
       for (const p of pts) { minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x); minZ = Math.min(minZ, p.z); maxZ = Math.max(maxZ, p.z) }
       const cX = (minX + maxX) / 2; const cZ = (minZ + maxZ) / 2
@@ -176,7 +203,7 @@ export class ParkMeshGenerator {
     const depth = maxZ - minZ
     const approxArea = width * depth
 
-    if ((park.type === 'park' || park.type === 'garden') && approxArea >= 350) {
+    if (ownsOverlays && (park.type === 'park' || park.type === 'garden') && approxArea >= 350) {
       const cX = (minX + maxX) / 2
       const cZ = (minZ + maxZ) / 2
       // Draw a cross or central path
@@ -199,56 +226,43 @@ export class ParkMeshGenerator {
     }
 
     // ── 4. Realistic 3D Trees Scatter ──────────────────────────────────────
-    const treeTypes: ParkType[] = ['park', 'garden', 'grass', 'forest', 'recreation', 'scrub', 'cemetery']
-    if (treeTypes.includes(park.type)) {
-      if (approxArea >= 50) {
-        // Density tuned for visual lushness & 60 FPS performance
-        const numCandidates = Math.min(30, Math.floor(approxArea / 160) + 3)
-        const realTrees = collectRealTrees(pois, minX, maxX, minZ, maxZ)
+    // Placements are shared with createColliderDescs() (same positions AND
+    // same archetype/scale draws): visual trunks and physics trunks match.
+    // Only the trees inside this chunk's cell are built here.
+    const ownedPlacements = (() => {
+      const all = computeTreePlacements(park.id, pts, park.type, roads, pois)
+      if (!ownerRect) return all
+      return all.filter((t) => isPointInRect(t.x, t.z, ownerRect))
+    })()
+    if (ownedPlacements.length > 0) {
+      const archetypes = [
+        getPlataneTemplate(),    // Marronnier / Platane parisien
+        getLindenTemplate(),     // Tilleul / Chêne
+        getOrnamentalTemplate(), // Arbre d'ornement / Cerisier
+      ]
 
-        const archetypes = [
-          getPlataneTemplate(),    // Marronnier / Platane parisien
-          getLindenTemplate(),     // Tilleul / Chêne
-          getOrnamentalTemplate(), // Arbre d'ornement / Cerisier
-        ]
+      let seed = 0
+      for (let i = 0; i < park.id.length; i++) seed = (seed * 31 + park.id.charCodeAt(i)) >>> 0
+      function pseudoRandom(): number {
+        seed = (seed * 9301 + 49297) % 233280
+        return seed / 233280
+      }
 
-        let seed = 0
-        for (let i = 0; i < park.id.length; i++) seed = (seed * 31 + park.id.charCodeAt(i)) >>> 0
-        function pseudoRandom(): number {
-          seed = (seed * 9301 + 49297) % 233280
-          return seed / 233280
-        }
+      const treeLocations: Array<{ x: number; z: number }> = []
+      for (const placement of ownedPlacements) {
+        const template = archetypes[placement.archetype]!
+        const tree = template.clone()
 
-        let treesPlaced = 0
-        const treeLocations: Array<{ x: number; z: number }> = []
+        // Natural variations in scale, orientation, and subtle tilt
+        tree.scale.set(placement.scale, placement.scale, placement.scale)
+        tree.rotation.y = placement.rotY
+        tree.rotation.z = placement.lean // natural slight lean
 
-        for (let attempt = 0; attempt < numCandidates * 3 && treesPlaced < numCandidates; attempt++) {
-          const candidateX = minX + pseudoRandom() * width
-          const candidateZ = minZ + pseudoRandom() * depth
+        tree.position.set(placement.x, 0, placement.z)
+        group.add(tree)
 
-          if (
-            isPointInPolygon(candidateX, candidateZ, pts) &&
-            !isPointInRoadObstacles(candidateX, candidateZ, roadObs, 1.6) &&
-            !nearRealTree(candidateX, candidateZ, realTrees)
-          ) {
-            // Pick archetype based on random roll
-            const archIdx = Math.floor(pseudoRandom() * archetypes.length)
-            const template = archetypes[archIdx]!
-            const tree = template.clone()
-
-            // Natural variations in scale, orientation, and subtle tilt
-            const scale = 0.85 + pseudoRandom() * 0.40
-            tree.scale.set(scale, scale, scale)
-            tree.rotation.y = pseudoRandom() * Math.PI * 2
-            tree.rotation.z = (pseudoRandom() - 0.5) * 0.08 // natural slight lean
-
-            tree.position.set(candidateX, 0, candidateZ)
-            group.add(tree)
-
-            treeLocations.push({ x: candidateX, z: candidateZ })
-            treesPlaced++
-          }
-        }
+        treeLocations.push({ x: placement.x, z: placement.z })
+      }
 
         // ── 5. Park Furniture: Parisian Davioud Benches & Shrubs ────────────
         if ((park.type === 'park' || park.type === 'garden') && treeLocations.length > 0) {
@@ -292,7 +306,6 @@ export class ParkMeshGenerator {
           }
         }
       }
-    }
 
     return group
   }
@@ -302,59 +315,29 @@ export class ParkMeshGenerator {
    * Perimeter fences and barrier colliders are completely omitted,
    * allowing cars to drive seamlessly onto park grass.
    */
-  static createColliderDescs(park: Park, roads?: Road[], pois?: PointOfInterest[]): RAPIER.ColliderDesc[] {
+  static createColliderDescs(
+    park: Park,
+    roads?: Road[],
+    pois?: PointOfInterest[],
+    ownerChunk?: ChunkId,
+  ): RAPIER.ColliderDesc[] {
     const pts = park.polygon
     if (pts.length < 3) return []
 
+    // Same deterministic placements as the visual trees above, restricted to
+    // this chunk's cell: every visible trunk gets exactly one collider, no
+    // invisible walls, no stacked duplicates.
+    const ownerRect = ownerChunk ? chunkBounds(ownerChunk) : null
     const colliders: RAPIER.ColliderDesc[] = []
-    const roadObs = buildRoadObstacles(roads)
-
-    // Tree trunk solid colliders
-    let minX = Infinity, maxX = -Infinity
-    let minZ = Infinity, maxZ = -Infinity
-    for (const p of pts) {
-      if (p.x < minX) minX = p.x
-      if (p.x > maxX) maxX = p.x
-      if (p.z < minZ) minZ = p.z
-      if (p.z > maxZ) maxZ = p.z
+    for (const t of computeTreePlacements(park.id, pts, park.type, roads, pois)) {
+      if (ownerRect && !isPointInRect(t.x, t.z, ownerRect)) continue
+      // Solid trunk cylinder (radius 0.38m ≈ visual trunk base, half-height
+      // 1.6m centered at y = 1.6m so low branches don't catch the car).
+      colliders.push(
+        RAPIER.ColliderDesc.cylinder(1.6, 0.38).setTranslation(t.x, 1.6, t.z),
+      )
     }
-
-    const width = maxX - minX
-    const depth = maxZ - minZ
-    const approxArea = width * depth
-
-    const treeTypes: ParkType[] = ['park', 'garden', 'grass', 'forest', 'recreation', 'scrub', 'cemetery']
-    if (treeTypes.includes(park.type) && approxArea >= 50) {
-      const numCandidates = Math.min(30, Math.floor(approxArea / 160) + 3)
-      const realTrees = collectRealTrees(pois, minX, maxX, minZ, maxZ)
-      let seed = 0
-      for (let i = 0; i < park.id.length; i++) seed = (seed * 31 + park.id.charCodeAt(i)) >>> 0
-
-      function pseudoRandom(): number {
-        seed = (seed * 9301 + 49297) % 233280
-        return seed / 233280
-      }
-
-      let treesPlaced = 0
-      for (let attempt = 0; attempt < numCandidates * 3 && treesPlaced < numCandidates; attempt++) {
-        const candidateX = minX + pseudoRandom() * width
-        const candidateZ = minZ + pseudoRandom() * depth
-
-        if (
-          isPointInPolygon(candidateX, candidateZ, pts) &&
-          !isPointInRoadObstacles(candidateX, candidateZ, roadObs, 1.6) &&
-          !nearRealTree(candidateX, candidateZ, realTrees)
-        ) {
-          // Tree trunk solid cylinder collider (radius 0.32m, half-height 1.6m centered at y = 1.6m)
-          colliders.push(
-            RAPIER.ColliderDesc.cylinder(1.6, 0.32)
-              .setTranslation(candidateX, 1.6, candidateZ),
-          )
-          treesPlaced++
-        }
-      }
-    }
-
     return colliders
   }
 }
+

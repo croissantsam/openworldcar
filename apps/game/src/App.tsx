@@ -2,6 +2,14 @@ import { useEffect, useRef, useState } from 'react'
 import { GameEngine } from './game/GameEngine.js'
 import { HUD } from './ui/HUD.js'
 import { DebugOverlay } from './renderer/DebugOverlay.js'
+import { authClient } from './lib/auth-client.js'
+import type { WorldDestination } from './world/destinations.js'
+import {
+  applyProfileSettings,
+  destinationFromProfile,
+  loadMyProfile,
+  startProfileAutosave,
+} from './services/profileSync.js'
 
 export default function App() {
   const mountRef = useRef<HTMLDivElement>(null)
@@ -12,22 +20,50 @@ export default function App() {
   useEffect(() => {
     if (!mountRef.current) return
     let isMounted = true
+    let stopAutosave: (() => void) | null = null
     const engine = new GameEngine(mountRef.current)
     engineRef.current = engine
 
-    engine
-      .init()
-      .then(() => {
-        if (!isMounted) {
-          engine.dispose()
-          return
+    // Guest auto: no session → one-click anonymous account so every
+    // player gets a persistent profile (spawn + settings).
+    const boot = async () => {
+      try {
+        const { data } = await authClient.getSession()
+        if (!data?.user) {
+          await authClient.signIn.anonymous().catch(() => null)
         }
-        setEngineReady(true)
-        engine.start()
-      })
-      .catch((err) => {
-        console.error('[App] Failed to initialise GameEngine:', err)
-      })
+      } catch {
+        // auth backend unreachable — the game stays fully playable offline
+      }
+
+      // Restore saved settings + spawn before the world builds. The
+      // destination is passed to init() so origin, chunk source and car
+      // are set before the first chunk loads (no area mixing).
+      const profile = await loadMyProfile()
+      if (!isMounted) {
+        engine.dispose()
+        return
+      }
+      let initialDest: WorldDestination | undefined = undefined
+      if (profile) {
+        applyProfileSettings(profile)
+        const dest = destinationFromProfile(profile)
+        if (dest) initialDest = dest
+      }
+
+      await engine.init(initialDest)
+      if (!isMounted) {
+        engine.dispose()
+        return
+      }
+      stopAutosave = startProfileAutosave(engine)
+      setEngineReady(true)
+      engine.start()
+    }
+
+    boot().catch((err) => {
+      console.error('[App] Failed to initialise GameEngine:', err)
+    })
 
     const onKey = (e: KeyboardEvent) => {
       if (e.key === '`' || e.key === '~') {
@@ -39,6 +75,7 @@ export default function App() {
     return () => {
       isMounted = false
       window.removeEventListener('keydown', onKey)
+      stopAutosave?.()
       engine.dispose()
     }
   }, [])

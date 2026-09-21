@@ -8,3 +8,5 @@ data/development/*.pbf
 .env
 .env.local
 apps/game/.cache/
+apps/game/.data/
+apps/game/.tanstack/

@@ -9,6 +9,8 @@ import { WorldTravelModal } from './WorldTravelModal.js'
 import { AddressSearchBar } from './AddressSearchBar.js'
 import { TouchControls } from './TouchControls.js'
 import { OrientationPrompt } from './OrientationPrompt.js'
+import { AuthModal } from './auth/AuthModal.js'
+import { authClient } from '../lib/auth-client.js'
 
 interface HUDProps {
   engine: GameEngine
@@ -91,6 +93,11 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
   const [travelOpen, setTravelOpen] = useState(false)
   const [searchBarOpen, setSearchBarOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [authOpen, setAuthOpen] = useState(false)
+  const { data: authSession } = authClient.useSession()
+  const authUser = authSession?.user as { name?: string; email?: string; isAnonymous?: boolean | null } | undefined
+  const isGuest = !authUser || authUser.isAnonymous === true || authUser.isAnonymous === null
+  const authLabel = isGuest ? 'INVITÉ' : (authUser?.name || authUser?.email || 'PILOTE').toUpperCase().slice(0, 18)
   const [mapExpanded, setMapExpanded] = useState(false)
   const [viewDistanceOpen, setViewDistanceOpen] = useState(false)
   const viewDistance = useSettingsStore((state) => state.viewDistance)
@@ -1064,6 +1071,49 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
         )}
       </div>
 
+      {/* Account session badge (guest or pilot) — opens the account modal */}
+      <button
+        onClick={() => setAuthOpen(true)}
+        style={{
+          position: 'absolute',
+          top: isMobileLandscape ? 'max(48px, calc(env(safe-area-inset-top, 0px) + 48px))' : 64,
+          left: isMobileLandscape ? 'max(14px, env(safe-area-inset-left, 14px))' : 20,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          background: 'rgba(10, 16, 28, 0.75)',
+          backdropFilter: 'blur(12px)',
+          WebkitBackdropFilter: 'blur(12px)',
+          border: isGuest ? '1px solid rgba(251, 191, 36, 0.4)' : '1px solid rgba(52, 211, 153, 0.4)',
+          borderRadius: 12,
+          padding: isMobileLandscape ? '3px 10px' : '5px 12px',
+          cursor: 'pointer',
+          userSelect: 'none',
+          zIndex: 60,
+          boxShadow: '0 4px 16px rgba(0, 0, 0, 0.4)',
+        }}
+        title={isGuest ? 'Mode invité — créer un compte pour tout synchroniser' : 'Compte pilote'}
+      >
+        <span style={{ fontSize: isMobileLandscape ? 10 : 12 }}>{isGuest ? '👤' : '✅'}</span>
+        <span
+          style={{
+            fontFamily: "'Inter', sans-serif",
+            fontSize: isMobileLandscape ? 8 : 10,
+            fontWeight: 700,
+            color: isGuest ? '#fbbf24' : '#6ee7b7',
+            letterSpacing: 1,
+            lineHeight: 1,
+            textTransform: 'uppercase',
+            maxWidth: 130,
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+          }}
+        >
+          {authLabel}
+        </span>
+      </button>
+
       {/* Car / plane toggle, next to the menu button */}
       <button
         onClick={(e) => {
@@ -1357,6 +1407,37 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
                 <span style={{ fontSize: 8, color: '#94a3b8' }}>Voir plus loin</span>
               </button>
             </div>
+
+            {/* 5. Compte pilote (guest / connexion / synchronisation) */}
+            <button
+              onClick={() => {
+                setMenuOpen(false)
+                setAuthOpen(true)
+              }}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                background: 'rgba(0, 212, 255, 0.07)',
+                border: '1px solid rgba(0, 212, 255, 0.35)',
+                borderRadius: 12,
+                padding: '10px 12px',
+                cursor: 'pointer',
+                color: '#ffffff',
+                textAlign: 'left',
+                width: '100%',
+              }}
+            >
+              <span style={{ fontSize: 20 }}>{isGuest ? '👤' : '✅'}</span>
+              <span style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                <span style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 10, fontWeight: 800, color: '#00d4ff' }}>
+                  {isGuest ? 'COMPTE INVITÉ' : authLabel}
+                </span>
+                <span style={{ fontSize: 8, color: '#94a3b8' }}>
+                  {isGuest ? 'Sauvegardé ici — créer un compte pour synchroniser' : 'Spawn et réglages synchronisés'}
+                </span>
+              </span>
+            </button>
 
             {/* Distance de vue panel */}
             {viewDistanceOpen && (
@@ -1676,6 +1757,9 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
         currentDestinationId={currentDest.id}
         onSelectDestination={handleTravelTo}
       />
+
+      {/* Pilot account modal */}
+      {authOpen && <AuthModal engine={engine} onClose={() => setAuthOpen(false)} />}
 
       {/* Hyperspace Warp FX Overlay */}
       {isWarping && (

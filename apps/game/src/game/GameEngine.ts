@@ -31,7 +31,6 @@ import { RemotePlayerManager } from '../vehicles/RemotePlayerManager.js'
 import { GameClient } from '../networking/GameClient.js'
 import {
   setWorldOrigin,
-  DEFAULT_ORIGIN,
   worldToChunk,
   worldToGeo,
 } from '@world-drive/math'
@@ -201,15 +200,27 @@ export class GameEngine {
     this.mount = mount
   }
 
-  async init(): Promise<void> {
+  /**
+   * Boot the engine. When `initialDestination` is provided (e.g. a saved
+   * spawn restored from the player profile), the world origin, chunk source
+   * and car are set to it BEFORE the first chunk loads — exactly like
+   * `travelTo()` does. Skipping this mixes two geographic areas in the same
+   * world space: chunk keys are origin-relative, so stale cached chunks from
+   * the default area would be unioned into the new one.
+   */
+  async init(initialDestination?: WorldDestination): Promise<void> {
     if (this.disposed) return
 
     // Initialise Rapier WASM
     await RAPIER.init()
     if (this.disposed) return
 
-    // Set world origin (Paris 2e — default for V1)
-    setWorldOrigin(DEFAULT_ORIGIN)
+    if (initialDestination) {
+      this.currentDestination = initialDestination
+    }
+
+    // Set world origin from the (possibly restored) initial destination
+    setWorldOrigin(this.currentDestination.origin)
 
     // Create Rapier world with earth-like gravity
     const gravity = { x: 0.0, y: -9.81, z: 0.0 }
@@ -252,7 +263,22 @@ export class GameEngine {
       }
     }
 
+    // Start the car on the initial destination's spawn point so the first
+    // chunk load (and any early respawn) already targets the right area.
+    const initialSpawn = this.currentDestination.spawnPosition ?? { x: 62.5, y: 1.0, z: 62.5 }
+    const initialHeading = this.currentDestination.spawnHeading ?? 0
+    this.playerCar.teleport(initialSpawn, initialHeading)
+    this.lastSafePos = { x: initialSpawn.x, y: initialSpawn.y, z: initialSpawn.z }
+    this.lastSafeYaw = initialHeading
+
     this.chunkManager = new ChunkManager(this.renderer.scene, this.world)
+    // Point the chunk loader at the initial destination's origin and static
+    // chunk directory BEFORE the first update() — otherwise default-area
+    // chunks would load (and stay cached) under a foreign origin.
+    this.chunkManager.resetToOrigin(
+      this.currentDestination.origin,
+      this.currentDestination.chunkDir,
+    )
     this.npcManager = new NPCManager(this.renderer.scene)
     this.remotePlayers = new RemotePlayerManager(this.renderer.scene, this.world)
     this.gameClient = new GameClient()

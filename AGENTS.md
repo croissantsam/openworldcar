@@ -103,6 +103,7 @@ OSM PBF → Parser → Filter → Normalize → Chunk Generator → Serialized G
   - `NPCManager` / `NPCCar` — road-graph-following traffic
   - `RemotePlayerManager` — interpolated remote players
   - `GameClient` — WebSocket, input send, snapshot receive
+  - `Auth` — Better Auth (email/password + anonymous guest), SQLite + drizzle; `player_profile` table (spawn, destination snapshot, settings JSON); server fns in `src/server/profile.ts`; guest auto-created on first launch, autosaved (settings 2s debounce, spawn 20s)
   - UI: `HUD`, `Minimap`, `TouchControls`, `AddressSearchBar`, `WorldTravelModal`, `DebugOverlay`
 
 ### `@world-drive/server` (Server)

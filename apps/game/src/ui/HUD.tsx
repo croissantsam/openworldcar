@@ -11,9 +11,18 @@ import { TouchControls } from './TouchControls.js'
 import { OrientationPrompt } from './OrientationPrompt.js'
 import { AuthModal } from './auth/AuthModal.js'
 import { TrophyModal } from './trophies/TrophyModal.js'
+import { TrialBoardModal } from './trials/TrialBoardModal.js'
+import { TrialWidgets } from './trials/TrialWidgets.js'
 import { useTrophyToast } from './trophies/toast.js'
 import { authClient } from '../lib/auth-client.js'
 import { recordCityVisit } from '../services/profileSync.js'
+import { submitTrialTime } from '../server/trials.js'
+import {
+  formatTrialDist,
+  formatTrialTime,
+  TRIAL_START_RADIUS_M,
+  type TrialStatus,
+} from '../lib/trials.js'
 
 interface HUDProps {
   engine: GameEngine
@@ -101,6 +110,9 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
   const [menuOpen, setMenuOpen] = useState(false)
   const [authOpen, setAuthOpen] = useState(false)
   const [trophyOpen, setTrophyOpen] = useState(false)
+  const [trialBoardOpen, setTrialBoardOpen] = useState(false)
+  const [trialStatus, setTrialStatus] = useState<TrialStatus>(() => engine.getTrialStatus())
+  const [trialSubmit, setTrialSubmit] = useState<{ timeMs: number; bestMs: number; isRecord: boolean } | null>(null)
   const trophyToasts = useTrophyToast((s) => s.items)
   const { data: authSession } = authClient.useSession()
   const authUser = authSession?.user as { name?: string; email?: string; isAnonymous?: boolean | null } | undefined
@@ -182,6 +194,25 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
 
     engine.onVehicleModeChanged = (mode) => {
       setVehicleMode(mode)
+    }
+
+    // ── Time-trial finish: submit the run, banner shows record or best ─────
+    engine.onTrialFinished = (trial, timeMs) => {
+      submitTrialTime({
+        data: {
+          trial: {
+            id: trial.id,
+            destinationId: trial.destinationId,
+            label: `${trial.from.name} → ${trial.to.name}`,
+            fromName: trial.from.name,
+            toName: trial.to.name,
+            distanceM: trial.distanceM,
+          },
+          timeMs,
+        },
+      })
+        .then((res) => setTrialSubmit({ timeMs, bestMs: res.bestMs, isRecord: res.isRecord }))
+        .catch(() => setTrialSubmit({ timeMs, bestMs: timeMs, isRecord: false }))
     }
 
     // ── Combat feedback ───────────────────────────────────────────────────
@@ -306,6 +337,23 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
       setPlayerCount(engine.getConnectedPlayerCount())
       setIsNetworkConnected(engine.isNetworkConnected())
       setNetworkPing(engine.getNetworkLatency())
+      const ts = engine.getTrialStatus()
+      setTrialStatus((prev) =>
+        prev.phase === ts.phase &&
+        prev.countdownS === ts.countdownS &&
+        prev.elapsedMs === ts.elapsedMs &&
+        prev.distToStartM === ts.distToStartM &&
+        prev.remainingM === ts.remainingM &&
+        prev.proposal?.id === ts.proposal?.id &&
+        prev.active?.id === ts.active?.id &&
+        prev.lastResult?.timeMs === ts.lastResult?.timeMs
+          ? prev
+          : ts,
+      )
+      if (ts.phase === 'countdown') {
+        // New run starting: drop the previous finish banner data.
+        setTrialSubmit(null)
+      }
     }, 100) // 10 Hz
 
     return () => {
@@ -326,6 +374,7 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
       engine.onGunHit = undefined
       engine.onDamageTaken = undefined
       engine.onPlayerDestroyed = undefined
+      engine.onTrialFinished = undefined
     }
   }, [engine, travelOpen])
 
@@ -1584,6 +1633,37 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
               </span>
             </button>
 
+            {/* 7. Time trials (monument to monument) */}
+            <button
+              onClick={() => {
+                setMenuOpen(false)
+                setTrialBoardOpen(true)
+              }}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                background: 'rgba(52, 211, 153, 0.07)',
+                border: '1px solid rgba(52, 211, 153, 0.35)',
+                borderRadius: 12,
+                padding: '10px 12px',
+                cursor: 'pointer',
+                color: '#ffffff',
+                textAlign: 'left',
+                width: '100%',
+              }}
+            >
+              <span style={{ fontSize: 20 }}>⏱️</span>
+              <span style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                <span style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 10, fontWeight: 800, color: '#34d399' }}>
+                  CHRONO
+                </span>
+                <span style={{ fontSize: 8, color: '#94a3b8' }}>
+                  Contre-la-montre entre monuments
+                </span>
+              </span>
+            </button>
+
             {/* Distance de vue panel */}
             {viewDistanceOpen && (
               <div
@@ -1908,6 +1988,17 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
 
       {/* Trophies & leaderboard modal */}
       {trophyOpen && <TrophyModal onClose={() => setTrophyOpen(false)} />}
+
+      {/* Time-trial board modal */}
+      {trialBoardOpen && <TrialBoardModal engine={engine} onClose={() => setTrialBoardOpen(false)} />}
+
+      {/* Time-trial status widgets */}
+      <TrialWidgets
+        status={trialStatus}
+        submit={trialSubmit}
+        touchMode={touchMode}
+        onAbort={() => engine.abortTrial()}
+      />
 
       {/* Trophy unlock toasts */}
       {trophyToasts.length > 0 && (

@@ -63,6 +63,8 @@ export class InputManager {
   private touchControlsActive = false
   /** Machine-gun trigger from the on-screen 🔫 button. */
   private virtualFire = false
+  /** Edge-triggered Enter key (time-trial start/dismiss). Cleared on read. */
+  private enterPressed = false
   /** Left mouse button held over the canvas (not over a HUD control). */
   private mouseFire = false
 
@@ -146,6 +148,11 @@ export class InputManager {
     ) {
       this.onVehicleToggle?.(e.shiftKey)
     }
+
+    // Enter: time-trial start/dismiss (edge-triggered, read via consume).
+    if (!e.repeat && (e.code === 'Enter' || e.key === 'Enter')) {
+      this.enterPressed = true
+    }
   }
 
   private readonly onKeyUp = (e: KeyboardEvent) => {
@@ -158,6 +165,7 @@ export class InputManager {
   private readonly onBlur = () => {
     this.keys.clear()
     this.mouseFire = false
+    this.enterPressed = false
   }
 
   /**
@@ -349,6 +357,13 @@ export class InputManager {
       if (p && p.connected && p.axes.length >= 2) return p
     }
     return null
+  }
+
+  /** Edge-triggered Enter press (time trials). Cleared on read. */
+  consumeEnterPressed(): boolean {
+    const pressed = this.enterPressed
+    this.enterPressed = false
+    return pressed
   }
 
   isKeyDown(code: string): boolean {

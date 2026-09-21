@@ -33,8 +33,23 @@ import {
   setWorldOrigin,
   worldToChunk,
   worldToGeo,
+  geoToWorld,
 } from '@world-drive/math'
 import type { WorldPosition, GeoPosition } from '@world-drive/math'
+import {
+  generateTrials,
+  TRIAL_COUNTDOWN_S,
+  TRIAL_FINISH_RADIUS_M,
+  TRIAL_START_RADIUS_M,
+  type TrialDef,
+  type TrialPhase,
+  type TrialStatus,
+} from '../lib/trials.js'
+import {
+  fetchCorridorRoads,
+  fetchRadarMonuments,
+  type RadarMonument,
+} from '../lib/trialRadar.js'
 import { buildRoadGraph, findAStarPath } from '@world-drive/world-data'
 import { WORLD_DESTINATIONS, type WorldDestination } from '../world/destinations.js'
 import { fetchOsmChunksForArea, fetchRealOsmArea, type RealOsmAreaResult } from '../world/LiveOsmFetcher.js'
@@ -176,6 +191,36 @@ export class GameEngine {
   private netTimer = 0
   private driftFxTimer = 0
 
+  // ── Time trials (monument to monument) ───────────────────────────────────
+  private trialPhase: TrialPhase = 'idle'
+  private trialActive: TrialDef | null = null
+  private trialT = 0
+  private trialFinalMs = 0
+  private trialResult: { trial: TrialDef; timeMs: number } | null = null
+  private trialCache: { list: TrialDef[]; atX: number; atZ: number; atTime: number } | null = null
+  /** Player GPS stashed while a trial shows direct guidance (restored after). */
+  private trialSavedGps: WorldPosition | null = null
+  /**
+   * Far-monument radar (Overpass): monuments beyond the streamed 300m tiles
+   * plus road corridors for candidate pairs. Keyed by destination (the world
+   * origin moves with it). Best-effort: trials fall back to loaded chunks.
+   */
+  private trialRadar: {
+    destId: string
+    monuments: RadarMonument[]
+    corridors: Map<string, Road[]>
+    atTime: number
+    loading: boolean
+  } | null = null
+  private trialBeacons: {
+    start: THREE.Group
+    startRing: THREE.Mesh
+    finish: THREE.Group
+    finishRing: THREE.Mesh
+  } | null = null
+  /** A run just finished (HUD submits the time + shows the banner). */
+  onTrialFinished?: ((trial: TrialDef, timeMs: number) => void) | undefined
+
   // ── Trip stats (trophies): unsaved session deltas ────────────────────────
   private tripDistanceM = 0
   private tripJumpM = 0
@@ -264,6 +309,7 @@ export class GameEngine {
     this.playerCar = new PlayerCar(this.world, this.renderer.scene)
     this.camera = new ThirdPersonCamera(this.renderer.camera, this.playerCar)
     this.impactFX = new ImpactFX(this.renderer.scene)
+    this._buildTrialBeacons()
 
     // Wire physical collision impacts to camera trauma and audiovisual effects
     this.playerCar.onImpact = (intensity, point, direction) => {
@@ -475,15 +521,26 @@ export class GameEngine {
 
     // ── Input ──────────────────────────────────────────────────────────────
     const rawInput = this.input.getInput()
+    if (this.input.consumeEnterPressed()) this._onEnterPressed()
     const plane = this._vehicleMode === 'plane' ? this.plane : null
-    const flightInput = plane ? this.input.getFlightInput() : null
+    // During the start countdown the car is held (handbrake, not brake:
+    // brake at standstill means reverse) so nobody jumps GO.
+    const countingDown = this.trialPhase === 'countdown'
+    const driveInput = countingDown
+      ? { throttle: 0, brake: 0, steering: 0, handbrake: true, nitro: false }
+      : rawInput
+    const flightInput = plane
+      ? countingDown
+        ? { throttleUp: false, throttleDown: false, pitch: 0, roll: 0, yaw: 0, brake: true, fire: false }
+        : this.input.getFlightInput()
+      : null
 
     // ── Fixed timestep physics ─────────────────────────────────────────────
     while (this.accumulator >= FIXED_DT) {
       if (plane && flightInput) {
         plane.step(flightInput, FIXED_DT)
       } else {
-        this.playerCar.applyInput(rawInput, FIXED_DT)
+        this.playerCar.applyInput(driveInput, FIXED_DT)
       }
       this.world.step()
       this.npcManager.tick(FIXED_DT)
@@ -526,8 +583,11 @@ export class GameEngine {
     // ── Trip stats (distance, jumps, play time) ────────────────────────────
     this._trackTripStats(delta, pos, plane === null)
 
+    // ── Time trial (countdown, timer, finish detection) ────────────────────
+    this._updateTrial(delta, pos)
+
     // ── Networking ─────────────────────────────────────────────────────────
-    this.gameClient.sendInput(rawInput)
+    this.gameClient.sendInput(driveInput)
 
     this.netTimer += delta
     if (this.netTimer >= 0.05) {
@@ -552,7 +612,7 @@ export class GameEngine {
           position: carPos,
           rotation: { x: quat.x, y: quat.y, z: quat.z, w: quat.w },
           velocity: vel,
-          steering: rawInput.steering,
+          steering: driveInput.steering,
           speed,
           vehicle: 'car',
         })
@@ -1163,6 +1223,305 @@ export class GameEngine {
     return out
   }
 
+  // ───────────────────────────────────────────────────────────────────────────
+  // Time trials (monument → monument, started on foot with Enter)
+  // ───────────────────────────────────────────────────────────────────────────
+
+  /** Nearby generated trials (cached, recomputed at most every 5s / 150m). */
+  getNearbyTrials(): TrialDef[] {
+    const pos = this.getPlayerPosition()
+    const now = performance.now()
+    const c = this.trialCache
+    if (c) {
+      const movedSq = (pos.x - c.atX) * (pos.x - c.atX) + (pos.z - c.atZ) * (pos.z - c.atZ)
+      if (now - c.atTime < 5000 && movedSq < 150 * 150) return c.list
+    }
+    let list: TrialDef[] = []
+    try {
+      if (this.chunkManager) {
+        const radar = this.trialRadar && this.trialRadar.destId === this.currentDestination.id
+          ? this.trialRadar
+          : null
+        const extraMonuments = radar
+          ? radar.monuments.map((m) => {
+              const w = geoToWorld({ latitude: m.lat, longitude: m.lon })
+              return { id: m.id, name: m.name, x: w.x, z: w.z }
+            })
+          : undefined
+        const extraRoads = radar ? [...radar.corridors.values()].flat() : undefined
+        list = generateTrials(
+          this.chunkManager.getActivePOIs(),
+          this.chunkManager.getActiveRoads(),
+          this.currentDestination.id,
+          pos,
+          3,
+          extraMonuments || extraRoads ? { monuments: extraMonuments, roads: extraRoads } : undefined,
+        )
+      }
+    } catch {
+      list = []
+    }
+    this.trialCache = { list, atX: pos.x, atZ: pos.z, atTime: now }
+    return list
+  }
+
+  /**
+   * Refresh the far-monument radar (Overpass, disk-cached): monuments in a
+   * ~2.5km sweep around the destination origin, then road corridors for the
+   * most promising pairs. No-op while a run is active; throttled to 90s per
+   * destination. Resolves when done (errors → chunk-only fallback).
+   */
+  async refreshTrialRadar(): Promise<void> {
+    if (this.disposed || this.trialPhase !== 'idle') return
+    const dest = this.currentDestination
+    const prev = this.trialRadar && this.trialRadar.destId === dest.id ? this.trialRadar : null
+    if (prev && (prev.loading || performance.now() - prev.atTime < 90_000)) return
+    const radar = {
+      destId: dest.id,
+      monuments: prev?.monuments ?? [],
+      corridors: prev?.corridors ?? new Map<string, Road[]>(),
+      atTime: performance.now(),
+      loading: true,
+    }
+    this.trialRadar = radar
+    try {
+      const monuments = await fetchRadarMonuments(dest.origin)
+      if (this.disposed || this.currentDestination.id !== dest.id) return
+      radar.monuments = monuments
+
+      // Candidate pairs by crow-flies distance (deterministic order), then
+      // corridors for the first few so A* has real road distances.
+      const pos = this.getPlayerPosition()
+      const pts: Array<{ id: string; x: number; z: number }> = []
+      try {
+        for (const poi of this.chunkManager.getActivePOIs()) {
+          if (poi.kind !== 'tourism' || !poi.name) continue
+          pts.push({ id: poi.id, x: poi.position.x, z: poi.position.z })
+        }
+      } catch {
+        // chunk manager unavailable — radar monuments only
+      }
+      for (const m of monuments) {
+        const w = geoToWorld({ latitude: m.lat, longitude: m.lon })
+        pts.push({ id: m.id, x: w.x, z: w.z })
+      }
+      const pairs: Array<{ key: string; a: GeoPosition; b: GeoPosition }> = []
+      for (let i = 0; i < pts.length; i++) {
+        for (let j = i + 1; j < pts.length; j++) {
+          const a = pts[i]!
+          const b = pts[j]!
+          const crow = Math.hypot(a.x - b.x, a.z - b.z)
+          if (crow < 150 || crow > 3500) continue
+          const key = a.id < b.id ? `${a.id}|${b.id}` : `${b.id}|${a.id}`
+          pairs.push({
+            key,
+            a: worldToGeo({ x: a.x, y: 0, z: a.z }),
+            b: worldToGeo({ x: b.x, y: 0, z: b.z }),
+          })
+        }
+      }
+      pairs.sort((p, q) => (p.key < q.key ? -1 : p.key > q.key ? 1 : 0))
+      for (const pair of pairs.slice(0, 3)) {
+        if (this.disposed || this.currentDestination.id !== dest.id) return
+        if (!radar.corridors.has(pair.key)) {
+          const roads = await fetchCorridorRoads(pair.a, pair.b).catch(() => [])
+          if (this.disposed || this.currentDestination.id !== dest.id) return
+          radar.corridors.set(pair.key, roads)
+        }
+      }
+      radar.atTime = performance.now()
+    } catch {
+      // best-effort radar — chunk POIs still work
+    } finally {
+      radar.loading = false
+      // Surface the new data on the next read.
+      this.trialCache = null
+    }
+  }
+
+  getTrialStatus(): TrialStatus {
+    const pos = this.getPlayerPosition()
+    if (this.trialPhase === 'idle') {
+      let proposal: TrialDef | null = null
+      let dist = Infinity
+      for (const t of this.getNearbyTrials()) {
+        const d = Math.hypot(t.from.x - pos.x, t.from.z - pos.z)
+        if (d < dist) {
+          dist = d
+          proposal = t
+        }
+      }
+      return {
+        phase: 'idle',
+        proposal,
+        distToStartM: dist,
+        active: null,
+        countdownS: 0,
+        elapsedMs: 0,
+        remainingM: 0,
+        lastResult: this.trialResult,
+      }
+    }
+    const active = this.trialActive
+    const remaining = active ? Math.hypot(active.to.x - pos.x, active.to.z - pos.z) : 0
+    return {
+      phase: this.trialPhase,
+      proposal: null,
+      distToStartM: Infinity,
+      active,
+      countdownS: this.trialPhase === 'countdown' ? Math.max(0, this.trialT) : 0,
+      elapsedMs: this.trialPhase === 'running' ? Math.round(this.trialT * 1000) : this.trialFinalMs,
+      remainingM: remaining,
+      lastResult: this.trialResult,
+    }
+  }
+
+  /** Start/finish markers for the minimap. The finish stays hidden until GO. */
+  getTrialMarkers(): { start: { x: number; z: number } | null; finish: { x: number; z: number } | null } {
+    if (this.trialPhase === 'idle') {
+      const st = this.getTrialStatus()
+      const p = st.proposal
+      return {
+        start: p ? { x: p.from.x, z: p.from.z } : null,
+        finish: null,
+      }
+    }
+    const a = this.trialActive
+    if (!a || this.trialPhase === 'finished') return { start: null, finish: null }
+    return { start: { x: a.from.x, z: a.from.z }, finish: { x: a.to.x, z: a.to.z } }
+  }
+
+  /**
+   * Start a trial from the current position (no teleport: the player drove
+   * to the start). Returns false when too far from the start line.
+   * Guidance during the run is a straight line (shortest path), so the
+   * player's own GPS is stashed and restored afterwards.
+   */
+  startTrial(trial: TrialDef): boolean {
+    if (this.disposed || !this.playerCar) return false
+    if (this._vehicleMode === 'plane') this.exitPlane()
+    const pos = this.getPlayerPosition()
+    if (Math.hypot(trial.from.x - pos.x, trial.from.z - pos.z) > TRIAL_START_RADIUS_M * 1.5) {
+      return false
+    }
+    this.abortTrial()
+    this.trialActive = trial
+    this.trialPhase = 'countdown'
+    this.trialT = TRIAL_COUNTDOWN_S
+    this.trialFinalMs = 0
+    this.trialSavedGps = this.gpsDestination
+    this.setGpsDestination(null)
+    return true
+  }
+
+  abortTrial(): void {
+    this.trialPhase = 'idle'
+    this.trialActive = null
+    this.trialResult = null
+    this.trialFinalMs = 0
+    const saved = this.trialSavedGps
+    this.trialSavedGps = null
+    this.setGpsDestination(saved)
+  }
+
+  private _onEnterPressed(): void {
+    if (this.disposed) return
+    if (this.trialPhase === 'countdown' || this.trialPhase === 'running') return
+    if (this.trialPhase === 'finished') {
+      this.abortTrial()
+      return
+    }
+    const st = this.getTrialStatus()
+    if (st.proposal && st.distToStartM <= TRIAL_START_RADIUS_M) {
+      this.startTrial(st.proposal)
+    } else if (this._vehicleMode === 'plane') {
+      this.exitPlane()
+    }
+  }
+
+  private _updateTrial(delta: number, pos: WorldPosition): void {
+    if (this.trialPhase === 'countdown') {
+      this.trialT -= delta
+      if (this.trialT <= 0) {
+        this.trialPhase = 'running'
+        this.trialT = 0
+      }
+    } else if (this.trialPhase === 'running' && this.trialActive) {
+      this.trialT += delta
+      const dx = this.trialActive.to.x - pos.x
+      const dz = this.trialActive.to.z - pos.z
+      if (dx * dx + dz * dz < TRIAL_FINISH_RADIUS_M * TRIAL_FINISH_RADIUS_M) {
+        const ms = Math.round(this.trialT * 1000)
+        this.trialPhase = 'finished'
+        this.trialFinalMs = ms
+        this.trialResult = { trial: this.trialActive, timeMs: ms }
+        const saved = this.trialSavedGps
+        this.trialSavedGps = null
+        this.setGpsDestination(saved)
+        this.onTrialFinished?.(this.trialActive, ms)
+      }
+    }
+    this._updateTrialBeacons()
+  }
+
+  private _buildTrialBeacons(): void {
+    const make = (color: number): { group: THREE.Group; ring: THREE.Mesh } => {
+      const group = new THREE.Group()
+      const beam = new THREE.Mesh(
+        new THREE.CylinderGeometry(2.2, 2.2, 44, 20, 1, true),
+        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.28, depthWrite: false }),
+      )
+      beam.position.y = 22
+      beam.renderOrder = 50
+      const ring = new THREE.Mesh(
+        new THREE.TorusGeometry(5, 0.35, 10, 40),
+        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.85, depthWrite: false }),
+      )
+      ring.rotation.x = Math.PI / 2
+      ring.position.y = 0.4
+      ring.renderOrder = 51
+      group.add(beam, ring)
+      group.visible = false
+      this.renderer.scene.add(group)
+      return { group, ring }
+    }
+    const start = make(0x34d399)
+    const finish = make(0xef4444)
+    this.trialBeacons = {
+      start: start.group,
+      startRing: start.ring,
+      finish: finish.group,
+      finishRing: finish.ring,
+    }
+  }
+
+  private _updateTrialBeacons(): void {
+    const b = this.trialBeacons
+    if (!b) return
+    const pulse = 1 + 0.12 * Math.sin(performance.now() / 250)
+    b.startRing.scale.set(pulse, pulse, 1)
+    b.finishRing.scale.set(pulse, pulse, 1)
+    if (this.trialPhase === 'idle') {
+      const p = this.getTrialStatus().proposal
+      b.start.visible = !!p
+      // The finish beacon is a surprise: revealed at GO, not before.
+      b.finish.visible = false
+      if (p) {
+        b.start.position.set(p.from.x, 0, p.from.z)
+      }
+    } else if (this.trialPhase === 'finished') {
+      b.start.visible = false
+      b.finish.visible = false
+    } else if (this.trialActive) {
+      b.start.visible = false
+      b.finish.visible = true
+      b.finish.position.set(this.trialActive.to.x, 0, this.trialActive.to.z)
+    } else {
+      b.start.visible = false
+      b.finish.visible = false
+    }
+  }
+
   /**
    * Display name shown above our car to other players (null = anonymous).
    * Safe to call before init(): the value is applied when the GameClient
@@ -1252,6 +1611,10 @@ export class GameEngine {
    * and places the player car safely at the spawn point.
    */
   travelTo(destination: WorldDestination): void {
+    // A world jump voids any running time trial (and its GPS guidance).
+    this.abortTrial()
+    // The world origin moves: radar caches are tied to the destination.
+    this.trialRadar = null
     // Travel always lands in the car
     const wasFlying = this._vehicleMode === 'plane'
     this._leavePlane()
@@ -1463,6 +1826,11 @@ export class GameEngine {
       this.osmWorker?.dispose()
     } catch {
       // ignore worker teardown races
+    }
+    if (this.trialBeacons) {
+      this.renderer.scene.remove(this.trialBeacons.start)
+      this.renderer.scene.remove(this.trialBeacons.finish)
+      this.trialBeacons = null
     }
     this.osmWorker = null
     this.chunkManager?.dispose()

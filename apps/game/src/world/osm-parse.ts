@@ -317,6 +317,46 @@ export async function fetchOsmXml(
 }
 
 /**
+ * POST an Overpass QL query via the local proxy (`/api/overpass`, disk
+ * cached by query hash), falling back to the public instance directly.
+ * For targeted queries only (monuments, road corridors) — never bulk data.
+ */
+export async function fetchOverpassXml(query: string, signal?: AbortSignal): Promise<string | null> {
+  try {
+    const res = await fetch('/api/overpass', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/xml' },
+      body: JSON.stringify({ query }),
+      ...(signal ? { signal } : {}),
+    })
+    if (res.ok) {
+      const text = await res.text()
+      if (text.includes('<osm')) return text
+    }
+    throw new Error(`Overpass proxy error: ${res.status}`)
+  } catch (e) {
+    if ((e as Error).name === 'AbortError') return null
+    try {
+      const res = await fetch('https://overpass-api.de/api/interpreter', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'User-Agent': 'OpenWorldCar-Game/1.0 (https://github.com/openworldcar)',
+        },
+        body: `data=${encodeURIComponent(query)}`,
+        ...(signal ? { signal } : {}),
+      })
+      if (!res.ok) return null
+      const text = await res.text()
+      return text.includes('<osm') ? text : null
+    } catch (directErr) {
+      if ((directErr as Error).name === 'AbortError') return null
+      console.warn('[Overpass] query failed:', directErr)
+      return null
+    }
+  }
+}
+/**
  * Best on-road spawn point closest to preferredSpawn or world (0, 0).
  * Prefers main vehicular roads over service alleys / pedestrian paths.
  */

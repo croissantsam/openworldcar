@@ -1,4 +1,4 @@
-import { integer, real, sqliteTable, text, unique } from 'drizzle-orm/sqlite-core'
+import { index, integer, real, sqliteTable, text, unique } from 'drizzle-orm/sqlite-core'
 import { user } from './auth-schema.js'
 
 export * from './auth-schema.js'
@@ -101,3 +101,31 @@ export const playerTrophies = sqliteTable(
 )
 
 export type PlayerStats = typeof playerStats.$inferSelect
+
+/**
+ * Individual time-trial runs. Trials are generated client-side with
+ * deterministic ids (`tt_<dest>_<poiA>_<poiB>`), so leaderboards merge
+ * across players without server-side generation. Every run is kept;
+ * leaderboards use each player's best.
+ */
+export const trialTimes = sqliteTable(
+  'trial_times',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    trialId: text('trial_id').notNull(),
+    destinationId: text('destination_id').notNull(),
+    label: text('label').notNull(),
+    fromName: text('from_name').notNull(),
+    toName: text('to_name').notNull(),
+    distanceM: real('distance_m').notNull(),
+    /** Run duration, milliseconds. */
+    timeMs: integer('time_ms').notNull(),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
+      .$defaultFn(() => new Date())
+      .notNull(),
+  },
+  (t) => [index('trial_times_trial_time').on(t.trialId, t.timeMs)],
+)

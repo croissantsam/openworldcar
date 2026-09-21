@@ -534,6 +534,56 @@ export function Minimap({
         ctx.restore()
       }
 
+      // ── 4b. Time-trial start (green) & finish (red) markers ───────────────
+      const trialMarkers = engine.getTrialMarkers()
+      if (trialMarkers.start) {
+        ctx.save()
+        ctx.fillStyle = '#34d399'
+        ctx.shadowColor = '#34d399'
+        ctx.shadowBlur = 10
+        ctx.beginPath()
+        ctx.arc(trialMarkers.start.x * scale, trialMarkers.start.z * scale, 5, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.strokeStyle = '#ffffff'
+        ctx.lineWidth = 2
+        ctx.stroke()
+        ctx.restore()
+      }
+      if (trialMarkers.finish) {
+        ctx.save()
+        ctx.fillStyle = '#ef4444'
+        ctx.shadowColor = '#ef4444'
+        ctx.shadowBlur = 10
+        ctx.beginPath()
+        ctx.arc(trialMarkers.finish.x * scale, trialMarkers.finish.z * scale, 5, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.strokeStyle = '#ffffff'
+        ctx.lineWidth = 2
+        ctx.stroke()
+        ctx.restore()
+      }
+
+      // ── 4c. Time-trial direct line (shortest path: straight to the finish,
+      // not the car road route) while counting down or running ──────────────
+      const trialStatus = engine.getTrialStatus()
+      if (
+        (trialStatus.phase === 'countdown' || trialStatus.phase === 'running') &&
+        trialStatus.active
+      ) {
+        ctx.save()
+        ctx.strokeStyle = '#34d399'
+        ctx.lineWidth = Math.max(2.5, 3.5 * scale)
+        ctx.setLineDash([10, 7])
+        ctx.shadowColor = '#34d399'
+        ctx.shadowBlur = 8
+        ctx.lineCap = 'round'
+        ctx.beginPath()
+        ctx.moveTo(playerPos.x * scale, playerPos.z * scale)
+        ctx.lineTo(trialStatus.active.to.x * scale, trialStatus.active.to.z * scale)
+        ctx.stroke()
+        ctx.restore()
+      }
+
       // ── 5. NPC Traffic Blips ──────────────────────────────────────────────
       const npcs = engine.getNPCPositions()
       ctx.fillStyle = '#fbbf24'

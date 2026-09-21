@@ -19,6 +19,22 @@ const LANDMARKS: Array<{ name: string; pos: WorldPosition; desc: string }> = [
   { name: 'Boulevard de Sébastopol', pos: { x: 250, y: 0, z: 60 }, desc: 'Grand axe nord-sud' },
 ]
 
+/** True when any point lies within the squared radius (early exit, no sqrt). */
+function pointsInRange(
+  pts: ReadonlyArray<{ x: number; z: number }>,
+  cx: number,
+  cz: number,
+  rSq: number,
+): boolean {
+  for (let i = 0; i < pts.length; i++) {
+    const p = pts[i]!
+    const dx = p.x - cx
+    const dz = p.z - cz
+    if (dx * dx + dz * dz <= rSq) return true
+  }
+  return false
+}
+
 export function Minimap({
   engine,
   isMobileLandscape: propIsMobileLandscape,
@@ -83,15 +99,35 @@ export function Minimap({
     return () => window.removeEventListener('keydown', onKey)
   }, [engine, setExpanded])
 
+  // Last GPS values pushed to React state (the canvas loop must not setState per frame).
+  const gpsActiveRef = useRef(false)
+  const remainingRef = useRef<number | null>(null)
+
   // Canvas render loop
   useEffect(() => {
     let animId = 0
+    let lastDraw = 0
 
-    const render = () => {
+    const render = (now: number) => {
+      // Throttle: a minimap needs ~12 Hz, not a full second render loop.
+      // Redrawing every building + road stroke at 60 fps scales with loaded
+      // map size and starves the main game loop the faster you drive.
+      if (now - lastDraw < 80) {
+        animId = requestAnimationFrame(render)
+        return
+      }
+      lastDraw = now
+
       const canvas = canvasRef.current
-      if (!canvas) return
+      if (!canvas) {
+        animId = requestAnimationFrame(render)
+        return
+      }
       const ctx = canvas.getContext('2d')
-      if (!ctx) return
+      if (!ctx) {
+        animId = requestAnimationFrame(render)
+        return
+      }
 
       const width = canvas.width
       const height = canvas.height
@@ -119,6 +155,11 @@ export function Minimap({
         : (isMobileLandscape ? 0.30 : 0.34)
       const currentZoom = expanded ? expandedZoomRef.current : radarZoomRef.current
       const scale = baseScale * currentZoom
+
+      // Canvas calls dominate minimap cost: skip features outside the view
+      // (radius + margin for wide roads / waterways).
+      const viewR = Math.hypot(width, height) / 2 / scale + 60
+      const viewRSq = viewR * viewR
 
       ctx.clearRect(0, 0, width, height)
 
@@ -157,6 +198,7 @@ export function Minimap({
       for (const p of parks) {
         const pts = p.polygon
         if (pts.length < 3) continue
+        if (!pointsInRange(pts, playerPos.x, playerPos.z, viewRSq)) continue
         ctx.fillStyle = 'rgba(34, 197, 94, 0.40)'
         ctx.strokeStyle = 'rgba(74, 222, 128, 0.60)'
         ctx.lineWidth = 1
@@ -174,6 +216,7 @@ export function Minimap({
       for (const w of waterways) {
         const pts = w.points
         if (pts.length < 2) continue
+        if (!pointsInRange(pts, playerPos.x, playerPos.z, viewRSq)) continue
         if (w.isPolygon && pts.length >= 3) {
           ctx.fillStyle = 'rgba(14, 116, 144, 0.65)'
           ctx.strokeStyle = 'rgba(56, 189, 248, 0.4)'
@@ -207,6 +250,7 @@ export function Minimap({
       for (const b of buildings) {
         const fp = b.footprint
         if (fp.length < 3) continue
+        if (!pointsInRange(fp, playerPos.x, playerPos.z, viewRSq)) continue
         ctx.beginPath()
         ctx.moveTo(fp[0]!.x * scale, fp[0]!.z * scale)
         for (let i = 1; i < fp.length; i++) {
@@ -232,6 +276,7 @@ export function Minimap({
       for (const road of roads) {
         const pts = road.points
         if (pts.length < 2) continue
+        if (!pointsInRange(pts, playerPos.x, playerPos.z, viewRSq)) continue
 
         const hw = road.highway
         // Skip footways, steps, and paths
@@ -450,11 +495,25 @@ export function Minimap({
         for (let i = 0; i < route.length - 1; i++) {
           distAcc += Math.hypot(route[i + 1]!.x - route[i]!.x, route[i + 1]!.z - route[i]!.z)
         }
-        setRemainingDist(Math.round(distAcc))
-        setGpsRouteActive(true)
+        // Never setState blindly from a render loop: only on actual change.
+        const rounded = Math.round(distAcc)
+        if (remainingRef.current !== rounded) {
+          remainingRef.current = rounded
+          setRemainingDist(rounded)
+        }
+        if (!gpsActiveRef.current) {
+          gpsActiveRef.current = true
+          setGpsRouteActive(true)
+        }
       } else {
-        setGpsRouteActive(false)
-        setRemainingDist(null)
+        if (gpsActiveRef.current) {
+          gpsActiveRef.current = false
+          setGpsRouteActive(false)
+        }
+        if (remainingRef.current !== null) {
+          remainingRef.current = null
+          setRemainingDist(null)
+        }
       }
 
       // ── 4. GPS Destination Pin ────────────────────────────────────────────

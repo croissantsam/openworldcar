@@ -35,11 +35,13 @@ import {
   worldToChunk,
   worldToGeo,
 } from '@world-drive/math'
-import type { WorldPosition } from '@world-drive/math'
+import type { WorldPosition, GeoPosition } from '@world-drive/math'
 import { buildRoadGraph, findAStarPath } from '@world-drive/world-data'
 import { WORLD_DESTINATIONS, type WorldDestination } from '../world/destinations.js'
-import { fetchRealOsmArea } from '../world/LiveOsmFetcher.js'
+import { fetchOsmChunksForArea, fetchRealOsmArea, type RealOsmAreaResult } from '../world/LiveOsmFetcher.js'
 import { OsmStreamingManager } from '../world/OsmStreamingManager.js'
+import { OsmWorkerClient } from '../world/OsmWorkerClient.js'
+import type { ChunkMap } from '@world-drive/world-data'
 import { tickWater } from '../world/waterway/index.js'
 import { ImpactFX } from '../effects/ImpactFX.js'
 import type { Road } from '@world-drive/shared'
@@ -111,6 +113,8 @@ export class GameEngine {
   private gameClient!: GameClient
   private remotePlayers!: RemotePlayerManager
   private osmStreaming!: OsmStreamingManager
+  /** Background thread for OSM fetch+parse: driving never waits for map data. */
+  private osmWorker: OsmWorkerClient | null = null
 
   // ─── Plane (created on first use) ──────────────────────────────────────────
   private plane: PlayerPlane | null = null
@@ -150,6 +154,14 @@ export class GameEngine {
   private lastSafePos: WorldPosition = { x: 3.7, y: 0.48, z: 158.3 }
   private lastSafeYaw = 0
   private netTimer = 0
+
+  // ── Throttled full-map scans (O(all road segments), so never every frame) ─
+  private lastWaterCheckPos: WorldPosition | null = null
+  private lastWaterCheckAt = 0
+  private lastWaterResult = false
+  private lastStatStreetPos: WorldPosition | null = null
+  private lastStatStreetAt = 0
+  private lastStatStreetName: string | undefined = undefined
 
   // ─── Stats ──────────────────────────────────────────────────────────────────
   private frameCount = 0
@@ -245,8 +257,20 @@ export class GameEngine {
     this.remotePlayers = new RemotePlayerManager(this.renderer.scene, this.world)
     this.gameClient = new GameClient()
 
-    // OSM streaming manager — continuously fetches real map data as the player drives
-    this.osmStreaming = new OsmStreamingManager()
+    // OSM streaming manager — continuously fetches real map data as the player drives.
+    // Fetch+parse runs in a worker (off the render thread); the main-thread
+    // fetcher is only a fallback for browsers without Worker support.
+    this.osmWorker = new OsmWorkerClient()
+    const worker = this.osmWorker
+    const streamFetch = (center: GeoPosition, radius: number, origin: GeoPosition, signal?: AbortSignal): Promise<ChunkMap | null> => {
+      try {
+        const p = worker.fetchStreamChunks(center, radius, origin, signal)
+        return p.catch(() => fetchOsmChunksForArea(center, radius, signal))
+      } catch {
+        return fetchOsmChunksForArea(center, radius, signal)
+      }
+    }
+    this.osmStreaming = new OsmStreamingManager(streamFetch)
     this.osmStreaming.onChunksReady = (newChunks) => {
       if (!this.disposed) {
         this.chunkManager.addRealOsmChunks(newChunks)
@@ -289,7 +313,8 @@ export class GameEngine {
     this.osmStreaming.markCovered(this.currentDestination.origin)
 
     // Also stream real OpenStreetMap area for the starting location
-    fetchRealOsmArea(
+    // (parsed in the worker so the first paint and drive stay smooth).
+    this._fetchInitialOsm(
       this.currentDestination.origin,
       300,
       undefined,
@@ -323,6 +348,31 @@ export class GameEngine {
         console.warn('[GameEngine] Initial OSM fetch error:', err)
         if (!this.disposed) this.osmStreaming.reset()
       })
+  }
+
+  /**
+   * Fetch + parse + generate an area's chunks, preferably in the OSM worker
+   * (off the render thread). Falls back to the main-thread fetcher when
+   * Workers are unavailable. Resolves null when nothing usable arrived —
+   * callers keep the current world and let streaming retry later.
+   */
+  private _fetchInitialOsm(
+    origin: GeoPosition,
+    radius: number,
+    signal?: AbortSignal,
+    preferredSpawn?: WorldPosition,
+    preferredHeading?: number,
+  ): Promise<RealOsmAreaResult | null> {
+    const worker = this.osmWorker
+    if (worker) {
+      try {
+        const p = worker.fetchInitialArea(origin, radius, preferredSpawn, preferredHeading, signal)
+        return p.catch(() => fetchRealOsmArea(origin, radius, signal, preferredSpawn, preferredHeading))
+      } catch {
+        // fall through to main-thread fetch
+      }
+    }
+    return fetchRealOsmArea(origin, radius, signal, preferredSpawn, preferredHeading)
   }
 
   private _createGroundPlane(): void {
@@ -447,7 +497,8 @@ export class GameEngine {
       }
     }
 
-    this.gameClient.processMessages(this.npcManager, pos, this.chunkManager?.getActiveRoads())
+    // NPC traffic is disabled: skip building the active-roads array every frame.
+    this.gameClient.processMessages(this.npcManager, pos)
 
     // ── World streaming ────────────────────────────────────────────────────
     this.chunkManager.update(pos)
@@ -583,10 +634,8 @@ export class GameEngine {
 
     if (this._vehicleMode !== 'plane') {
       // Park the car: keep all its state, take it out of the simulation
-      const body = this.playerCar.getRigidBody()
-      body.setLinvel({ x: 0, y: 0, z: 0 }, false)
-      body.setAngvel({ x: 0, y: 0, z: 0 }, false)
-      body.setEnabled(false)
+      // (also zeroes the UI-facing velocity cache).
+      this.playerCar.park()
       this.playerCar.getMesh().visible = false
 
       const cam = this.renderer.camera
@@ -1062,7 +1111,8 @@ export class GameEngine {
     this.onDestinationChanged?.(destination)
 
     // 7. Stream real OpenStreetMap roads & buildings live for this new area!
-    fetchRealOsmArea(
+    // (parsed in the worker so the teleport stays smooth).
+    this._fetchInitialOsm(
       destination.origin,
       300,
       undefined,
@@ -1115,8 +1165,18 @@ export class GameEngine {
   private _updateStats(pos: WorldPosition): void {
     const info = this.renderer.renderer.info
     const chunkId = worldToChunk(pos)
-    const heading = this.getPlayerHeadingVector()
-    const street = this.chunkManager?.getNearestStreet(pos, heading)
+    // Street lookup scans every loaded road segment: refresh at ~5 Hz / 5 m.
+    const now = performance.now()
+    const sp = this.lastStatStreetPos
+    const movedSq = sp ? (pos.x - sp.x) * (pos.x - sp.x) + (pos.z - sp.z) * (pos.z - sp.z) : Infinity
+    if (!sp || movedSq > 25 || now - this.lastStatStreetAt > 200) {
+      this.lastStatStreetPos = { x: pos.x, y: pos.y, z: pos.z }
+      this.lastStatStreetAt = now
+      const heading = this.getPlayerHeadingVector()
+      const street = this.chunkManager?.getNearestStreet(pos, heading)
+      this.lastStatStreetName = street ? street.name : undefined
+    }
+    const streetName = this.lastStatStreetName
     let gpsPosition: { lat: number; lon: number }
     if (this._vehicleMode === 'plane') {
       const g = worldToGeo(pos)
@@ -1137,7 +1197,7 @@ export class GameEngine {
       networkLatency: this.gameClient.latency,
       nearbyPlayers: this.gameClient.nearbyPlayerCount,
       npcCount: this.npcManager.activeCount,
-      ...(street ? { streetName: street.name } : {}),
+      ...(streetName ? { streetName } : {}),
       destinationName: this.currentDestination.name,
       destinationFlag: this.currentDestination.flag,
     }
@@ -1146,6 +1206,9 @@ export class GameEngine {
   /**
    * Detect if the player car has driven into an active waterway (Seine, canal, lake),
    * while not safely driving across a bridge / road.
+   *
+   * The full scan is O(all road + waterway segments): cached and refreshed at
+   * ~4 Hz / 4 m — water state cannot change faster than the car moves.
    */
   private _isCarInWater(pos: { x: number; y: number; z: number }): boolean {
     if (!this.chunkManager) return false
@@ -1154,6 +1217,22 @@ export class GameEngine {
     // If car is elevated on a bridge/viaduct (pos.y > 1.2m),
     // or inside a subterranean underpass/tunnel (pos.y < -1.5m), it is physically not in water!
     if (pos.y > 1.2 || pos.y < -1.5) return false
+
+    const now = performance.now()
+    const lp = this.lastWaterCheckPos
+    if (lp && now - this.lastWaterCheckAt < 250) {
+      const dx = pos.x - lp.x
+      const dz = pos.z - lp.z
+      if (dx * dx + dz * dz < 16) return this.lastWaterResult
+    }
+    const result = this._isCarInWaterSlow(pos)
+    this.lastWaterCheckPos = { x: pos.x, y: pos.y, z: pos.z }
+    this.lastWaterCheckAt = now
+    this.lastWaterResult = result
+    return result
+  }
+
+  private _isCarInWaterSlow(pos: { x: number; y: number; z: number }): boolean {
 
     // 1. If car is on an active road / bridge, it's safe!
     const roads = this.chunkManager.getActiveRoads()
@@ -1205,6 +1284,12 @@ export class GameEngine {
       this.rafId = 0
     }
     this.input?.dispose()
+    try {
+      this.osmWorker?.dispose()
+    } catch {
+      // ignore worker teardown races
+    }
+    this.osmWorker = null
     this.chunkManager?.dispose()
     this.flightCamera?.dispose()
     this.flightCamera = null

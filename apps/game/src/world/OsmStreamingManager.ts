@@ -6,9 +6,21 @@
  * Seamlessly injects fetched chunks into ChunkManager without restarting the world.
  */
 
-import { geoToWorld, worldToGeo, type GeoPosition } from '@world-drive/math'
+import { geoToWorld, worldToGeo, getWorldOrigin, type GeoPosition } from '@world-drive/math'
 import type { ChunkMap } from '@world-drive/world-data'
 import { fetchOsmChunksForArea } from './LiveOsmFetcher.js'
+
+/**
+ * Fetches + parses + generates chunks for an area. The default implementation
+ * runs on the main thread; GameEngine injects a worker-first version so the
+ * heavy XML parsing never blocks driving.
+ */
+export type OsmFetchFn = (
+  center: GeoPosition,
+  radius: number,
+  origin: GeoPosition,
+  signal?: AbortSignal,
+) => Promise<ChunkMap | null>
 
 /** Haversine distance in metres between two geo points. */
 function geoDistanceMeters(a: GeoPosition, b: GeoPosition): number {
@@ -77,6 +89,13 @@ export class OsmStreamingManager {
   /** Called with new chunk data when a fetch completes successfully. */
   onChunksReady: OsmStreamingCallback | null = null
 
+  private readonly fetchFn: OsmFetchFn
+
+  constructor(fetchFn?: OsmFetchFn) {
+    this.fetchFn =
+      fetchFn ?? ((center, radius, _origin, signal) => fetchOsmChunksForArea(center, radius, signal))
+  }
+
   /**
    * Called every frame with the player's current GPS position and, optionally,
    * the player's world velocity (m/s). Internally throttled — safe to call
@@ -94,6 +113,14 @@ export class OsmStreamingManager {
       if (moved < 10) return
     }
     this.lastUpdatePos = playerGeo
+
+    // The coverage check below scans this list: drop areas far behind so a
+    // long drive doesn't turn it into an ever-growing per-update cost.
+    if (this.fetchedCenters.length > 80) {
+      this.fetchedCenters = this.fetchedCenters.filter(
+        (center) => geoDistanceMeters(center, playerGeo) < 3000,
+      )
+    }
 
     // Fast (flying): look ahead along the velocity so the data is there
     // before the player is
@@ -135,7 +162,10 @@ export class OsmStreamingManager {
       `[OsmStreaming] Fetching OSM at ${center.latitude.toFixed(5)}, ${center.longitude.toFixed(5)} (r=${FETCH_RADIUS}m)`,
     )
 
-    fetchOsmChunksForArea(center, FETCH_RADIUS, signal)
+    // The projection origin is read now so the worker projects exactly like
+    // the main thread, even if the player travels mid-fetch.
+    const origin = getWorldOrigin()
+    this.fetchFn(center, FETCH_RADIUS, origin, signal)
       .then((chunks) => {
         if (signal.aborted) return
         if (chunks === null) {

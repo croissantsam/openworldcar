@@ -93,6 +93,18 @@ export class PlayerCar {
   private hasPrevVel = false
   public onImpact?: ImpactCallback
 
+  // ── Velocity cache ──────────────────────────────────────────────────────
+  // Refreshed once per physics tick (and on teleport/park). UI polling
+  // (HUD interval) reads ONLY these fields so it never touches the Rapier
+  // WASM heap off the render loop — cross-thread linvel() calls both cost
+  // and can throw (__wbindgen_throw) when the body/world is being recycled
+  // by chunk streaming on the next frame.
+  private cachedVel = { x: 0, y: 0, z: 0 }
+  private cachedSpeed = 0
+  private cachedForwardSpeed = 0
+  private readonly _cacheQuat = new THREE.Quaternion()
+  private readonly _cacheFwd = new THREE.Vector3()
+
   // ── Invincibility System ──────────────────────────────────────────────────
   private invincibleUntil: number = Date.now() + 30_000
   private lastWarningPlayed = false
@@ -383,6 +395,50 @@ export class PlayerCar {
     this._lastBrake = input.brake
     this._lastSteer = input.steering
     this._lastLateralSpeed = lateralSpeed
+
+    // Refresh the UI-facing velocity cache (post-impulse state).
+    this._refreshVelocityCache()
+  }
+
+  /**
+   * Read the rigid body's velocity into the cache. Never throws: on a dead
+   * or recycled body the last good values are kept.
+   */
+  private _refreshVelocityCache(): void {
+    try {
+      const v = this.body.linvel()
+      this.cachedVel.x = v.x
+      this.cachedVel.y = v.y
+      this.cachedVel.z = v.z
+      const r = this.body.rotation()
+      this._cacheQuat.set(r.x, r.y, r.z, r.w)
+      this._cacheFwd.set(0, 0, 1).applyQuaternion(this._cacheQuat)
+      this.cachedForwardSpeed = this._cacheFwd.x * v.x + this._cacheFwd.z * v.z
+      this.cachedSpeed = Math.sqrt(v.x * v.x + v.z * v.z)
+    } catch {
+      // Body unavailable (disposed world, teardown race): keep last values.
+    }
+  }
+
+  /** Park the car: zero velocity, disable simulation, refresh the cache. */
+  park(): void {
+    try {
+      this.body.setLinvel({ x: 0, y: 0, z: 0 }, false)
+      this.body.setAngvel({ x: 0, y: 0, z: 0 }, false)
+    } catch {
+      // ignore teardown races
+    }
+    this.cachedVel.x = 0
+    this.cachedVel.y = 0
+    this.cachedVel.z = 0
+    this.cachedSpeed = 0
+    this.cachedForwardSpeed = 0
+    this.prevLinVel = { x: 0, y: 0, z: 0 }
+    try {
+      this.body.setEnabled(false)
+    } catch {
+      // ignore teardown races
+    }
   }
 
   private _lastThrottle = 0
@@ -460,26 +516,29 @@ export class PlayerCar {
   }
 
   getPosition(): WorldPosition {
-    const t = this.body.translation()
-    return { x: t.x, y: t.y, z: t.z }
+    try {
+      const t = this.body.translation()
+      return { x: t.x, y: t.y, z: t.z }
+    } catch {
+      // Body unavailable (disposed world): fall back to the synced mesh pose.
+      const p = this.mesh.position
+      return { x: p.x, y: p.y, z: p.z }
+    }
   }
 
+  /** Cached velocity (refreshed every physics tick): safe to call from any thread. */
   getVelocity(): { x: number; y: number; z: number } {
-    const v = this.body.linvel()
-    return { x: v.x, y: v.y, z: v.z }
+    return { x: this.cachedVel.x, y: this.cachedVel.y, z: this.cachedVel.z }
   }
 
+  /** Cached horizontal speed: safe to call from any thread. */
   getSpeed(): number {
-    const v = this.body.linvel()
-    return Math.sqrt(v.x * v.x + v.z * v.z)
+    return this.cachedSpeed
   }
 
+  /** Cached signed forward speed: safe to call from any thread. */
   getForwardSpeed(): number {
-    const vel = this.body.linvel()
-    const rot = this.body.rotation()
-    const q = new THREE.Quaternion(rot.x, rot.y, rot.z, rot.w)
-    const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(q)
-    return forward.x * vel.x + forward.z * vel.z
+    return this.cachedForwardSpeed
   }
 
   getGeoPosition(): { lat: number; lon: number; latitude: number; longitude: number } {
@@ -534,6 +593,12 @@ export class PlayerCar {
     this.body.setRotation({ x: q.x, y: q.y, z: q.z, w: q.w }, true)
     this.body.setLinvel({ x: 0, y: 0, z: 0 }, true)
     this.body.setAngvel({ x: 0, y: 0, z: 0 }, true)
+    this.cachedVel.x = 0
+    this.cachedVel.y = 0
+    this.cachedVel.z = 0
+    this.cachedSpeed = 0
+    this.cachedForwardSpeed = 0
+    this.prevLinVel = { x: 0, y: 0, z: 0 }
     this.triggerInvincibility(30_000)
     this.syncMesh()
   }

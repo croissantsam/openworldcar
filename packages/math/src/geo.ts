@@ -46,6 +46,7 @@ function geoToMercator(lat: number, lon: number): { mx: number; my: number } {
 let _originMx = 0
 let _originMy = 0
 let _originSet = false
+let _originGeo: GeoPosition = { latitude: 48.890169, longitude: 2.305174 }
 
 /**
  * Set the world origin from a geographic position.
@@ -56,6 +57,12 @@ export function setWorldOrigin(geo: GeoPosition): void {
   _originMx = mx
   _originMy = my
   _originSet = true
+  _originGeo = { latitude: geo.latitude, longitude: geo.longitude }
+}
+
+/** The geographic position the world origin was last set to (a copy). */
+export function getWorldOrigin(): GeoPosition {
+  return { latitude: _originGeo.latitude, longitude: _originGeo.longitude }
 }
 
 /** Returns true if the world origin has been configured. */

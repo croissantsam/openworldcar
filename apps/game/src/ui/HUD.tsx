@@ -103,6 +103,10 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
   const [isNetworkConnected, setIsNetworkConnected] = useState<boolean>(() => engine.isNetworkConnected())
   const [networkPing, setNetworkPing] = useState<number>(() => engine.getNetworkLatency())
   const lastSeenRef = useRef<number>(Date.now())
+  // getCurrentStreet() scans every loaded road segment: only re-query when
+  // the car actually moved (or 1s elapsed), not on every 100ms tick.
+  const lastStreetPosRef = useRef<{ x: number; z: number } | null>(null)
+  const lastStreetAtRef = useRef<number>(0)
 
   // Touch / Mobile mode (Joystick on left + Frein on right)
   const [touchMode, setTouchMode] = useState<boolean>(() => {
@@ -238,19 +242,27 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
         }
       }
 
-      // Query current street and dynamic district from active chunks
+      // Query current street and dynamic district from active chunks.
+      // Skipped while the car barely moves: the scan is O(all road segments).
       const pos = engine.getPlayerPosition()
-      const currentGeo = worldToGeo(pos)
-      setDistrict(getDistrictLabel(currentGeo, currentDestRef.current))
+      const lp = lastStreetPosRef.current
+      const nowMs = Date.now()
+      const movedM = lp ? Math.hypot(pos.x - lp.x, pos.z - lp.z) : Infinity
+      if (movedM > 2 || nowMs - lastStreetAtRef.current > 1000) {
+        lastStreetPosRef.current = { x: pos.x, z: pos.z }
+        lastStreetAtRef.current = nowMs
+        const currentGeo = worldToGeo(pos)
+        setDistrict(getDistrictLabel(currentGeo, currentDestRef.current))
 
-      const current = engine.getCurrentStreet()
-      if (current) {
-        setStreet(current)
-        lastSeenRef.current = Date.now()
-      } else {
-        // Hysteresis: retain last known street for 2.5s when crossing intersections or open areas
-        if (Date.now() - lastSeenRef.current > 2500) {
-          setStreet(null)
+        const current = engine.getCurrentStreet()
+        if (current) {
+          setStreet(current)
+          lastSeenRef.current = nowMs
+        } else {
+          // Hysteresis: retain last known street for 2.5s when crossing intersections or open areas
+          if (nowMs - lastSeenRef.current > 2500) {
+            setStreet(null)
+          }
         }
       }
 

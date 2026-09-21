@@ -174,6 +174,7 @@ export class GameEngine {
   private lastSafePos: WorldPosition = { x: 3.7, y: 0.48, z: 158.3 }
   private lastSafeYaw = 0
   private netTimer = 0
+  private driftFxTimer = 0
 
   // ── Trip stats (trophies): unsaved session deltas ────────────────────────
   private tripDistanceM = 0
@@ -581,6 +582,23 @@ export class GameEngine {
 
     // ── Impact Sparks & Screen FX ───────────────────────────────────────────
     this.impactFX?.update(delta)
+    // ── Drift smoke + tire screech (car mode only, smoke capped at ~30 Hz) ─
+    // Two puffs per rear wheel per tick for a thick continuous cloud.
+    if (this._vehicleMode === 'car' && this.playerCar.isDrifting()) {
+      this.driftFxTimer += delta
+      if (this.driftFxTimer >= 1 / 30) {
+        this.driftFxTimer = 0
+        const [rearL, rearR] = this.playerCar.getRearWheelPositions()
+        this.impactFX?.emitDriftSmoke(rearL)
+        this.impactFX?.emitDriftSmoke(rearL)
+        this.impactFX?.emitDriftSmoke(rearR)
+        this.impactFX?.emitDriftSmoke(rearR)
+      }
+      this.impactFX?.setDriftScreech(Math.min(1, Math.abs(this.playerCar.getDriftAngle()) * 2.5))
+    } else {
+      this.driftFxTimer = 0
+      this.impactFX?.setDriftScreech(0)
+    }
     this.combat?.update(delta)
     if (this.lastWorldImpactFX > 0) this.lastWorldImpactFX = Math.max(0, this.lastWorldImpactFX - delta)
 
@@ -802,7 +820,7 @@ export class GameEngine {
     // with a muted impact callback resets that, so no phantom crash is felt
     const onImpact = car.onImpact
     car.onImpact = () => {}
-    car.applyInput({ throttle: 0, brake: 0, steering: 0, handbrake: false }, 0)
+    car.applyInput({ throttle: 0, brake: 0, steering: 0, handbrake: false, nitro: false }, 0)
     if (onImpact) car.onImpact = onImpact
 
     const p = car.getPosition()
@@ -1040,11 +1058,22 @@ export class GameEngine {
     if (this._vehicleMode !== 'plane' || !this.plane) return null
     return this.plane.getState()
   }
-
   /** Machine-gun readout (ammo, heat), or null outside plane mode. */
   getGunState(): { ammo: number; maxAmmo: number; heat: number; overheated: boolean; firing: boolean } | null {
     if (this._vehicleMode !== 'plane' || !this.planeGun) return null
     return this.planeGun.getState()
+  }
+
+  /** Nitro gauge 0..1 + boost state, or null outside car mode. */
+  getNitroState(): { charge: number; boosting: boolean } | null {
+    if (this._vehicleMode !== 'car' || !this.playerCar) return null
+    return this.playerCar.getNitro()
+  }
+
+  /** True while the car is sliding (car mode only). */
+  isDrifting(): boolean {
+    if (this._vehicleMode !== 'car' || !this.playerCar) return false
+    return this.playerCar.isDrifting()
   }
 
   /** Health / spawn protection of the local player. */

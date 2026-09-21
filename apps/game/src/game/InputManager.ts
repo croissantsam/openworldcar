@@ -17,6 +17,8 @@ export type RawInput = {
   steering: number
   /** Handbrake */
   handbrake: boolean
+  /** Nitro boost */
+  nitro: boolean
 }
 
 /** Raw virtual joystick state written by the touch controls. */
@@ -52,8 +54,11 @@ export class InputManager {
     brake: 0,
     steering: 0,
     handbrake: false,
+    nitro: false,
   }
   private virtualStick: VirtualStick = { x: 0, y: 0, brake: false }
+  /** Nitro trigger from the on-screen NITRO button (held). */
+  private virtualNitro = false
   /** True while the on-screen touch controls are shown (they drive the auto-throttle). */
   private touchControlsActive = false
   /** Machine-gun trigger from the on-screen 🔫 button. */
@@ -75,6 +80,12 @@ export class InputManager {
     if (partial.brake !== undefined) this.virtualInput.brake = partial.brake
     if (partial.steering !== undefined) this.virtualInput.steering = partial.steering
     if (partial.handbrake !== undefined) this.virtualInput.handbrake = partial.handbrake
+    if (partial.nitro !== undefined) this.virtualInput.nitro = partial.nitro
+  }
+
+  /** Nitro trigger from the touch controls (held). */
+  setVirtualNitro(on: boolean): void {
+    this.virtualNitro = on === true
   }
 
   /** Raw joystick position + FREIN button from the touch controls (used in flight). */
@@ -90,6 +101,7 @@ export class InputManager {
     if (!active) {
       this.virtualStick = { x: 0, y: 0, brake: false }
       this.virtualFire = false
+      this.virtualNitro = false
     }
   }
 
@@ -228,6 +240,13 @@ export class InputManager {
       this.keys.has(' ') ||
       this.keys.has('space')
 
+    // Nitro: Shift (either side). Shift+P still toggles the plane via the
+    // keydown handler — holding Shift alone only boosts.
+    const nitro =
+      this.keys.has('ShiftLeft') ||
+      this.keys.has('ShiftRight') ||
+      this.keys.has('shift')
+
     const kThrottle = up ? 1 : 0
     const kBrake = down ? 1 : 0
     const kSteer = left ? -1 : right ? 1 : 0
@@ -238,6 +257,7 @@ export class InputManager {
       brake: Math.max(kBrake, Math.min(1, Math.max(0, this.virtualInput.brake))),
       steering: kSteer !== 0 ? kSteer : Math.min(1, Math.max(-1, this.virtualInput.steering)),
       handbrake: kHandbrake || this.virtualInput.handbrake,
+      nitro: nitro || this.virtualNitro || this.virtualInput.nitro,
     }
   }
 

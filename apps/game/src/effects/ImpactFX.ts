@@ -14,6 +14,8 @@ import * as THREE from 'three'
 class CrashAudio {
   private ctx: AudioContext | null = null
   private noiseBuffer: AudioBuffer | null = null
+  /** Persistent tire-screech loop (created on first drift, gain-driven). */
+  private screechGain: GainNode | null = null
 
   private init(): void {
     if (this.ctx) return
@@ -131,6 +133,41 @@ class CrashAudio {
     }
   }
 
+  /**
+   * Continuous tire screech for drifts. Call every frame with 0..1 (0 =
+   * silent): a persistent band-passed noise loop whose gain follows the
+   * drift intensity. Never throws; silent when audio is unavailable.
+   */
+  setScreech(intensity: number): void {
+    this.init()
+    if (!this.ctx || !this.noiseBuffer) {
+      return
+    }
+    try {
+      if (!this.screechGain) {
+        const src = this.ctx.createBufferSource()
+        src.buffer = this.noiseBuffer
+        src.loop = true
+        const filter = this.ctx.createBiquadFilter()
+        filter.type = 'bandpass'
+        filter.frequency.value = 950
+        filter.Q.value = 7
+        const gain = this.ctx.createGain()
+        gain.gain.value = 0
+        src.connect(filter)
+        filter.connect(gain)
+        gain.connect(this.ctx.destination)
+        src.start()
+        this.screechGain = gain
+      }
+      if (this.ctx.state === 'suspended') return
+      const target = Math.min(1, Math.max(0, intensity)) * 0.16
+      this.screechGain.gain.setTargetAtTime(target, this.ctx.currentTime, 0.06)
+    } catch {
+      // AudioContext unavailable mid-game — stay silent
+    }
+  }
+
   playShieldActivated(): void {
     this.init()
     if (!this.ctx || this.ctx.state === 'suspended') return
@@ -204,10 +241,28 @@ const SPARK_MAT = new THREE.MeshBasicMaterial({
   opacity: 1.0,
 })
 
+// ── 3. Drift Smoke Puff Pool ─────────────────────────────────────────────────
+type SmokePuff = {
+  mesh: THREE.Mesh
+  life: number
+  maxLife: number
+}
+
+const SMOKE_GEO = new THREE.BoxGeometry(0.5, 0.5, 0.5)
+const SMOKE_MAT = new THREE.MeshBasicMaterial({
+  color: 0xc9ced4,
+  transparent: true,
+  opacity: 0.0,
+  depthWrite: false,
+})
+
+const MAX_SMOKE_PUFFS = 128
+
 export class ImpactFX {
   private scene: THREE.Scene
   private audio = new CrashAudio()
   private sparks: Spark[] = []
+  private smokePuffs: SmokePuff[] = []
   private flashEl: HTMLDivElement | null = null
 
   constructor(scene: THREE.Scene) {
@@ -358,6 +413,38 @@ export class ImpactFX {
   }
 
   /**
+   * One tire-smoke puff at a rear wheel. Call per frame while drifting
+   * (the pool caps live puffs; excess calls are dropped).
+   */
+  emitDriftSmoke(point: { x: number; y: number; z: number }): void {
+    let puff = this.smokePuffs.find((p) => p.life >= p.maxLife)
+    if (!puff) {
+      if (this.smokePuffs.length >= MAX_SMOKE_PUFFS) return
+      const mesh = new THREE.Mesh(SMOKE_GEO, SMOKE_MAT.clone())
+      mesh.visible = false
+      this.scene.add(mesh)
+      puff = { mesh, life: 1, maxLife: 1 }
+      this.smokePuffs.push(puff)
+    }
+    puff.maxLife = 0.7 + Math.random() * 0.4
+    puff.life = 0
+    puff.mesh.visible = true
+    puff.mesh.position.set(
+      point.x + (Math.random() - 0.5) * 0.5,
+      point.y + Math.random() * 0.15,
+      point.z + (Math.random() - 0.5) * 0.5,
+    )
+    const s = 0.7 + Math.random() * 0.4
+    puff.mesh.scale.set(s, s, s)
+    puff.mesh.rotation.y = Math.random() * Math.PI
+  }
+
+  /** Tire screech gain 0..1 for the current drift (0 = silent). */
+  setDriftScreech(intensity: number): void {
+    this.audio.setScreech(intensity)
+  }
+
+  /**
    * Tick active spark particles.
    */
   update(dt: number): void {
@@ -398,6 +485,20 @@ export class ImpactFX {
       const mat = s.mesh.material as THREE.MeshBasicMaterial
       mat.opacity = 1.0 - progress
     }
+
+    // Drift smoke: rise, expand, fade
+    for (const p of this.smokePuffs) {
+      if (p.life >= p.maxLife) {
+        p.mesh.visible = false
+        continue
+      }
+      p.life += dt
+      const t = Math.min(1, p.life / p.maxLife)
+      p.mesh.position.y += dt * 1.1
+      const grow = 1 + t * 2.6
+      p.mesh.scale.set(grow, grow, grow)
+      ;(p.mesh.material as THREE.MeshBasicMaterial).opacity = 0.55 * (1 - t)
+    }
   }
 
   playShieldActivated(): void {
@@ -418,6 +519,12 @@ export class ImpactFX {
       s.mesh.geometry.dispose()
     }
     this.sparks = []
+    for (const p of this.smokePuffs) {
+      this.scene.remove(p.mesh)
+      ;(p.mesh.material as THREE.MeshBasicMaterial).dispose()
+    }
+    this.smokePuffs = []
+    this.audio.setScreech(0)
     if (this.flashEl && this.flashEl.parentNode) {
       this.flashEl.parentNode.removeChild(this.flashEl)
     }

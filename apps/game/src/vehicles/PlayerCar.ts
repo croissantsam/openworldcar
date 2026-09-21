@@ -27,6 +27,17 @@ const REVERSE_ACCEL = 16 // m/s²
 const NATURAL_DRAG = 3.2 // m/s²
 const STEER_RATE = 2.8 // rad/s
 
+// Nitro tuning
+const NITRO_ACCEL = 62 // m/s² extra thrust while boosting
+const NITRO_TOP_SPEED = MAX_SPEED * 1.45 // boost can push past the cruise cap
+const NITRO_DRAIN = 0.34 // charge per second while boosting
+const NITRO_REGEN = 0.055 // charge per second while driving normally
+const NITRO_DRIFT_REGEN = 0.30 // charge per second while drifting (reward slides)
+const NITRO_RESTART_CHARGE = 0.08 // charge needed to (re)ignite the boost (anti-flicker)
+// Drift detection: sideways slide (m/s) above this at speed counts as a drift
+const DRIFT_LATERAL_MIN = 7.0
+const DRIFT_SPEED_MIN = 8.0
+
 function createContactShadowTexture(): THREE.CanvasTexture {
   const canvas = document.createElement('canvas')
   canvas.width = 256
@@ -328,8 +339,21 @@ export class PlayerCar {
     if (input.steering !== 0) {
       const speedFactor = Math.min(1.0, Math.abs(forwardSpeed) / 4.0)
       const highSpeedDamp = 1.0 - Math.min(0.4, (speed / MAX_SPEED) * 0.4)
-      const steerTorque = -input.steering * STEER_RATE * speedFactor * highSpeedDamp * CAR_MASS * 2.2
+      // Handbrake flick: extra rotation to throw the tail out at speed.
+      const flick = input.handbrake && speed > 10 ? 1.45 : 1.0
+      const steerTorque = -input.steering * STEER_RATE * speedFactor * highSpeedDamp * CAR_MASS * 2.2 * flick
       this.body.applyTorqueImpulse({ x: 0, y: steerTorque * dt, z: 0 }, true)
+    }
+
+    // ── Handbrake yaw stabilization: slides stay steerable instead of
+    // spinning out (mild angular damping while the rear axle is free).
+    if (input.handbrake) {
+      try {
+        const av = this.body.angvel()
+        this.body.setAngvel({ x: av.x, y: av.y * Math.max(0, 1.0 - 1.4 * dt), z: av.z }, true)
+      } catch {
+        // ignore teardown races
+      }
     }
 
     // ── Throttle & Brake ─────────────────────────────────────────────────────
@@ -361,10 +385,34 @@ export class PlayerCar {
       }
     }
 
+    // ── Nitro Boost ──────────────────────────────────────────────────────────
+    // Extra thrust along the nose; can push past the cruise top speed.
+    // Per-tick dv (~1 m/s) stays far below the impact-detection threshold.
+    // Hysteresis on an empty gauge: restarting needs some charge, otherwise
+    // the flames/boost would stutter every other tick at ~0%.
+    const wantNitro = input.nitro === true && forwardSpeed < NITRO_TOP_SPEED
+    if (this.nitroBoosting) {
+      this.nitroBoosting = wantNitro && this.nitroCharge > 0
+    } else {
+      this.nitroBoosting = wantNitro && this.nitroCharge > NITRO_RESTART_CHARGE
+    }
+    if (this.nitroBoosting) {
+      const force = NITRO_ACCEL * CAR_MASS
+      this.body.applyImpulse(
+        { x: forward.x * force * dt, y: 0, z: forward.z * force * dt },
+        true,
+      )
+      this.nitroCharge = Math.max(0, this.nitroCharge - NITRO_DRAIN * dt)
+    }
+
     // ── Handbrake Drift ──────────────────────────────────────────────────────
+    // Light drag at speed (slides keep their momentum) but strong bite when
+    // slow (still an effective emergency brake). Lateral grip is cut hard so
+    // the tail steps out instead of following the nose.
     if (input.handbrake) {
       const vel = this.body.linvel()
-      const dragFactor = 1.0 - 1.8 * dt
+      const dragRate = speed > 12 ? 0.55 : 1.8
+      const dragFactor = 1.0 - dragRate * dt
       this.body.setLinvel({ x: vel.x * dragFactor, y: vel.y, z: vel.z * dragFactor }, true)
     }
 
@@ -376,15 +424,28 @@ export class PlayerCar {
     }
 
     // ── Lateral Friction / Grip (Arcade Drift Feel) ──────────────────────────
+    // gripFactor blends velocity toward the nose: 1.0 = no lateral damping
+    // (full slide), lower = velocity snaps to the nose (grippy). The
+    // handbrake nearly frees the rear axle so the tail steps out and stays out.
     const right = this.getRightVector()
     const vel = this.body.linvel()
     const lateralSpeed = vel.x * right.x + vel.z * right.z
-    const gripFactor = input.handbrake ? 0.82 : 0.94
+    const gripFactor = input.handbrake ? 0.985 : 0.94
     const lateralCorrection = -lateralSpeed * (1.0 - gripFactor)
     this.body.applyImpulse(
       { x: right.x * lateralCorrection * CAR_MASS, y: 0, z: right.z * lateralCorrection * CAR_MASS },
       true,
     )
+
+    // ── Drift State + Nitro Recharge ─────────────────────────────────────────
+    // Sliding sideways fast at speed = drifting (bridges don't spike lateral
+    // velocity, so this stays quiet on straight decks).
+    this.drifting = speed > DRIFT_SPEED_MIN && Math.abs(lateralSpeed) > DRIFT_LATERAL_MIN
+    this.driftAngle = this.drifting && speed > 0.5 ? Math.atan2(lateralSpeed, Math.abs(forwardSpeed)) : 0
+    if (!this.nitroBoosting) {
+      const regen = (this.drifting ? NITRO_DRIFT_REGEN : NITRO_REGEN) * dt
+      this.nitroCharge = Math.min(1, this.nitroCharge + regen)
+    }
 
     // ── Aerodynamic Downforce: Keeps Tires Firmly Planted On Ground ──────────
     const downforce = 450 + speed * 160
@@ -433,6 +494,9 @@ export class PlayerCar {
     this.cachedVel.z = 0
     this.cachedSpeed = 0
     this.cachedForwardSpeed = 0
+    this.nitroBoosting = false
+    this.drifting = false
+    this.driftAngle = 0
     this.prevLinVel = { x: 0, y: 0, z: 0 }
     try {
       this.body.setEnabled(false)
@@ -445,6 +509,12 @@ export class PlayerCar {
   private _lastBrake = 0
   private _lastSteer = 0
   private _lastLateralSpeed = 0
+
+  // ── Nitro & drift state (refreshed every physics tick) ───────────────────
+  private nitroCharge = 1
+  private nitroBoosting = false
+  private drifting = false
+  private driftAngle = 0
 
   /**
    * Sync the Three.js mesh with the Rapier body, apply visual suspension
@@ -485,12 +555,11 @@ export class PlayerCar {
     this.chassisGroup.rotation.x = this.chassisPitch
     this.chassisGroup.rotation.z = this.chassisRoll
 
-    // ── 4. Burnout Green Nitro Exhaust Flames ────────────────────────────────
-    const isAccelerating = forwardSpeed > 4.0
+    // ── 4. Nitro Exhaust Flames (only while boosting) ───────────────────────
     for (const flame of this.nitroFlames) {
-      if (isAccelerating) {
+      if (this.nitroBoosting) {
         const flicker = 0.85 + Math.random() * 0.35
-        const intensity = Math.min(1.5, forwardSpeed / 20.0) * flicker
+        const intensity = Math.min(1.5, speed / 20.0) * flicker
         flame.scale.set(intensity, intensity, intensity * (1.0 + Math.random() * 0.4))
         flame.visible = true
       } else {
@@ -539,6 +608,45 @@ export class PlayerCar {
   /** Cached signed forward speed: safe to call from any thread. */
   getForwardSpeed(): number {
     return this.cachedForwardSpeed
+  }
+
+  /** Nitro gauge 0..1 plus whether the boost is currently firing. */
+  getNitro(): { charge: number; boosting: boolean } {
+    return { charge: this.nitroCharge, boosting: this.nitroBoosting }
+  }
+
+  /** True while sliding sideways fast (burnout / handbrake slide). */
+  isDrifting(): boolean {
+    return this.drifting
+  }
+
+  /** Signed slide angle (radians) for HUD/effects. 0 when not drifting. */
+  getDriftAngle(): number {
+    return this.driftAngle
+  }
+
+  /**
+   * World positions of the two rear wheels (drift-smoke emitters).
+   * Falls back to the car centre when the body is unavailable.
+   */
+  getRearWheelPositions(): [{ x: number; y: number; z: number }, { x: number; y: number; z: number }] {
+    try {
+      const t = this.body.translation()
+      const r = this.body.rotation()
+      const q = new THREE.Quaternion(r.x, r.y, r.z, r.w)
+      const left = new THREE.Vector3(-0.85, 0.05, -2.1).applyQuaternion(q)
+      const right = new THREE.Vector3(0.85, 0.05, -2.1).applyQuaternion(q)
+      return [
+        { x: t.x + left.x, y: t.y + left.y, z: t.z + left.z },
+        { x: t.x + right.x, y: t.y + right.y, z: t.z + right.z },
+      ]
+    } catch {
+      const p = this.getPosition()
+      return [
+        { x: p.x, y: p.y, z: p.z },
+        { x: p.x, y: p.y, z: p.z },
+      ]
+    }
   }
 
   getGeoPosition(): { lat: number; lon: number; latitude: number; longitude: number } {

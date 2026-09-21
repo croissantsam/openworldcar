@@ -75,6 +75,9 @@ function sameGun(a: GunReadout | null, b: GunReadout | null): boolean {
 export const HUD: React.FC<HUDProps> = ({ engine }) => {
   const [speed, setSpeed] = useState(0)
   const [gear, setGear] = useState('D')
+  const [nitro, setNitro] = useState(1)
+  const [nitroBoosting, setNitroBoosting] = useState(false)
+  const [drifting, setDrifting] = useState(false)
   const [vehicleMode, setVehicleMode] = useState<VehicleMode>(() => engine.vehicleMode)
   const [flight, setFlight] = useState<FlightReadout>(FLIGHT_READOUT_EMPTY)
   const [gun, setGun] = useState<GunReadout | null>(null)
@@ -252,6 +255,10 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
         } else {
           setGear('D')
         }
+        const ns = engine.getNitroState()
+        setNitro(ns ? Math.max(0, Math.min(1, ns.charge)) : 0)
+        setNitroBoosting(ns ? ns.boosting : false)
+        setDrifting(engine.isDrifting())
       }
 
       // Query current street and dynamic district from active chunks.
@@ -764,6 +771,96 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
       </div>
       )}
 
+      {/* Nitro gauge + drift badge (car mode) */}
+      {!isPlane && (
+      <div
+        style={{
+          position: 'absolute',
+          bottom: touchMode ? 'max(156px, env(safe-area-inset-bottom, 156px))' : 86,
+          right: touchMode ? 'max(24px, env(safe-area-inset-right, 24px))' : 32,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'stretch',
+          gap: 4,
+          width: touchMode ? 118 : 148,
+          pointerEvents: 'none',
+          userSelect: 'none',
+          zIndex: 35,
+        }}
+      >
+        {drifting && (
+          <div
+            style={{
+              alignSelf: 'flex-end',
+              fontFamily: "'Orbitron', sans-serif",
+              fontSize: touchMode ? 13 : 15,
+              fontWeight: 900,
+              letterSpacing: 3,
+              color: '#fdba74',
+              textShadow: '0 0 12px rgba(251, 146, 60, 0.8)',
+              animation: 'hudFlash 0.4s ease-in-out infinite alternate',
+            }}
+          >
+            DRIFT
+          </div>
+        )}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            background: 'rgba(10, 16, 28, 0.7)',
+            backdropFilter: 'blur(10px)',
+            WebkitBackdropFilter: 'blur(10px)',
+            border: nitroBoosting
+              ? '1px solid rgba(0, 242, 254, 0.9)'
+              : '1px solid rgba(0, 212, 255, 0.3)',
+            borderRadius: 10,
+            padding: '4px 10px',
+            boxShadow: nitroBoosting
+              ? '0 4px 16px rgba(0, 0, 0, 0.4), 0 0 14px rgba(0, 242, 254, 0.5)'
+              : '0 4px 16px rgba(0, 0, 0, 0.4)',
+            transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
+          }}
+        >
+          <span
+            style={{
+              fontFamily: "'Orbitron', sans-serif",
+              fontSize: 8,
+              fontWeight: 900,
+              letterSpacing: 1.2,
+              color: nitroBoosting ? '#a5f3fc' : '#00d4ff',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            NITRO
+          </span>
+          <div
+            style={{
+              flex: 1,
+              height: 6,
+              borderRadius: 3,
+              background: 'rgba(255, 255, 255, 0.12)',
+              overflow: 'hidden',
+            }}
+          >
+            <div
+              style={{
+                width: `${Math.round(nitro * 100)}%`,
+                height: '100%',
+                borderRadius: 3,
+                background: nitroBoosting
+                  ? 'linear-gradient(90deg, #00f2fe, #a5f3fc)'
+                  : 'linear-gradient(90deg, #0369a1, #00d4ff)',
+                boxShadow: nitroBoosting ? '0 0 10px rgba(0, 242, 254, 0.9)' : 'none',
+                transition: 'width 0.1s linear',
+              }}
+            />
+          </div>
+        </div>
+      </div>
+      )}
+
       {/* Health (PV) — both modes */}
       <div
         style={{
@@ -905,7 +1002,8 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
               <div><strong style={{ color: '#00d4ff' }}>S / ↓</strong> — Frein / Marche arrière</div>
               <div><strong style={{ color: '#00d4ff' }}>A / Q / ←</strong> — Tourner à gauche</div>
               <div><strong style={{ color: '#00d4ff' }}>D / →</strong> — Tourner à droite</div>
-              <div><strong style={{ color: '#00d4ff' }}>ESPACE</strong> — Frein à main</div>
+              <div><strong style={{ color: '#00d4ff' }}>ESPACE</strong> — Frein à main (drift)</div>
+              <div><strong style={{ color: '#00f2fe' }}>MAJ</strong> — Nitro (rechargé en driftant)</div>
               <div><strong style={{ color: '#00d4ff' }}>M</strong> — Carte GPS</div>
               <div><strong style={{ color: '#38bdf8' }}>P</strong> — ✈️ Prendre l’avion</div>
               <div><strong style={{ color: '#38bdf8' }}>T</strong> — 🌍 Voyager dans le monde</div>
@@ -1231,7 +1329,17 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
             textOverflow: 'ellipsis',
           }}
         >
-          {street ? street.name : `${currentDest.flag} ${currentDest.city}`}
+          {street ? (
+            <>
+              {street.name}
+              <span style={{ color: 'rgba(148, 163, 184, 0.9)', fontWeight: 600 }}>
+                {'  ·  '}
+                {currentDest.city}
+              </span>
+            </>
+          ) : (
+            `${currentDest.flag} ${currentDest.city}`
+          )}
         </span>
         {street?.maxSpeed && (
           <span

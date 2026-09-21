@@ -22,6 +22,7 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
   const [isJoystickActive, setIsJoystickActive] = useState(false)
   const [isBraking, setIsBraking] = useState(false)
   const [isFiring, setIsFiring] = useState(false)
+  const [isNitro, setIsNitro] = useState(false)
 
   const joystickTouchId = useRef<number | null>(null)
   const brakeTouchId = useRef<number | null>(null)
@@ -64,6 +65,15 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
       engine.input.setVirtualFire(false)
     }
     return () => engine.input.setVirtualFire(false)
+  }, [engine, visible, isPlane])
+
+  // Nitro only exists in car mode: never leave it held behind
+  useEffect(() => {
+    if (!visible || isPlane) {
+      setIsNitro(false)
+      engine.input.setVirtualNitro(false)
+    }
+    return () => engine.input.setVirtualNitro(false)
   }, [engine, visible, isPlane])
 
   useEffect(() => {
@@ -267,6 +277,22 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
     e.stopPropagation()
     setIsBraking(false)
     applyInputs(knobPos.x, knobPos.y, false)
+  }
+
+  // ── Nitro Button (car only, hold to boost) ─────────────────────────────────
+  const handleNitroStart = (e: React.TouchEvent | React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    triggerHaptic(15)
+    setIsNitro(true)
+    engine.input.setVirtualNitro(true)
+  }
+
+  const handleNitroEnd = (e: React.TouchEvent | React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsNitro(false)
+    engine.input.setVirtualNitro(false)
   }
 
   if (!visible) {
@@ -528,8 +554,59 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
           right: 'max(24px, env(safe-area-inset-right, 24px))',
           pointerEvents: 'auto',
           touchAction: 'none',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: 12,
         }}
       >
+        {!isPlane && (
+          <button
+            onTouchStart={handleNitroStart}
+            onTouchEnd={handleNitroEnd}
+            onTouchCancel={handleNitroEnd}
+            onMouseDown={handleNitroStart}
+            onMouseUp={handleNitroEnd}
+            onMouseLeave={handleNitroEnd}
+            style={{
+              width: 64,
+              height: 64,
+              borderRadius: '50%',
+              background: isNitro
+                ? 'radial-gradient(circle, rgba(0, 242, 254, 0.95) 0%, rgba(2, 132, 199, 0.98) 100%)'
+                : 'radial-gradient(circle, rgba(0, 242, 254, 0.2) 0%, rgba(15, 23, 42, 0.6) 100%)',
+              border: isNitro ? '2.5px solid #00f2fe' : '1.5px solid rgba(0, 242, 254, 0.55)',
+              boxShadow: isNitro
+                ? '0 0 30px rgba(0, 242, 254, 0.8), inset 0 0 14px rgba(0, 242, 254, 0.5)'
+                : '0 4px 20px rgba(0, 0, 0, 0.5), inset 0 0 8px rgba(0, 242, 254, 0.2)',
+              transform: isNitro ? 'scale(0.92)' : 'scale(1)',
+              transition: 'transform 0.08s ease, background 0.1s ease, border-color 0.1s ease',
+              color: '#ffffff',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              backdropFilter: 'blur(10px)',
+              WebkitBackdropFilter: 'blur(10px)',
+            }}
+          >
+            <span style={{ fontSize: 18, lineHeight: 1 }}>⚡</span>
+            <span
+              style={{
+                fontFamily: "'Orbitron', sans-serif",
+                fontSize: 8,
+                fontWeight: 900,
+                letterSpacing: 1.2,
+                marginTop: 2,
+                color: isNitro ? '#ffffff' : '#67e8f9',
+                textShadow: isNitro ? '0 0 8px #ffffff' : '0 0 6px rgba(0, 242, 254, 0.4)',
+              }}
+            >
+              NITRO
+            </span>
+          </button>
+        )}
         <button
           onTouchStart={handleBrakeStart}
           onTouchEnd={handleBrakeEnd}

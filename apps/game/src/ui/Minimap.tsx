@@ -534,21 +534,25 @@ export function Minimap({
         ctx.restore()
       }
 
-      // ── 4b. Time-trial start (green) & finish (red) markers ───────────────
-      const trialMarkers = engine.getTrialMarkers()
-      if (trialMarkers.start) {
+      // ── 4b. Time-trial starts (green, all available) & finish (red).
+      // The finish stays hidden until GO; discovery lives on this map. ──────
+      const trialStarts = engine.getTrialStartPoints()
+      if (trialStarts.length > 0) {
         ctx.save()
         ctx.fillStyle = '#34d399'
         ctx.shadowColor = '#34d399'
         ctx.shadowBlur = 10
-        ctx.beginPath()
-        ctx.arc(trialMarkers.start.x * scale, trialMarkers.start.z * scale, 5, 0, Math.PI * 2)
-        ctx.fill()
         ctx.strokeStyle = '#ffffff'
         ctx.lineWidth = 2
-        ctx.stroke()
+        for (const s of trialStarts) {
+          ctx.beginPath()
+          ctx.arc(s.x * scale, s.z * scale, 5, 0, Math.PI * 2)
+          ctx.fill()
+          ctx.stroke()
+        }
         ctx.restore()
       }
+      const trialMarkers = engine.getTrialMarkers()
       if (trialMarkers.finish) {
         ctx.save()
         ctx.fillStyle = '#ef4444'

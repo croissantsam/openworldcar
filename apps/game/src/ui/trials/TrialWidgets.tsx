@@ -1,4 +1,4 @@
-import { formatTrialDist, formatTrialTime, TRIAL_START_RADIUS_M, type TrialStatus } from '../../lib/trials.js'
+import { formatTrialTime, TRIAL_START_RADIUS_M, type TrialStatus } from '../../lib/trials.js'
 
 interface TrialWidgetsProps {
   status: TrialStatus
@@ -34,44 +34,9 @@ function pillStyle(touchMode: boolean): React.CSSProperties {
 
 export function TrialWidgets({ status, submit, touchMode, onAbort }: TrialWidgetsProps) {
   if (status.phase === 'idle') {
-    const p = status.proposal
-    if (!p) return null
-    const inZone = status.distToStartM <= TRIAL_START_RADIUS_M
-    return (
-      <div style={pillStyle(touchMode)}>
-        <span
-          style={{
-            fontFamily: "'Inter', sans-serif",
-            fontSize: touchMode ? 10 : 12,
-            fontWeight: 800,
-            color: '#fff',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            maxWidth: '88vw',
-          }}
-        >
-          ⏱️ Départ : {p.from.name} · {formatTrialDist(p.distanceM)}
-        </span>
-        {inZone ? (
-          <span
-            style={{
-              fontFamily: "'Orbitron', sans-serif",
-              fontSize: touchMode ? 10 : 12,
-              fontWeight: 900,
-              letterSpacing: 2,
-              color: '#6ee7b7',
-              animation: 'hudFlash 0.5s ease-in-out infinite alternate',
-            }}
-          >
-            APPUYEZ SUR ENTRÉE
-          </span>
-        ) : (
-          <span style={{ fontFamily: "'Inter', sans-serif", fontSize: touchMode ? 9 : 11, color: '#94a3b8' }}>
-            À {Math.round(status.distToStartM)} m — roulez-y, la destination est surprise !
-          </span>
-        )}
-      </div>
-    )
+    // Discovery lives on the minimap (all starts) + the in-zone ENTRÉE chip:
+    // no idle guidance message.
+    return null
   }
 
   if (status.phase === 'countdown') {

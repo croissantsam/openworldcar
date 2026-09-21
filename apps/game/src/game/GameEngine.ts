@@ -197,7 +197,9 @@ export class GameEngine {
   private trialT = 0
   private trialFinalMs = 0
   private trialResult: { trial: TrialDef; timeMs: number } | null = null
-  private trialCache: { list: TrialDef[]; atX: number; atZ: number; atTime: number } | null = null
+  /** Trial id picked in the start panel (same beacon); ENTRÉE starts it instead of the proposal. */
+  private trialSelectedId: string | null = null
+  private trialCache: { list: TrialDef[]; count: number; atX: number; atZ: number; atTime: number } | null = null
   /** Player GPS stashed while a trial shows direct guidance (restored after). */
   private trialSavedGps: WorldPosition | null = null
   /**
@@ -1228,11 +1230,11 @@ export class GameEngine {
   // ───────────────────────────────────────────────────────────────────────────
 
   /** Nearby generated trials (cached, recomputed at most every 5s / 150m). */
-  getNearbyTrials(): TrialDef[] {
+  getNearbyTrials(count = 3): TrialDef[] {
     const pos = this.getPlayerPosition()
     const now = performance.now()
     const c = this.trialCache
-    if (c) {
+    if (c && c.count === count) {
       const movedSq = (pos.x - c.atX) * (pos.x - c.atX) + (pos.z - c.atZ) * (pos.z - c.atZ)
       if (now - c.atTime < 5000 && movedSq < 150 * 150) return c.list
     }
@@ -1254,14 +1256,14 @@ export class GameEngine {
           this.chunkManager.getActiveRoads(),
           this.currentDestination.id,
           pos,
-          3,
+          count,
           extraMonuments || extraRoads ? { monuments: extraMonuments, roads: extraRoads } : undefined,
         )
       }
     } catch {
       list = []
     }
-    this.trialCache = { list, atX: pos.x, atZ: pos.z, atTime: now }
+    this.trialCache = { list, count, atX: pos.x, atZ: pos.z, atTime: now }
     return list
   }
 
@@ -1377,8 +1379,7 @@ export class GameEngine {
   }
 
   /** Start/finish markers for the minimap. The finish stays hidden until GO. */
-  getTrialMarkers(): { start: { x: number; z: number } | null; finish: { x: number; z: number } | null } {
-    if (this.trialPhase === 'idle') {
+  getTrialMarkers(): { start: { x: number; z: number } | null; finish: { x: number; z: number } | null } {    if (this.trialPhase === 'idle') {
       const st = this.getTrialStatus()
       const p = st.proposal
       return {
@@ -1389,6 +1390,25 @@ export class GameEngine {
     const a = this.trialActive
     if (!a || this.trialPhase === 'finished') return { start: null, finish: null }
     return { start: { x: a.from.x, z: a.from.z }, finish: { x: a.to.x, z: a.to.z } }
+  }
+
+  /**
+   * Every available trial start (deduped beacons) for the minimap.
+   * Discovery lives on the map now — no HUD guidance nagging.
+   */
+  getTrialStartPoints(): Array<{ x: number; z: number }> {
+    const seen = new Set<string>()
+    const out: Array<{ x: number; z: number }> = []
+    try {
+      for (const t of this.getNearbyTrials(12)) {
+        if (seen.has(t.from.id)) continue
+        seen.add(t.from.id)
+        out.push({ x: t.from.x, z: t.from.z })
+      }
+    } catch {
+      // no chunk data yet — nothing to show
+    }
+    return out
   }
 
   /**
@@ -1433,10 +1453,26 @@ export class GameEngine {
     }
     const st = this.getTrialStatus()
     if (st.proposal && st.distToStartM <= TRIAL_START_RADIUS_M) {
+      // A race picked in the start panel (click / keys 1-6) wins over the
+      // default proposal. Unknown/stale ids fall back to the proposal.
+      const sel = this.trialSelectedId
+      if (sel) {
+        const match = this.getNearbyTrials(12).find((t) => t.id === sel)
+        if (match && this.startTrial(match)) {
+          this.trialSelectedId = null
+          return
+        }
+      }
+      this.trialSelectedId = null
       this.startTrial(st.proposal)
     } else if (this._vehicleMode === 'plane') {
       this.exitPlane()
     }
+  }
+
+  /** Race picked in the start panel (same beacon). ENTRÉE starts it. */
+  setTrialSelection(trialId: string | null): void {
+    this.trialSelectedId = trialId
   }
 
   private _updateTrial(delta: number, pos: WorldPosition): void {

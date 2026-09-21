@@ -12,14 +12,13 @@ import { OrientationPrompt } from './OrientationPrompt.js'
 import { AuthModal } from './auth/AuthModal.js'
 import { TrophyModal } from './trophies/TrophyModal.js'
 import { TrialBoardModal } from './trials/TrialBoardModal.js'
+import { TrialStartPanel } from './trials/TrialStartPanel.js'
 import { TrialWidgets } from './trials/TrialWidgets.js'
 import { useTrophyToast } from './trophies/toast.js'
 import { authClient } from '../lib/auth-client.js'
 import { recordCityVisit } from '../services/profileSync.js'
 import { submitTrialTime } from '../server/trials.js'
 import {
-  formatTrialDist,
-  formatTrialTime,
   TRIAL_START_RADIUS_M,
   type TrialStatus,
 } from '../lib/trials.js'
@@ -1992,13 +1991,25 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
       {/* Time-trial board modal */}
       {trialBoardOpen && <TrialBoardModal engine={engine} onClose={() => setTrialBoardOpen(false)} />}
 
-      {/* Time-trial status widgets */}
-      <TrialWidgets
-        status={trialStatus}
-        submit={trialSubmit}
-        touchMode={touchMode}
-        onAbort={() => engine.abortTrial()}
-      />
+      {/* Full start panel within the beacon zone, else race widgets.
+          Discovery beyond that lives on the minimap (no far guidance). */}
+      {trialStatus.phase === 'idle' &&
+      trialStatus.proposal &&
+      trialStatus.distToStartM <= TRIAL_START_RADIUS_M ? (
+        <TrialStartPanel
+          engine={engine}
+          proposal={trialStatus.proposal}
+          distToStartM={trialStatus.distToStartM}
+          touchMode={touchMode}
+        />
+      ) : (
+        <TrialWidgets
+          status={trialStatus}
+          submit={trialSubmit}
+          touchMode={touchMode}
+          onAbort={() => engine.abortTrial()}
+        />
+      )}
 
       {/* Trophy unlock toasts */}
       {trophyToasts.length > 0 && (

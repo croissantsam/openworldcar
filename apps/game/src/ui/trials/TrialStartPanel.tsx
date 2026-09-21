@@ -1,0 +1,264 @@
+import { useEffect, useState } from 'react'
+import type { GameEngine } from '../../game/GameEngine.js'
+import {
+  formatTrialDist,
+  formatTrialTime,
+  TRIAL_START_RADIUS_M,
+  type TrialDef,
+} from '../../lib/trials.js'
+import { getTrialLeaderboard, type TrialLeaderboardRow } from '../../server/trials.js'
+
+interface TrialStartPanelProps {
+  engine: GameEngine
+  proposal: TrialDef
+  distToStartM: number
+  touchMode: boolean
+}
+
+function rankIcon(rank: number): string {
+  if (rank === 1) return '🥇'
+  if (rank === 2) return '🥈'
+  if (rank === 3) return '🥉'
+  return `${rank}`
+}
+
+/**
+ * Full panel within the start zone: every destination from this beacon,
+ * shortest first (≤3km by construction), each with its top-3 times.
+ * The highlighted race is selectable (click / keys 1-6); ENTRÉE or the
+ * DÉPART button starts it.
+ */
+export function TrialStartPanel({ engine, proposal, distToStartM, touchMode }: TrialStartPanelProps) {
+  const [trials, setTrials] = useState<TrialDef[]>([])
+  const [tops, setTops] = useState<Record<string, TrialLeaderboardRow[]>>({})
+  const [selectedId, setSelectedId] = useState<string | null>(proposal.id)
+  const fromId = proposal.from.id
+
+  useEffect(() => {
+    let cancelled = false
+    let list: TrialDef[] = []
+    try {
+      list = engine
+        .getNearbyTrials(12)
+        .filter((t) => t.from.id === fromId)
+        .slice(0, 6)
+    } catch {
+      list = []
+    }
+    setTrials(list)
+    if (list.length === 0) {
+      setTops({})
+      setSelectedId(null)
+      engine.setTrialSelection(null)
+      return () => {
+        cancelled = true
+      }
+    }
+    // Default selection: the proposal (shortest), so ENTRÉE behaves as before.
+    const first = list[0]!.id
+    setSelectedId(first)
+    engine.setTrialSelection(first)
+    // Reset tops for the new beacon so stale times aren't shown, then fetch.
+    // No fetchedRef cache: it poisoned retries when a previous fetch was
+    // cancelled (StrictMode remount / quick beacon switch) → infinite
+    // "Chargement des temps…". The effect deps ([engine, fromId]) already dedupe.
+    setTops({})
+    const ids = list.map((t) => t.id)
+    function withTimeout<T>(p: Promise<T>, ms = 10000): Promise<T | null> {
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const timeout = new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), ms)
+      })
+      // Clear the timer when the request settles first (no timer leak, no
+      // stray wakeup after unmount).
+      return Promise.race([p.finally(() => clearTimeout(timer)), timeout])
+    }
+    // try/catch: a synchronously-throwing RPC stub (broken import, bad state)
+    // would otherwise escape the effect and stick the UI on loading forever.
+    try {
+      Promise.all(
+        list.map((t) =>
+          withTimeout(getTrialLeaderboard({ data: t.id }))
+            .then((rows) => ({ id: t.id, rows: (rows ?? []).slice(0, 3) }))
+            .catch(() => ({ id: t.id, rows: [] as TrialLeaderboardRow[] })),
+        ),
+      )
+        .then((all) => {
+          if (cancelled) return
+          const map: Record<string, TrialLeaderboardRow[]> = {}
+          for (const r of all) map[r.id] = r.rows
+          // Safety net: every requested id gets an entry (empty = "Aucun temps"),
+          // so the UI can never stay stuck on "Chargement des temps…".
+          for (const id of ids) map[id] ??= []
+          setTops(map)
+        })
+        .catch(() => {
+          if (cancelled) return
+          const map: Record<string, TrialLeaderboardRow[]> = {}
+          for (const id of ids) map[id] = []
+          setTops(map)
+        })
+    } catch {
+      const map: Record<string, TrialLeaderboardRow[]> = {}
+      for (const id of ids) map[id] = []
+      setTops(map)
+    }
+    return () => {
+      cancelled = true
+    }
+  }, [engine, fromId])
+
+  const select = (id: string) => {
+    setSelectedId(id)
+    engine.setTrialSelection(id)
+  }
+
+  // Keys 1-6 pick a race (free: digits aren't driving controls). Ignored
+  // while typing in a field.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey || e.altKey || e.repeat) return
+      const el = document.activeElement
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) return
+      const n = e.key >= '1' && e.key <= '9' ? Number(e.key) : NaN
+      if (Number.isInteger(n) && n >= 1 && n <= trials.length) {
+        select(trials[n - 1]!.id)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [engine, trials]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const inZone = distToStartM <= TRIAL_START_RADIUS_M
+
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        top: touchMode ? 48 : 58,
+        left: '50%',
+        transform: 'translateX(-50%)',
+        background: 'rgba(10, 16, 28, 0.88)',
+        backdropFilter: 'blur(12px)',
+        WebkitBackdropFilter: 'blur(12px)',
+        border: '1px solid rgba(52, 211, 153, 0.45)',
+        boxShadow: '0 4px 16px rgba(0, 0, 0, 0.4), 0 0 14px rgba(52, 211, 153, 0.2)',
+        borderRadius: 14,
+        padding: touchMode ? '6px 14px' : '8px 18px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 6,
+        pointerEvents: 'none',
+        userSelect: 'none',
+        zIndex: 60,
+        width: touchMode ? 300 : 340,
+        maxHeight: '44dvh',
+        overflowY: 'auto',
+      }}
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+        <span style={{ fontFamily: "'Inter', sans-serif", fontSize: touchMode ? 11 : 13, fontWeight: 800, color: '#fff' }}>
+          ⏱️ Départ : {proposal.from.name}
+        </span>
+        {inZone ? (
+          <span
+            style={{
+              fontFamily: "'Orbitron', sans-serif",
+              fontSize: touchMode ? 10 : 12,
+              fontWeight: 900,
+              letterSpacing: 2,
+              color: '#6ee7b7',
+              animation: 'hudFlash 0.5s ease-in-out infinite alternate',
+            }}
+          >
+            APPUYEZ SUR ENTRÉE
+          </span>
+        ) : (
+          <span style={{ fontFamily: "'Inter', sans-serif", fontSize: touchMode ? 9 : 11, color: '#94a3b8' }}>
+            À {Math.round(distToStartM)} m — roulez-y !
+          </span>
+        )}
+        {trials.length > 1 && (
+          <span style={{ fontFamily: "'Inter', sans-serif", fontSize: 9, color: '#64748b' }}>
+            Clic ou touches 1-{Math.min(trials.length, 9)} pour choisir la course
+          </span>
+        )}
+      </div>
+
+      {trials.map((t, i) => {
+        const top = tops[t.id]
+        const isSel = selectedId === t.id
+        return (
+          <div
+            key={t.id}
+            onClick={() => select(t.id)}
+            title="Choisir cette course"
+            style={{
+              background: isSel ? 'rgba(52, 211, 153, 0.1)' : 'rgba(255, 255, 255, 0.03)',
+              border: isSel ? '1px solid rgba(52, 211, 153, 0.45)' : '1px solid rgba(255, 255, 255, 0.07)',
+              borderRadius: 10,
+              padding: '6px 10px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 2,
+              pointerEvents: 'auto',
+              cursor: 'pointer',
+              userSelect: 'none',
+            }}
+          >
+            <span style={{ fontSize: touchMode ? 11 : 12, fontWeight: 800, color: '#e2e8f0' }}>
+              {isSel ? '▶ ' : ''}
+              {trials.length > 1 ? `${i + 1}. ` : ''}→ {t.to.name} · {formatTrialDist(t.distanceM)}
+            </span>
+            {!top ? (
+              <span style={{ fontSize: 10, color: '#64748b' }}>Chargement des temps…</span>
+            ) : top.length === 0 ? (
+              <span style={{ fontSize: 10, color: '#64748b' }}>Aucun temps — à vous !</span>
+            ) : (
+              top.map((r) => (
+                <span
+                  key={r.rank}
+                  style={{
+                    fontSize: 10,
+                    color: r.you ? '#7dd3fc' : '#94a3b8',
+                    fontWeight: r.you ? 800 : 400,
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }}
+                >
+                  {rankIcon(r.rank)} {formatTrialTime(r.timeMs)} · {r.label}
+                  {r.you ? ' (vous)' : ''}
+                </span>
+              ))
+            )}
+            {isSel && inZone && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  engine.startTrial(t)
+                }}
+                style={{
+                  marginTop: 4,
+                  background: 'rgba(52, 211, 153, 0.18)',
+                  border: '1px solid rgba(52, 211, 153, 0.6)',
+                  borderRadius: 8,
+                  color: '#6ee7b7',
+                  fontFamily: "'Orbitron', sans-serif",
+                  fontSize: 10,
+                  fontWeight: 900,
+                  letterSpacing: 2,
+                  padding: '5px 0',
+                  cursor: 'pointer',
+                  width: '100%',
+                }}
+              >
+                ▶ DÉPART
+              </button>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}

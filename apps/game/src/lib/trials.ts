@@ -12,6 +12,8 @@ import type { PointOfInterest, Road } from '@world-drive/shared'
 import type { WorldPosition } from '@world-drive/math'
 
 export interface TrialPoint {
+  /** OSM node/way id (`ov_*` for radar) — groups trials sharing one start. */
+  id: string
   name: string
   x: number
   z: number
@@ -27,7 +29,7 @@ export interface TrialDef {
   distanceM: number
 }
 
-/** Road-distance band for generated trials. */
+/** Straight-line distance band for generated trials (crow-flies). */
 export const TRIAL_MIN_DIST_M = 200
 export const TRIAL_MAX_DIST_M = 3000
 /** Drive-to-start / finish-crossing radius, meters. */
@@ -62,6 +64,47 @@ export function formatTrialDist(m: number): string {
 function monumentName(poi: PointOfInterest): string | null {
   const name = poi.name?.trim() ?? poi.tags?.['name']?.trim()
   return name && name.length > 0 ? name.slice(0, 48) : null
+}
+
+/** Max distance (m) to snap a monument onto a road; beyond → pair skipped. */
+const SNAP_MAX_DIST_M = 250
+
+/**
+ * Nearest point on any surface road centre-line (tunnels excluded: a beacon
+ * above an underground road would be unreachable). Returns null when no
+ * road is close enough.
+ */
+function snapToRoad(
+  x: number,
+  z: number,
+  roads: Road[],
+): { x: number; z: number } | null {
+  let best: { x: number; z: number } | null = null
+  let bestSq = SNAP_MAX_DIST_M * SNAP_MAX_DIST_M
+  for (const road of roads) {
+    if (road.tunnel) continue
+    if (road.elevationMode !== undefined && road.elevationMode !== 'ground' && road.elevationMode !== 'bridge') continue
+    const pts = road.points
+    for (let i = 0; i < pts.length - 1; i++) {
+      const a = pts[i]!
+      const b = pts[i + 1]!
+      const sx = b.x - a.x
+      const sz = b.z - a.z
+      const len2 = sx * sx + sz * sz
+      if (len2 < 1e-6) continue
+      const t = Math.max(0, Math.min(1, ((x - a.x) * sx + (z - a.z) * sz) / len2))
+      const px = a.x + sx * t
+      const pz = a.z + sz * t
+      const dx = px - x
+      const dz = pz - z
+      const d2 = dx * dx + dz * dz
+      if (d2 < bestSq) {
+        bestSq = d2
+        best = { x: px, z: pz }
+      }
+    }
+  }
+  return best
 }
 
 /** Merge corridor roads, deduped by OSM way id (corridors overlap). */
@@ -140,16 +183,26 @@ export function generateTrials(
       const key = a.id < b.id ? `${a.id}|${b.id}` : `${b.id}|${a.id}`
       if (seen.has(key)) continue
       seen.add(key)
-      const path = findAStarPath(graph, { x: a.x, y: 0, z: a.z }, { x: b.x, y: 0, z: b.z })
+      // Snap both ends onto the nearest surface road: monuments often sit
+      // inside buildings, courtyards or pedestrian zones — beacons and the
+      // finish line must be where the car can actually drive.
+      const snapA = snapToRoad(a.x, a.z, allRoads)
+      const snapB = snapToRoad(b.x, b.z, allRoads)
+      if (!snapA || !snapB) continue
+      // Displayed distance is crow-flies (shortest path, shortcuts allowed):
+      // the A* road path only proves the pair is drivable.
+      const crowM = Math.hypot(snapA.x - snapB.x, snapA.z - snapB.z)
+      if (crowM < TRIAL_MIN_DIST_M || crowM > TRIAL_MAX_DIST_M) continue
+      const path = findAStarPath(graph, { x: snapA.x, y: 0, z: snapA.z }, { x: snapB.x, y: 0, z: snapB.z })
       if (!path || path.length < 2) continue
-      const distanceM = polylineLength(path)
-      if (distanceM < TRIAL_MIN_DIST_M || distanceM > TRIAL_MAX_DIST_M) continue
+      const distanceM = crowM
       const [first, second] = a.id < b.id ? [a, b] : [b, a]
+      const [snapFirst, snapSecond] = a.id < b.id ? [snapA, snapB] : [snapB, snapA]
       trials.push({
         id: `tt_${destinationId}_${first!.id}_${second!.id}`,
         destinationId,
-        from: { name: first!.name, x: first!.x, z: first!.z },
-        to: { name: second!.name, x: second!.x, z: second!.z },
+        from: { id: first!.id, name: first!.name, x: snapFirst!.x, z: snapFirst!.z },
+        to: { id: second!.id, name: second!.name, x: snapSecond!.x, z: snapSecond!.z },
         distanceM,
       })
     }

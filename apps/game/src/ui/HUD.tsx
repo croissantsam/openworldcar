@@ -909,7 +909,7 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
       </div>
       )}
 
-      {/* Health (PV) — both modes */}
+      {/* Bottom-center cluster: spawn invincibility + Health (PV) — both modes */}
       <div
         style={{
           position: 'absolute',
@@ -917,68 +917,180 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
           left: '50%',
           transform: 'translateX(-50%)',
           display: 'flex',
+          flexDirection: 'column',
           alignItems: 'center',
-          gap: 8,
-          background: 'rgba(10, 16, 28, 0.72)',
-          backdropFilter: 'blur(10px)',
-          WebkitBackdropFilter: 'blur(10px)',
-          border: damageFlash
-            ? '1px solid rgba(239, 68, 68, 0.9)'
-            : combatInvincible
-            ? '1px solid rgba(0, 229, 255, 0.55)'
-            : '1px solid rgba(0, 212, 255, 0.3)',
-          boxShadow: damageFlash
-            ? '0 4px 16px rgba(0,0,0,0.4), 0 0 18px rgba(239, 68, 68, 0.55)'
-            : '0 4px 16px rgba(0, 0, 0, 0.4)',
-          borderRadius: 14,
-          padding: touchMode ? '4px 10px' : '6px 14px',
+          gap: 6,
           pointerEvents: 'none',
           userSelect: 'none',
           zIndex: 34,
-          transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
         }}
       >
-        <span style={{ ...flightLabelStyle, color: damageFlash ? '#fca5a5' : '#00d4ff' }}>PV</span>
-        <div
-          style={{
-            width: touchMode ? 110 : 150,
-            height: touchMode ? 7 : 8,
-            borderRadius: 4,
-            background: 'rgba(255, 255, 255, 0.12)',
-            overflow: 'hidden',
-          }}
-        >
+        {/* Spawn invincibility (car pass-through) — above the PV bar */}
+        {invincibilitySec > 0 && !isPlane && (
           <div
             style={{
-              width: `${Math.max(0, Math.min(100, (health / maxHealth) * 100))}%`,
-              height: '100%',
-              borderRadius: 4,
-              background:
-                health <= maxHealth * 0.3
-                  ? 'linear-gradient(90deg, #dc2626, #f87171)'
-                  : health <= maxHealth * 0.6
-                  ? 'linear-gradient(90deg, #d97706, #fbbf24)'
-                  : 'linear-gradient(90deg, #059669, #34d399)',
-              boxShadow: '0 0 8px rgba(52, 211, 153, 0.35)',
-              transition: 'width 0.18s ease-out',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              background: invincibilitySec <= 5.0
+                ? 'rgba(28, 10, 8, 0.92)'
+                : 'rgba(8, 16, 28, 0.90)',
+              border: invincibilitySec <= 5.0
+                ? '1px solid rgba(255, 68, 0, 0.8)'
+                : '1px solid rgba(0, 229, 255, 0.55)',
+              boxShadow: invincibilitySec <= 5.0
+                ? '0 4px 16px rgba(0,0,0,0.4), 0 0 18px rgba(255, 68, 0, 0.45)'
+                : '0 4px 16px rgba(0,0,0,0.4), 0 0 16px rgba(0, 229, 255, 0.25)',
+              backdropFilter: 'blur(10px)',
+              WebkitBackdropFilter: 'blur(10px)',
+              borderRadius: 12,
+              padding: touchMode ? '3px 10px' : '4px 12px',
+              transition: 'border-color 0.3s ease, background 0.3s ease',
+              whiteSpace: 'nowrap',
             }}
-          />
-        </div>
-        <span
+          >
+            <div
+              style={{
+                width: touchMode ? 18 : 22,
+                height: touchMode ? 18 : 22,
+                borderRadius: '50%',
+                background: invincibilitySec <= 5.0 ? 'rgba(255, 68, 0, 0.2)' : 'rgba(0, 229, 255, 0.15)',
+                border: invincibilitySec <= 5.0 ? '1.5px solid rgba(255, 68, 0, 0.6)' : '1.5px solid rgba(0, 229, 255, 0.5)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+                boxShadow: invincibilitySec <= 5.0 ? '0 0 10px rgba(255, 68, 0, 0.5)' : '0 0 10px rgba(0, 229, 255, 0.4)',
+              }}
+            >
+              <svg width={touchMode ? 10 : 12} height={touchMode ? 10 : 12} viewBox="0 0 24 24" fill="none">
+                <path
+                  d="M12 2L4 5V11.5C4 16.5 7.5 21.2 12 22.5C16.5 21.2 20 16.5 20 11.5V5L12 2Z"
+                  fill={invincibilitySec <= 5.0 ? '#ff4400' : '#00e5ff'}
+                  fillOpacity="0.25"
+                  stroke={invincibilitySec <= 5.0 ? '#ff4400' : '#00e5ff'}
+                  strokeWidth="2"
+                  strokeLinejoin="round"
+                />
+                <path
+                  d="M9 12L11 14L15 10"
+                  stroke={invincibilitySec <= 5.0 ? '#ff7733' : '#a7f3d0'}
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </div>
+            <span
+              style={{
+                fontFamily: "'Orbitron', sans-serif",
+                fontSize: touchMode ? 8 : 9,
+                fontWeight: 800,
+                letterSpacing: 1.2,
+                color: invincibilitySec <= 5.0 ? '#ff6622' : '#38bdf8',
+                textTransform: 'uppercase',
+              }}
+            >
+              {invincibilitySec <= 5.0 ? '⚠️ Fin bouclier' : '🛡️ Invincibilité'}
+            </span>
+            <span
+              style={{
+                fontFamily: "'Orbitron', sans-serif",
+                fontSize: touchMode ? 11 : 13,
+                fontWeight: 800,
+                color: '#ffffff',
+                minWidth: 30,
+              }}
+            >
+              {Math.ceil(invincibilitySec)}s
+            </span>
+            <div
+              style={{
+                width: touchMode ? 50 : 75,
+                height: touchMode ? 5 : 6,
+                borderRadius: 3,
+                background: 'rgba(255, 255, 255, 0.12)',
+                overflow: 'hidden',
+              }}
+            >
+              <div
+                style={{
+                  width: `${Math.min(100, Math.max(0, (invincibilitySec / 30) * 100))}%`,
+                  height: '100%',
+                  background: invincibilitySec <= 5.0
+                    ? 'linear-gradient(90deg, #ff4400, #ff8800)'
+                    : 'linear-gradient(90deg, #00b4d8, #00f2fe)',
+                  borderRadius: 3,
+                  transition: 'width 0.1s linear',
+                  boxShadow: invincibilitySec <= 5.0 ? '0 0 8px #ff4400' : '0 0 8px #00f2fe',
+                }}
+              />
+            </div>
+          </div>
+        )}
+        <div
           style={{
-            fontFamily: "'Orbitron', sans-serif",
-            fontSize: touchMode ? 11 : 13,
-            fontWeight: 900,
-            color: damageFlash ? '#fca5a5' : '#fff',
-            minWidth: 26,
-            textAlign: 'right',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            background: 'rgba(10, 16, 28, 0.72)',
+            backdropFilter: 'blur(10px)',
+            WebkitBackdropFilter: 'blur(10px)',
+            border: damageFlash
+              ? '1px solid rgba(239, 68, 68, 0.9)'
+              : combatInvincible || invincibilitySec > 0
+              ? '1px solid rgba(0, 229, 255, 0.55)'
+              : '1px solid rgba(0, 212, 255, 0.3)',
+            boxShadow: damageFlash
+              ? '0 4px 16px rgba(0,0,0,0.4), 0 0 18px rgba(239, 68, 68, 0.55)'
+              : '0 4px 16px rgba(0, 0, 0, 0.4)',
+            borderRadius: 14,
+            padding: touchMode ? '4px 10px' : '6px 14px',
+            transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
           }}
         >
-          {health}
-        </span>
-        {combatInvincible && (
-          <span style={{ fontSize: touchMode ? 10 : 12, filter: 'drop-shadow(0 0 4px rgba(0,229,255,0.8))' }}>🛡️</span>
-        )}
+          <span style={{ ...flightLabelStyle, color: damageFlash ? '#fca5a5' : '#00d4ff' }}>PV</span>
+          <div
+            style={{
+              width: touchMode ? 110 : 150,
+              height: touchMode ? 7 : 8,
+              borderRadius: 4,
+              background: 'rgba(255, 255, 255, 0.12)',
+              overflow: 'hidden',
+            }}
+          >
+            <div
+              style={{
+                width: `${Math.max(0, Math.min(100, (health / maxHealth) * 100))}%`,
+                height: '100%',
+                borderRadius: 4,
+                background:
+                  health <= maxHealth * 0.3
+                    ? 'linear-gradient(90deg, #dc2626, #f87171)'
+                    : health <= maxHealth * 0.6
+                    ? 'linear-gradient(90deg, #d97706, #fbbf24)'
+                    : 'linear-gradient(90deg, #059669, #34d399)',
+                boxShadow: '0 0 8px rgba(52, 211, 153, 0.35)',
+                transition: 'width 0.18s ease-out',
+              }}
+            />
+          </div>
+          <span
+            style={{
+              fontFamily: "'Orbitron', sans-serif",
+              fontSize: touchMode ? 11 : 13,
+              fontWeight: 900,
+              color: damageFlash ? '#fca5a5' : '#fff',
+              minWidth: 26,
+              textAlign: 'right',
+            }}
+          >
+            {health}
+          </span>
+          {(combatInvincible || invincibilitySec > 0) && (
+            <span style={{ fontSize: touchMode ? 10 : 12, filter: 'drop-shadow(0 0 4px rgba(0,229,255,0.8))' }}>🛡️</span>
+          )}
+        </div>
       </div>
 
       {/* Destroyed */}
@@ -1762,144 +1874,6 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
             >
               <span>{touchMode ? '🎮 COMMANDES TACTILES ACTIVES' : '⌨️ COMMANDES CLAVIER ACTIVES'}</span>
             </button>
-          </div>
-        </div>
-      )}
-
-      {/* 30s Spawn Invincibility Banner (the car's — hidden while flying) */}
-      {invincibilitySec > 0 && !isPlane && (
-        <div
-          style={{
-            position: 'absolute',
-            top: isMobileLandscape
-              ? searchBarOpen
-                ? 88
-                : isGenerating
-                ? 72
-                : 46
-              : searchBarOpen
-              ? 134
-              : isGenerating
-              ? 114
-              : 76,
-            left: '50%',
-            transform: 'translateX(-50%)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: isMobileLandscape ? 8 : 12,
-            background: invincibilitySec <= 5.0
-              ? 'rgba(28, 10, 8, 0.92)'
-              : 'rgba(8, 16, 28, 0.90)',
-            border: invincibilitySec <= 5.0
-              ? '1px solid rgba(255, 68, 0, 0.8)'
-              : '1px solid rgba(0, 229, 255, 0.55)',
-            boxShadow: invincibilitySec <= 5.0
-              ? '0 8px 30px rgba(0,0,0,0.6), 0 0 22px rgba(255, 68, 0, 0.45)'
-              : '0 8px 30px rgba(0,0,0,0.6), 0 0 20px rgba(0, 229, 255, 0.25)',
-            backdropFilter: 'blur(16px)',
-            borderRadius: isMobileLandscape ? 16 : 22,
-            padding: isMobileLandscape ? '4px 12px' : '7px 18px',
-            userSelect: 'none',
-            zIndex: 10,
-            transition: 'top 0.2s ease, border-color 0.3s ease, background 0.3s ease',
-          }}
-        >
-          {/* Animated Shield Icon */}
-          <div
-            style={{
-              width: isMobileLandscape ? 22 : 28,
-              height: isMobileLandscape ? 22 : 28,
-              borderRadius: '50%',
-              background: invincibilitySec <= 5.0 ? 'rgba(255, 68, 0, 0.2)' : 'rgba(0, 229, 255, 0.15)',
-              border: invincibilitySec <= 5.0 ? '1.5px solid rgba(255, 68, 0, 0.6)' : '1.5px solid rgba(0, 229, 255, 0.5)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              flexShrink: 0,
-              boxShadow: invincibilitySec <= 5.0 ? '0 0 10px rgba(255, 68, 0, 0.5)' : '0 0 10px rgba(0, 229, 255, 0.4)',
-            }}
-          >
-            <svg width={isMobileLandscape ? 12 : 15} height={isMobileLandscape ? 12 : 15} viewBox="0 0 24 24" fill="none">
-              <path
-                d="M12 2L4 5V11.5C4 16.5 7.5 21.2 12 22.5C16.5 21.2 20 16.5 20 11.5V5L12 2Z"
-                fill={invincibilitySec <= 5.0 ? '#ff4400' : '#00e5ff'}
-                fillOpacity="0.25"
-                stroke={invincibilitySec <= 5.0 ? '#ff4400' : '#00e5ff'}
-                strokeWidth="2"
-                strokeLinejoin="round"
-              />
-              <path
-                d="M9 12L11 14L15 10"
-                stroke={invincibilitySec <= 5.0 ? '#ff7733' : '#a7f3d0'}
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </div>
-
-          {/* Text Details & Progress */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-            <div
-              style={{
-                fontFamily: "'Orbitron', sans-serif",
-                fontSize: isMobileLandscape ? 8 : 9,
-                fontWeight: 800,
-                letterSpacing: 1.2,
-                color: invincibilitySec <= 5.0 ? '#ff6622' : '#38bdf8',
-                textTransform: 'uppercase',
-              }}
-            >
-              {invincibilitySec <= 5.0 ? '⚠️ Fin bouclier' : '🛡️ Invincibilité'}
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: isMobileLandscape ? 6 : 10 }}>
-              <span
-                style={{
-                  fontFamily: "'Orbitron', sans-serif",
-                  fontSize: isMobileLandscape ? 12 : 14,
-                  fontWeight: 800,
-                  color: '#ffffff',
-                  minWidth: isMobileLandscape ? 28 : 36,
-                }}
-              >
-                {Math.ceil(invincibilitySec)}s
-              </span>
-              {/* Energy progress bar */}
-              <div
-                style={{
-                  width: isMobileLandscape ? 50 : 75,
-                  height: isMobileLandscape ? 5 : 6,
-                  borderRadius: 3,
-                  background: 'rgba(255, 255, 255, 0.12)',
-                  overflow: 'hidden',
-                }}
-              >
-                <div
-                  style={{
-                    width: `${Math.min(100, Math.max(0, (invincibilitySec / 30) * 100))}%`,
-                    height: '100%',
-                    background: invincibilitySec <= 5.0
-                      ? 'linear-gradient(90deg, #ff4400, #ff8800)'
-                      : 'linear-gradient(90deg, #00b4d8, #00f2fe)',
-                    borderRadius: 3,
-                    transition: 'width 0.1s linear',
-                    boxShadow: invincibilitySec <= 5.0 ? '0 0 8px #ff4400' : '0 0 8px #00f2fe',
-                  }}
-                />
-              </div>
-              {!isMobileLandscape && (
-                <span
-                  style={{
-                    fontFamily: "'Inter', sans-serif",
-                    fontSize: 10,
-                    color: 'rgba(255, 255, 255, 0.7)',
-                    letterSpacing: 0.2,
-                  }}
-                >
-                  Pass-through actif entre véhicules
-                </span>
-              )}
-            </div>
           </div>
         </div>
       )}

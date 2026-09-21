@@ -54,8 +54,8 @@ export async function searchAddress(
   const cached = cache.get(clean.toLowerCase())
   if (cached) return cached
 
-  // 1. First try local Vite proxy endpoint /api/geocode
-  // 2. Fallback to direct Nominatim public API if proxy is unavailable
+  // 1. First try local server route /api/geocode
+  // 2. Fallback to direct Nominatim public API if the server route is unavailable
   let rawData: any[] = []
 
   try {

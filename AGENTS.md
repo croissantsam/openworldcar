@@ -92,8 +92,8 @@ OSM PBF → Parser → Filter → Normalize → Chunk Generator → Serialized G
 ## Apps
 
 ### `@world-drive/game` (Client)
-- **Stack**: React 18, Three.js (r168), Vite, Rapier3D, TanStack Router
-- **Entry**: `src/main.tsx` → `App.tsx` → `GameEngine`
+- **Stack**: React 19, Three.js (r168), TanStack Start, Rapier3D, TanStack Router
+- **Entry**: `src/router.tsx` → `src/routes/__root.tsx` → `src/routes/index.tsx` → `App.tsx` → `GameEngine`
 - **Core Systems**:
   - `GameEngine` — main loop, fixed timestep (1/60s)
   - `ChunkManager` — streaming, LOD, load/unload

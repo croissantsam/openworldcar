@@ -1,5 +1,6 @@
 node_modules/
 dist/
+.output/
 .turbo/
 *.tsbuildinfo
 data/development/*.chunk.json

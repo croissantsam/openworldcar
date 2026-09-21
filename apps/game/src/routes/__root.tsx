@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import {
+  Link,
   Outlet,
   createRootRoute,
   HeadContent,
@@ -50,6 +51,7 @@ export const Route = createRootRoute({
     ],
   }),
   component: RootComponent,
+  notFoundComponent: NotFound,
 })
 
 function RootComponent() {
@@ -57,6 +59,53 @@ function RootComponent() {
     <RootDocument>
       <Outlet />
     </RootDocument>
+  )
+}
+
+function NotFound() {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: '100%',
+        height: '100dvh',
+        gap: 12,
+        background: '#000',
+        color: '#fff',
+        fontFamily: "'Inter', sans-serif",
+        textAlign: 'center',
+        padding: 24,
+      }}
+    >
+      <div
+        style={{
+          fontFamily: "'Orbitron', sans-serif",
+          fontSize: 48,
+          fontWeight: 900,
+          letterSpacing: 2,
+        }}
+      >
+        404
+      </div>
+      <p style={{ opacity: 0.7 }}>This road leads nowhere.</p>
+      <Link
+        to="/"
+        style={{
+          marginTop: 8,
+          padding: '10px 20px',
+          borderRadius: 8,
+          background: '#fff',
+          color: '#000',
+          textDecoration: 'none',
+          fontWeight: 600,
+        }}
+      >
+        Back to the road
+      </Link>
+    </div>
   )
 }
 

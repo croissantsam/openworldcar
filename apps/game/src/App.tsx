@@ -8,6 +8,7 @@ import {
   applyProfileSettings,
   destinationFromProfile,
   loadMyProfile,
+  recordCityVisit,
   startProfileAutosave,
 } from './services/profileSync.js'
 
@@ -27,10 +28,13 @@ export default function App() {
     // Guest auto: no session → one-click anonymous account so every
     // player gets a persistent profile (spawn + settings).
     const boot = async () => {
+      let sessionUser: { name?: string; isAnonymous?: boolean | null | undefined } | null = null
       try {
         const { data } = await authClient.getSession()
-        if (!data?.user) {
-          await authClient.signIn.anonymous().catch(() => null)
+        sessionUser = data?.user ?? null
+        if (!sessionUser) {
+          const res = await authClient.signIn.anonymous().catch(() => null)
+          sessionUser = res?.data?.user ?? null
         }
       } catch {
         // auth backend unreachable — the game stays fully playable offline
@@ -51,12 +55,19 @@ export default function App() {
         if (dest) initialDest = dest
       }
 
+      // Name shown above our car to other online players: saved pseudo,
+      // else the account name (never the "Anonymous" placeholder).
+      const displayName = profile?.displayName?.trim()
+      const accountName = sessionUser && sessionUser.isAnonymous !== true ? sessionUser.name?.trim() : undefined
+      engine.setLocalDisplayName(displayName || accountName || null)
+
       await engine.init(initialDest)
       if (!isMounted) {
         engine.dispose()
         return
       }
       stopAutosave = startProfileAutosave(engine)
+      recordCityVisit(engine.currentDestination.id)
       setEngineReady(true)
       engine.start()
     }

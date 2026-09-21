@@ -83,6 +83,25 @@ const DROP_ROAD_RANK: Record<string, number> = {
 
 export type VehicleMode = 'car' | 'plane'
 
+/** Unsaved session deltas for trophies/leaderboard (meters, seconds). */
+export type TripStats = {
+  distanceM: number
+  jumpM: number
+  playTimeS: number
+  maxJumpM: number
+}
+
+/** A per-frame position jump bigger than this is a teleport, not driving. */
+const TRIP_MAX_FRAME_DELTA_M = 100
+/** Upward speed (m/s) that opens a jump segment. */
+const JUMP_START_VY = 2.0
+/** |vy| below this (after the minimum air time) closes it (landed). */
+const JUMP_END_VY = 1.0
+/** A segment must last this long to survive the apex (|vy| ≈ 0). */
+const JUMP_MIN_TIME_S = 0.25
+/** Shorter hops are bumps, not jumps. */
+const JUMP_MIN_DIST_M = 5
+
 export type DebugStats = {
   fps: number
   ms: number
@@ -110,6 +129,8 @@ export class GameEngine {
   chunkManager!: ChunkManager
   private npcManager!: NPCManager
   private gameClient!: GameClient
+  /** Set via setLocalDisplayName() before init(); applied on creation. */
+  private pendingDisplayName: string | null = null
   private remotePlayers!: RemotePlayerManager
   private osmStreaming!: OsmStreamingManager
   /** Background thread for OSM fetch+parse: driving never waits for map data. */
@@ -153,6 +174,16 @@ export class GameEngine {
   private lastSafePos: WorldPosition = { x: 3.7, y: 0.48, z: 158.3 }
   private lastSafeYaw = 0
   private netTimer = 0
+
+  // ── Trip stats (trophies): unsaved session deltas ────────────────────────
+  private tripDistanceM = 0
+  private tripJumpM = 0
+  private tripPlayTimeS = 0
+  private tripMaxJumpM = 0
+  private lastStatsPos: WorldPosition | null = null
+  private jumpActive = false
+  private jumpDistM = 0
+  private jumpTimeS = 0
 
   // ── Throttled full-map scans (O(all road segments), so never every frame) ─
   private lastWaterCheckPos: WorldPosition | null = null
@@ -282,6 +313,7 @@ export class GameEngine {
     this.npcManager = new NPCManager(this.renderer.scene)
     this.remotePlayers = new RemotePlayerManager(this.renderer.scene, this.world)
     this.gameClient = new GameClient()
+    this.gameClient.localDisplayName = this.pendingDisplayName
 
     // OSM streaming manager — continuously fetches real map data as the player drives.
     // Fetch+parse runs in a worker (off the render thread); the main-thread
@@ -489,6 +521,9 @@ export class GameEngine {
         this.lastSafeYaw = this.playerCar.getYaw()
       }
     }
+
+    // ── Trip stats (distance, jumps, play time) ────────────────────────────
+    this._trackTripStats(delta, pos, plane === null)
 
     // ── Networking ─────────────────────────────────────────────────────────
     this.gameClient.sendInput(rawInput)
@@ -1025,6 +1060,91 @@ export class GameEngine {
   /** True during the ~1.5 s that follow a destruction (HUD overlay). */
   isDestroyed(): boolean {
     return this.destroyedUntil > performance.now()
+  }
+
+  /**
+   * Accumulate trophy stats for one frame. Jump detection is heuristic and
+   * bridge-safe: a segment opens on strong upward velocity (ramps/bumps off
+   * bridge decks never spike vy) and closes once vertical speed settles past
+   * a minimum air time (survives the apex, ends on landing).
+   */
+  private _trackTripStats(delta: number, pos: WorldPosition, inCar: boolean): void {
+    this.tripPlayTimeS += delta
+
+    const prev = this.lastStatsPos
+    this.lastStatsPos = { x: pos.x, y: pos.y, z: pos.z }
+    if (!prev) return
+    const dx = pos.x - prev.x
+    const dz = pos.z - prev.z
+    const step = Math.hypot(dx, dz)
+    if (!Number.isFinite(step)) return
+    if (step > TRIP_MAX_FRAME_DELTA_M) {
+      // Teleport / travel / vehicle switch: drop the segment, rebase.
+      this.jumpActive = false
+      this.jumpDistM = 0
+      this.jumpTimeS = 0
+      return
+    }
+    this.tripDistanceM += step
+
+    if (!inCar) {
+      this.jumpActive = false
+      this.jumpDistM = 0
+      this.jumpTimeS = 0
+      return
+    }
+    const vy = this.getPlayerVelocity().y
+    if (!Number.isFinite(vy)) {
+      this.jumpActive = false
+      return
+    }
+    if (!this.jumpActive) {
+      if (vy > JUMP_START_VY) {
+        this.jumpActive = true
+        this.jumpDistM = 0
+        this.jumpTimeS = 0
+      }
+      return
+    }
+    this.jumpDistM += step
+    this.jumpTimeS += delta
+    if (this.jumpTimeS >= JUMP_MIN_TIME_S && Math.abs(vy) < JUMP_END_VY) {
+      if (this.jumpDistM >= JUMP_MIN_DIST_M) {
+        this.tripJumpM += this.jumpDistM
+        if (this.jumpDistM > this.tripMaxJumpM) this.tripMaxJumpM = this.jumpDistM
+      }
+      this.jumpActive = false
+      this.jumpDistM = 0
+      this.jumpTimeS = 0
+    }
+  }
+
+  /** Unsaved session deltas; resets distance/jump/time (max is server-side). */
+  consumeTripStats(): TripStats {
+    const out: TripStats = {
+      distanceM: this.tripDistanceM,
+      jumpM: this.tripJumpM,
+      playTimeS: this.tripPlayTimeS,
+      maxJumpM: this.tripMaxJumpM,
+    }
+    this.tripDistanceM = 0
+    this.tripJumpM = 0
+    this.tripPlayTimeS = 0
+    this.tripMaxJumpM = 0
+    return out
+  }
+
+  /**
+   * Display name shown above our car to other players (null = anonymous).
+   * Safe to call before init(): the value is applied when the GameClient
+   * is created.
+   */
+  setLocalDisplayName(name: string | null): void {
+    const clean = name?.trim().slice(0, 24)
+    this.pendingDisplayName = clean ? clean : null
+    if (this.gameClient) {
+      this.gameClient.localDisplayName = this.pendingDisplayName
+    }
   }
 
   setGpsDestination(target: WorldPosition | null): void {

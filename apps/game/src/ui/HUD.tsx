@@ -10,7 +10,10 @@ import { AddressSearchBar } from './AddressSearchBar.js'
 import { TouchControls } from './TouchControls.js'
 import { OrientationPrompt } from './OrientationPrompt.js'
 import { AuthModal } from './auth/AuthModal.js'
+import { TrophyModal } from './trophies/TrophyModal.js'
+import { useTrophyToast } from './trophies/toast.js'
 import { authClient } from '../lib/auth-client.js'
+import { recordCityVisit } from '../services/profileSync.js'
 
 interface HUDProps {
   engine: GameEngine
@@ -94,6 +97,8 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
   const [searchBarOpen, setSearchBarOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const [authOpen, setAuthOpen] = useState(false)
+  const [trophyOpen, setTrophyOpen] = useState(false)
+  const trophyToasts = useTrophyToast((s) => s.items)
   const { data: authSession } = authClient.useSession()
   const authUser = authSession?.user as { name?: string; email?: string; isAnonymous?: boolean | null } | undefined
   const isGuest = !authUser || authUser.isAnonymous === true || authUser.isAnonymous === null
@@ -322,6 +327,7 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
     setCurrentDest(dest)
     currentDestRef.current = dest
     engine.travelTo(dest)
+    recordCityVisit(dest.id)
     setTimeout(() => {
       setIsWarping(false)
     }, 750)
@@ -1439,6 +1445,37 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
               </span>
             </button>
 
+            {/* 6. Trophées & classement */}
+            <button
+              onClick={() => {
+                setMenuOpen(false)
+                setTrophyOpen(true)
+              }}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                background: 'rgba(251, 191, 36, 0.07)',
+                border: '1px solid rgba(251, 191, 36, 0.35)',
+                borderRadius: 12,
+                padding: '10px 12px',
+                cursor: 'pointer',
+                color: '#ffffff',
+                textAlign: 'left',
+                width: '100%',
+              }}
+            >
+              <span style={{ fontSize: 20 }}>🏆</span>
+              <span style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                <span style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 10, fontWeight: 800, color: '#fbbf24' }}>
+                  TROPHÉES
+                </span>
+                <span style={{ fontSize: 8, color: '#94a3b8' }}>
+                  Distance, sauts, villes, classement
+                </span>
+              </span>
+            </button>
+
             {/* Distance de vue panel */}
             {viewDistanceOpen && (
               <div
@@ -1760,6 +1797,56 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
 
       {/* Pilot account modal */}
       {authOpen && <AuthModal engine={engine} onClose={() => setAuthOpen(false)} />}
+
+      {/* Trophies & leaderboard modal */}
+      {trophyOpen && <TrophyModal onClose={() => setTrophyOpen(false)} />}
+
+      {/* Trophy unlock toasts */}
+      {trophyToasts.length > 0 && (
+        <div
+          style={{
+            position: 'absolute',
+            top: isMobileLandscape ? 52 : 68,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 6,
+            zIndex: 250,
+            pointerEvents: 'none',
+            alignItems: 'center',
+          }}
+        >
+          {trophyToasts.map((t) => (
+            <div
+              key={t.key}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                background: 'rgba(20, 14, 4, 0.92)',
+                border: '1px solid rgba(251, 191, 36, 0.7)',
+                boxShadow: '0 8px 30px rgba(0,0,0,0.6), 0 0 22px rgba(251, 191, 36, 0.35)',
+                borderRadius: 14,
+                padding: '7px 16px',
+                animation: 'hudFlash 0.5s ease-in-out 2 alternate',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              <span style={{ fontSize: 18 }}>🏆</span>
+              <span style={{ fontSize: 18 }}>{t.icon}</span>
+              <span style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+                <span style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 11, fontWeight: 900, color: '#fde68a', letterSpacing: 1 }}>
+                  {t.name.toUpperCase()}
+                </span>
+                <span style={{ fontFamily: "'Inter', sans-serif", fontSize: 9, color: 'rgba(255,255,255,0.75)' }}>
+                  Trophée débloqué !
+                </span>
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Hyperspace Warp FX Overlay */}
       {isWarping && (

@@ -23,6 +23,8 @@ export type PlayerState = {
   speed?: number
   /** Vehicle reported by the client ('car' when absent). */
   vehicle?: 'car' | 'plane'
+  /** Self-reported display name (sanitized by MessageHandler). Absent = anonymous. */
+  name?: string | undefined
   /** Current health, [0, MAX_HEALTH]. */
   health: number
 }

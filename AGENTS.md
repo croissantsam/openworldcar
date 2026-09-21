@@ -101,9 +101,10 @@ OSM PBF → Parser → Filter → Normalize → Chunk Generator → Serialized G
   - `PlayerCar` — Rapier vehicle physics, input handling
   - `ThirdPersonCamera` — smooth follow, orbital control, speed-adaptive distance
   - `NPCManager` / `NPCCar` — road-graph-following traffic
-  - `RemotePlayerManager` — interpolated remote players
+  - `RemotePlayerManager` — interpolated remote players + nametags (sprites, `snap.name`, fallback `RIVAL #id`)
   - `GameClient` — WebSocket, input send, snapshot receive
   - `Auth` — Better Auth (email/password + anonymous guest), SQLite + drizzle; `player_profile` table (spawn, destination snapshot, settings JSON); server fns in `src/server/profile.ts`; guest auto-created on first launch, autosaved (settings 2s debounce, spawn 20s)
+  - `Trophies` — engine trip tracking (distance, jumps heuristique vy, playtime) in `GameEngine._trackTripStats`/`consumeTripStats`; tables `player_stats`, `player_city_visits`, `player_trophies`; catalogue in `src/lib/trophies.ts`, server fns in `src/server/stats.ts` (dont `getLeaderboard` public) ; UI `src/ui/trophies/` (modale + toasts), flush toutes les 20s via `profileSync`
   - UI: `HUD`, `Minimap`, `TouchControls`, `AddressSearchBar`, `WorldTravelModal`, `DebugOverlay`
 
 ### `@world-drive/server` (Server)

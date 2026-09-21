@@ -23,6 +23,11 @@ export type PlayerStateUpdate = {
   timestamp?: number
   /** Vehicle the player is driving. Absent = 'car' (older clients). */
   vehicle?: 'car' | 'plane'
+  /**
+   * Self-reported display name (max ~24 chars, server-sanitized).
+   * Absent = anonymous (older clients).
+   */
+  name?: string
 }
 
 export type ClientMessage =

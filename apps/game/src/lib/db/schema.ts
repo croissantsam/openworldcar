@@ -1,4 +1,4 @@
-import { integer, real, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import { integer, real, sqliteTable, text, unique } from 'drizzle-orm/sqlite-core'
 import { user } from './auth-schema.js'
 
 export * from './auth-schema.js'
@@ -41,3 +41,63 @@ export const playerProfile = sqliteTable('player_profile', {
 
 export type PlayerProfile = typeof playerProfile.$inferSelect
 export type NewPlayerProfile = typeof playerProfile.$inferInsert
+
+/**
+ * Cumulative gameplay stats (one row per user, guests included).
+ * Updated with deltas reported by the client (~every 20s of play).
+ */
+export const playerStats = sqliteTable('player_stats', {
+  id: text('id').primaryKey(),
+  userId: text('user_id')
+    .notNull()
+    .unique()
+    .references(() => user.id, { onDelete: 'cascade' }),
+  /** Total driven/flown distance, meters. */
+  totalDistanceM: real('total_distance_m').notNull().default(0),
+  /** Total jump (airborne) distance, meters. */
+  totalJumpDistanceM: real('total_jump_distance_m').notNull().default(0),
+  /** Best single jump, meters. */
+  maxJumpM: real('max_jump_m').notNull().default(0),
+  /** Total play time, seconds. */
+  totalPlayTimeS: real('total_play_time_s').notNull().default(0),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' })
+    .$defaultFn(() => new Date())
+    .notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+    .$defaultFn(() => new Date())
+    .notNull(),
+})
+
+/** Distinct destinations a player has driven in (cities explored). */
+export const playerCityVisits = sqliteTable(
+  'player_city_visits',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    destinationId: text('destination_id').notNull(),
+    visitedAt: integer('visited_at', { mode: 'timestamp_ms' })
+      .$defaultFn(() => new Date())
+      .notNull(),
+  },
+  (t) => [unique('player_city_visits_user_destination').on(t.userId, t.destinationId)],
+)
+
+/** Unlocked trophies. */
+export const playerTrophies = sqliteTable(
+  'player_trophies',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    trophyId: text('trophy_id').notNull(),
+    unlockedAt: integer('unlocked_at', { mode: 'timestamp_ms' })
+      .$defaultFn(() => new Date())
+      .notNull(),
+  },
+  (t) => [unique('player_trophies_user_trophy').on(t.userId, t.trophyId)],
+)
+
+export type PlayerStats = typeof playerStats.$inferSelect

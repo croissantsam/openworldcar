@@ -110,6 +110,8 @@ export class GameServer {
           health: s.state.health,
           // Only sent for planes: absent = car, as older clients expect
           ...(s.state.vehicle === 'plane' ? { vehicle: 'plane' as const } : {}),
+          // Only sent when known: absent = anonymous, as older clients expect
+          ...(s.state.name ? { name: s.state.name } : {}),
         }
       })
 

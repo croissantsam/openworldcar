@@ -15,6 +15,13 @@
       "when": 1789999416987,
       "tag": "0001_absent_rafael_vega",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1790000621514,
+      "tag": "0002_gigantic_invaders",
+      "breakpoints": true
     }
   ]
 }

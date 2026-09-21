@@ -43,6 +43,9 @@ export class MessageHandler {
         session.state.speed = msg.state.speed ?? 0
         // Older clients do not send the field: they drive a car
         session.state.vehicle = msg.state.vehicle === 'plane' ? 'plane' : 'car'
+        // Self-reported display name: type-checked, trimmed, length-capped.
+        // Absent/empty = anonymous (same as older clients).
+        session.state.name = sanitizeDisplayName(msg.state.name)
         session.lastProcessedSeq = msg.seq
         this.server.updatePlayerState(session.id, msg.state)
         break
@@ -143,4 +146,14 @@ export class MessageHandler {
     session.send(serializeMessage(welcome))
     console.log(`[Server] Player joined: ${session.id}`)
   }
+}
+
+/**
+ * Keep a client-reported display name safe to broadcast: must be a short
+ * string, otherwise the player stays anonymous.
+ */
+function sanitizeDisplayName(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const clean = value.trim().slice(0, 24)
+  return clean.length > 0 ? clean : undefined
 }

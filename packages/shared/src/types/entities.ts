@@ -16,6 +16,8 @@ export type PlayerSnapshot = {
   vehicle?: 'car' | 'plane'
   /** Current health [0, 100]. Absent = full health (older servers). */
   health?: number
+  /** Display name reported by the player. Absent = anonymous (older servers). */
+  name?: string
 }
 
 // ─── NPC ─────────────────────────────────────────────────────────────────────

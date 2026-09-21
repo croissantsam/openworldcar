@@ -1,5 +1,8 @@
 import type { GameEngine } from '../game/GameEngine.js'
 import { getMyProfile, saveSettings, saveSpawn } from '../server/profile.js'
+import { getMyProgress, reportStats, unlockTrophies, visitCity } from '../server/stats.js'
+import { checkUnlocks } from '../lib/trophies.js'
+import { useTrophyToast } from '../ui/trophies/toast.js'
 import { PRESETS, useSettingsStore } from '../settings/SettingsStore.js'
 import type { WorldDestination } from '../world/destinations.js'
 import type {
@@ -108,6 +111,49 @@ export async function persistCurrentState(engine: GameEngine): Promise<void> {
   }
 }
 
+/** Record a destination visit for the "villes explorées" trophies. */
+export function recordCityVisit(destinationId: string): void {
+  if (!destinationId) return
+  visitCity({ data: destinationId }).catch(() => {})
+}
+
+/**
+ * Flush unsaved trip deltas, persist them, then unlock freshly earned
+ * trophies (toast on each). Only truly-new unlocks produce a toast:
+ * already-unlocked ids are filtered before persisting.
+ */
+async function flushTripStats(engine: GameEngine): Promise<void> {
+  const trip = engine.consumeTripStats()
+  if (trip.distanceM > 0 || trip.jumpM > 0 || trip.playTimeS > 0 || trip.maxJumpM > 0) {
+    await reportStats({
+      data: {
+        distanceM: trip.distanceM,
+        jumpM: trip.jumpM,
+        playTimeS: trip.playTimeS,
+        maxJumpM: trip.maxJumpM,
+      },
+    })
+  }
+  const progress = await getMyProgress()
+  const unlockedIds = new Set(progress.trophies.map((t) => t.trophyId))
+  const fresh = checkUnlocks(
+    {
+      totalDistanceM: progress.stats.totalDistanceM,
+      maxJumpM: progress.stats.maxJumpM,
+      totalPlayTimeS: progress.stats.totalPlayTimeS,
+      citiesCount: progress.cities.length,
+    },
+    unlockedIds,
+  )
+  if (fresh.length === 0) return
+  const { unlocked } = await unlockTrophies({ data: fresh.map((t) => t.id) })
+  if (unlocked.length === 0) return
+  const push = useTrophyToast.getState().push
+  for (const def of fresh) {
+    if (unlocked.includes(def.id)) push({ icon: def.icon, name: def.name })
+  }
+}
+
 /**
  * Continuous autosave: settings on change (2s debounce), spawn every 20s.
  * Returns a cleanup function for engine disposal.
@@ -139,6 +185,12 @@ export function startProfileAutosave(engine: GameEngine): () => void {
       await saveSpawn({ data: snapshotSpawn(engine) })
     } catch {
       // ignore transient failures; the next tick retries
+    }
+    try {
+      await flushTripStats(engine)
+    } catch {
+      // ignore transient failures; deltas were consumed but the next
+      // tick re-sends fresh ones (only this window is lost)
     }
   }
   const interval = setInterval(saveLoop, 20_000)

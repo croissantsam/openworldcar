@@ -42,6 +42,20 @@ type AirplaneVisual = ReturnType<typeof createTwoSeatAirplane>
  */
 const CAR_NAMETAG_Y = 2.2
 const PLANE_NAMETAG_Y = 3.6
+/** Tag canvas fits ~16 chars at 20px; longer display names are shortened. */
+const MAX_TAG_CHARS = 16
+
+/** Short id-based fallback for anonymous players (older clients/servers). */
+function fallbackTag(id: string): string {
+  return `RIVAL #${id.slice(0, 4).toUpperCase()}`
+}
+
+/** Sanitized snapshot name, or null when anonymous. */
+function snapshotName(snap: PlayerSnapshot): string | null {
+  if (typeof snap.name !== 'string') return null
+  const clean = snap.name.trim().slice(0, MAX_TAG_CHARS)
+  return clean.length > 0 ? clean : null
+}
 
 // Visual dimensions matching PlayerCar
 const CAR_W = 2.0
@@ -207,6 +221,8 @@ type RemotePlayer = {
   nametagTexture: THREE.CanvasTexture | null
   paletteHex: string
   lastTagText: string
+  /** Display name from snapshots (null = anonymous → id fallback). */
+  playerName: string | null
   colliderWasEnabled: boolean
 }
 
@@ -251,6 +267,15 @@ export class RemotePlayerManager {
         this.players.set(snap.id, player)
       } else if (snap.invincibleUntil !== undefined) {
         player.invincibleUntil = snap.invincibleUntil
+      }
+
+      // ── Display name (absent = no info: keep the last known one) ──────────
+      if (snap.name !== undefined) {
+        const next = snapshotName(snap)
+        if (next !== player.playerName) {
+          player.playerName = next
+          player.lastTagText = ''
+        }
       }
 
       // ── Health (absent = full health: older servers) ────────────────────
@@ -347,10 +372,11 @@ export class RemotePlayerManager {
       this._updateDamageVisuals(player, dt, nowMs)
 
       // ── Nametag Badge Update ────────────────────────────────────────────
+      const baseTag = player.playerName ?? fallbackTag(player.id)
       if (remoteInvincible) {
         const remainingSec = Math.max(0, (player.invincibleUntil - nowMs) / 1000)
         const ceilSec = Math.ceil(remainingSec)
-        const tagText = `🛡️ RIVAL #${id.slice(0, 4).toUpperCase()} [${ceilSec}s]`
+        const tagText = `🛡️ ${baseTag} [${ceilSec}s]`
         if (tagText !== player.lastTagText) {
           player.lastTagText = tagText
           if (player.nametagCanvas && player.nametagTexture) {
@@ -359,11 +385,10 @@ export class RemotePlayerManager {
           }
         }
       } else {
-        const normalTag = `RIVAL #${id.slice(0, 4).toUpperCase()}`
-        if (player.lastTagText !== normalTag) {
-          player.lastTagText = normalTag
+        if (player.lastTagText !== baseTag) {
+          player.lastTagText = baseTag
           if (player.nametagCanvas && player.nametagTexture) {
-            renderNametagToCanvas(player.nametagCanvas, normalTag, player.paletteHex, false)
+            renderNametagToCanvas(player.nametagCanvas, baseTag, player.paletteHex, false)
             player.nametagTexture.needsUpdate = true
           }
         }
@@ -652,8 +677,9 @@ export class RemotePlayerManager {
       group.add(wheel)
     }
 
-    // 6. Floating Rival Nametag Badge
-    const shortTag = `RIVAL #${id.slice(0, 4).toUpperCase()}`
+    // 6. Floating Nametag Badge (display name, or RIVAL #id fallback)
+    const playerName = snapshotName(snap)
+    const shortTag = playerName ?? fallbackTag(id)
     const { sprite: nametag, canvas: nametagCanvas, texture: nametagTexture } = createNametagSprite(shortTag, palette.hex)
     nametag.position.y = CAR_NAMETAG_Y
     root.add(nametag)
@@ -720,6 +746,7 @@ export class RemotePlayerManager {
       nametagTexture,
       paletteHex: palette.hex,
       lastTagText: shortTag,
+      playerName,
       colliderWasEnabled: true,
     }
     this._rebuildHitCollider(player)

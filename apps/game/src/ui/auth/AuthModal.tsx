@@ -167,8 +167,11 @@ function GuestPanel({ engine, onDone }: { engine: GameEngine; onDone: () => void
           callbackURL: window.location.origin,
         })
         if (res.error) throw new Error(res.error.message ?? 'Inscription impossible.')
-        // New permanent account: carry the guest's current progress over.
+        // New permanent account: carry the guest's current progress over and
+        // publish the chosen pseudo (leaderboard + online nametag).
         await persistCurrentState(engine)
+        await saveDisplayName({ data: name.trim() }).catch(() => null)
+        engine.setLocalDisplayName(name.trim())
       } else {
         const res = await authClient.signIn.email({
           email: email.trim(),
@@ -177,8 +180,11 @@ function GuestPanel({ engine, onDone }: { engine: GameEngine; onDone: () => void
         })
         if (res.error) throw new Error(res.error.message ?? 'Connexion impossible.')
         // Existing account without a save yet: start from the current state.
+        // Either way, publish this account's pseudo to online players.
         const existing = await getMyProfile().catch(() => null)
         if (!existing) await persistCurrentState(engine)
+        const label = existing?.displayName?.trim() || res.data?.user?.name?.trim() || null
+        engine.setLocalDisplayName(label && label !== 'Anonymous' ? label : null)
       }
       onDone()
     } catch (err) {
@@ -314,6 +320,7 @@ function MemberPanel({
     setSaving(true)
     try {
       await saveDisplayName({ data: clean })
+      engine.setLocalDisplayName(clean)
       setSavedTick(true)
       setTimeout(() => setSavedTick(false), 1500)
     } catch {
@@ -329,6 +336,7 @@ function MemberPanel({
       // Save before leaving, then fall back to a fresh guest session.
       await persistCurrentState(engine)
       await authClient.signOut()
+      engine.setLocalDisplayName(null)
       await authClient.signIn.anonymous()
     } finally {
       setBusy(false)

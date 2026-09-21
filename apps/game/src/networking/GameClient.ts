@@ -22,7 +22,7 @@ import type { WorldPosition } from '@world-drive/math'
 import type { Road, PlayerSnapshot } from '@world-drive/shared'
 import { v4 as uuidv4 } from 'uuid'
 
-const DEFAULT_WS_URL = 'ws://localhost:3000'
+const DEFAULT_WS_URL = 'ws://localhost:3001'
 
 /**
  * A host with no scheme ("openspeed.onrender.com") is a path to `new WebSocket`,
@@ -73,6 +73,12 @@ export class GameClient {
 
   /** Callback when server broadcasts player snapshots */
   onSnapshot?: (players: PlayerSnapshot[], localPlayerId: string) => void
+
+  /**
+   * Display name broadcast to other players via `player_state`.
+   * Null = anonymous (remote players see the RIVAL #id fallback).
+   */
+  localDisplayName: string | null = null
 
   /** The server applied damage to us (authoritative health). */
   onDamage?: (e: { from: string; damage: number; health: number; point: WorldPosition }) => void
@@ -216,10 +222,11 @@ export class GameClient {
   sendState(state: PlayerStateUpdate): void {
     if (this.ws?.readyState !== WebSocket.OPEN) return
     this.inputSeq++
+    const name = this.localDisplayName?.trim().slice(0, 24)
     this.ws.send(
       serializeMessage({
         type: 'player_state',
-        state: { ...state, timestamp: Date.now() },
+        state: { ...state, timestamp: Date.now(), ...(name ? { name } : {}) },
         seq: this.inputSeq,
       }),
     )

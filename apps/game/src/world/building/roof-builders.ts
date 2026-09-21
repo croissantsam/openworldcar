@@ -4,8 +4,332 @@
  */
 
 import * as THREE from 'three'
-import type { WorldPosition } from '@world-drive/math'
-import { addLedges } from '../FacadeRelief'
+
+// ── Footprint-aware helpers ────────────────────────────────────────────────────
+// Pitched roofs must hug the real footprint ring. The old code built several
+// shapes from the axis-aligned bounding box, so on any non-rectangular building
+// (L, U, courtyard wings, angled lots) the roof floated beside the walls.
+
+/** Signed area of a ring in (x, z) plane coordinates. */
+function signedArea2(ring: THREE.Vector2[]): number {
+  let a = 0
+  for (let i = 0; i < ring.length; i++) {
+    const p = ring[i]!
+    const q = ring[(i + 1) % ring.length]!
+    a += p.x * q.y - q.x * p.y
+  }
+  return a / 2
+}
+
+/** Remove closing duplicates and zero-length edges. */
+function cleanRing(fp: THREE.Vector2[]): THREE.Vector2[] {
+  const out: THREE.Vector2[] = []
+  for (const p of fp) {
+    const last = out[out.length - 1]
+    if (!last || Math.hypot(last.x - p.x, last.y - p.y) > 1e-4) {
+      out.push(new THREE.Vector2(p.x, p.y))
+    }
+  }
+  if (out.length > 1) {
+    const f = out[0]!
+    const l = out[out.length - 1]!
+    if (Math.hypot(f.x - l.x, f.y - l.y) <= 1e-4) out.pop()
+  }
+  return out
+}
+
+/** Drop vertices splitting a straight edge (direction change < ~5°). */
+function mergeCollinear(ring: THREE.Vector2[]): THREE.Vector2[] {
+  const n = ring.length
+  if (n <= 4) return ring.slice()
+  const out: THREE.Vector2[] = []
+  for (let i = 0; i < n; i++) {
+    const p = ring[(i + n - 1) % n]!
+    const q = ring[i]!
+    const r = ring[(i + 1) % n]!
+    const d1x = q.x - p.x, d1y = q.y - p.y
+    const d2x = r.x - q.x, d2y = r.y - q.y
+    const l1 = Math.hypot(d1x, d1y), l2 = Math.hypot(d2x, d2y)
+    if (l1 < 1e-6 || l2 < 1e-6) continue
+    if ((d1x * d2x + d1y * d2y) / (l1 * l2) > 0.996) continue // ~straight: skip q
+    out.push(q)
+  }
+  return out.length >= 3 ? out : ring.slice()
+}
+
+function bboxOf(ring: THREE.Vector2[]): { minX: number; maxX: number; minY: number; maxY: number } {
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
+  for (const p of ring) {
+    minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x)
+    minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y)
+  }
+  return { minX, maxX, minY, maxY }
+}
+
+/**
+ * True when the footprint is a plain rectangle (4 near-right-angle corners,
+ * filling its bounding box). Only then is a bounding-box roof exact.
+ */
+export function isRectangleLike(fp: THREE.Vector2[]): boolean {
+  const ring = mergeCollinear(cleanRing(fp))
+  if (ring.length !== 4) return false
+  for (let i = 0; i < 4; i++) {
+    const p = ring[(i + 3) % 4]!
+    const q = ring[i]!
+    const r = ring[(i + 1) % 4]!
+    const d1x = q.x - p.x, d1y = q.y - p.y
+    const d2x = r.x - q.x, d2y = r.y - q.y
+    const l1 = Math.hypot(d1x, d1y), l2 = Math.hypot(d2x, d2y)
+    if (l1 < 0.3 || l2 < 0.3) return false
+    const cos = (d1x * d2x + d1y * d2y) / (l1 * l2)
+    if (Math.abs(cos) > 0.17) return false // > ~80°..100° off right angle
+  }
+  const bb = bboxOf(ring)
+  const bbArea = (bb.maxX - bb.minX) * (bb.maxY - bb.minY)
+  if (bbArea < 1e-6) return false
+  return Math.abs(signedArea2(ring)) / bbArea > 0.82
+}
+
+/** True when every turn has the same sign (fan triangulation is safe). */
+export function isConvexRing(fp: THREE.Vector2[]): boolean {
+  const ring = cleanRing(fp)
+  const n = ring.length
+  if (n < 3) return false
+  let sign = 0
+  for (let i = 0; i < n; i++) {
+    const p = ring[i]!
+    const q = ring[(i + 1) % n]!
+    const r = ring[(i + 2) % n]!
+    const cross = (q.x - p.x) * (r.y - q.y) - (q.y - p.y) * (r.x - q.x)
+    if (Math.abs(cross) < 1e-9) continue
+    const s = cross > 0 ? 1 : -1
+    if (sign === 0) sign = s
+    else if (sign !== s) return false
+  }
+  return true
+}
+
+/** Ray-casting point-in-ring on (x, y=z) coordinates. */
+function pointInRing2(px: number, pz: number, ring: THREE.Vector2[]): boolean {
+  let inside = false
+  const n = ring.length
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    const a = ring[i]!
+    const b = ring[j]!
+    if ((a.y > pz) !== (b.y > pz)) {
+      const xAt = ((b.x - a.x) * (pz - a.y)) / (b.y - a.y) + a.x
+      if (px < xAt) inside = !inside
+    }
+  }
+  return inside
+}
+
+function distToSegment2(px: number, pz: number, ax: number, az: number, bx: number, bz: number): number {
+  const dx = bx - ax
+  const dz = bz - az
+  const l2 = dx * dx + dz * dz
+  if (l2 < 1e-12) return Math.hypot(px - ax, pz - az)
+  let t = ((px - ax) * dx + (pz - az) * dz) / l2
+  t = Math.max(0, Math.min(1, t))
+  return Math.hypot(px - (ax + t * dx), pz - (az + t * dz))
+}
+
+/** Area-weighted centroid (stable for irregular rings, unlike vertex means). */
+function areaCentroid(ring: THREE.Vector2[]): THREE.Vector2 {
+  let a2 = 0, cx = 0, cy = 0
+  const n = ring.length
+  for (let i = 0; i < n; i++) {
+    const p = ring[i]!
+    const q = ring[(i + 1) % n]!
+    const cross = p.x * q.y - q.x * p.y
+    a2 += cross
+    cx += (p.x + q.x) * cross
+    cy += (p.y + q.y) * cross
+  }
+  if (Math.abs(a2) < 1e-9) {
+    let sx = 0, sy = 0
+    for (const p of ring) { sx += p.x; sy += p.y }
+    return new THREE.Vector2(sx / n, sy / n)
+  }
+  return new THREE.Vector2(cx / (3 * a2), cy / (3 * a2))
+}
+
+/**
+ * Inward edge-offset of a ring by distance d (mitred corners via adjacent
+ * line intersection). Correct for concave rings, unlike radial scaling.
+ * Returns null when the offset degenerates (ring too small / spikes).
+ */
+function offsetRingInward(ring: THREE.Vector2[], d: number): THREE.Vector2[] | null {
+  const n = ring.length
+  if (n < 3 || !(d > 0)) return null
+  const sign = signedArea2(ring) > 0 ? 1 : -1
+  // Offset lines: same direction as the edge, shifted inward by d.
+  const lx: number[] = []
+  const lz: number[] = []
+  const ldx: number[] = []
+  const ldz: number[] = []
+  for (let i = 0; i < n; i++) {
+    const p = ring[i]!
+    const q = ring[(i + 1) % n]!
+    const dx = q.x - p.x
+    const dz = q.y - p.y
+    const len = Math.hypot(dx, dz)
+    if (len < 1e-6) return null
+    const tx = dx / len
+    const tz = dz / len
+    // Outward unit normal (same convention as FacadeRelief ledges).
+    const ix = -tz * sign
+    const iz = tx * sign
+    lx.push(p.x + ix * d)
+    lz.push(p.y + iz * d)
+    ldx.push(tx)
+    ldz.push(tz)
+  }
+  const out: THREE.Vector2[] = []
+  for (let i = 0; i < n; i++) {
+    const j = (i + n - 1) % n
+    const denom = ldx[j]! * ldz[i]! - ldz[j]! * ldx[i]!
+    if (Math.abs(denom) < 1e-9) {
+      // Parallel neighbours (straight continuation): push the vertex inward.
+      const ix = -(ldz[j]! + ldz[i]!) * sign
+      const iz = (ldx[j]! + ldx[i]!) * sign
+      const l = Math.hypot(ix, iz)
+      if (l < 1e-9) return null
+      const p = ring[i]!
+      out.push(new THREE.Vector2(p.x + (ix / l) * d, p.y + (iz / l) * d))
+    } else {
+      const t = ((lx[i]! - lx[j]!) * ldz[i]! - (lz[i]! - lz[j]!) * ldx[i]!) / denom
+      out.push(new THREE.Vector2(lx[j]! + ldx[j]! * t, lz[j]! + ldz[j]! * t))
+    }
+  }
+  // Degeneracy guards: area must shrink but stay positive, orientation kept.
+  const oldA = Math.abs(signedArea2(ring))
+  const newA = Math.abs(signedArea2(out))
+  if (!Number.isFinite(newA) || newA < Math.min(0.3, oldA * 0.04) || newA > oldA * 0.985) return null
+  if ((signedArea2(out) > 0) !== (signedArea2(ring) > 0)) return null
+  for (let i = 0; i < n; i++) {
+    const p = out[i]!
+    const q = out[(i + 1) % n]!
+    if (Math.hypot(q.x - p.x, q.y - p.y) < 0.12) return null
+  }
+  return out
+}
+
+/**
+ * After assembling an indexed slope strip, guarantee the faces point outward:
+ * check the first triangle against the outward direction of its edge and flip
+ * every triangle when opposed (ring orientation is arbitrary from OSM).
+ */
+function ensureOutwardFaces(geo: THREE.BufferGeometry, ring: THREE.Vector2[]): void {
+  const sign = signedArea2(ring) > 0 ? 1 : -1
+  const p = ring[0]!
+  const q = ring[1 % ring.length]!
+  const len = Math.max(1e-6, Math.hypot(q.x - p.x, q.y - p.y))
+  const ox = ((q.y - p.y) / len) * sign
+  const oz = (-(q.x - p.x) / len) * sign
+  const posA = geo.getAttribute('position') as THREE.BufferAttribute
+  const idx = geo.getIndex()
+  if (!idx || posA.count < 3) return
+  const ax = posA.getX(0), ay = posA.getY(0), az = posA.getZ(0)
+  const bx = posA.getX(1), by = posA.getY(1), bz = posA.getZ(1)
+  const cx = posA.getX(2), cy = posA.getY(2), cz = posA.getZ(2)
+  const ux = bx - ax, uy = by - ay, uz = bz - az
+  const vx = cx - ax, vy = cy - ay, vz = cz - az
+  // Face normal = u × v
+  const nx = uy * vz - uz * vy
+  const ny = uz * vx - ux * vz
+  const nz = ux * vy - uy * vx
+  if (nx * ox + ny * 0.6 + nz * oz < 0) {
+    const arr = idx.array as unknown as number[]
+    for (let t = 0; t < arr.length; t += 3) {
+      const tmp = arr[t + 1]!
+      arr[t + 1] = arr[t + 2]!
+      arr[t + 2] = tmp
+    }
+    idx.needsUpdate = true
+  }
+}
+
+/** Flat cap over a ring at height y (earcut-safe for concave rings). */
+function flatCapGeometry(ring: THREE.Vector2[], y: number): THREE.BufferGeometry {
+  const shape = new THREE.Shape()
+  shape.moveTo(ring[0]!.x, -ring[0]!.y)
+  for (let i = 1; i < ring.length; i++) shape.lineTo(ring[i]!.x, -ring[i]!.y)
+  shape.closePath()
+  const geo = new THREE.ShapeGeometry(shape)
+  geo.rotateX(-Math.PI / 2)
+  geo.translate(0, y, 0)
+  return geo
+}
+
+/**
+ * Hipped-look roof that FOLLOWS any footprint: successive inward offsets form
+ * slope bands, finished with a flat deck cap. Fallback for pitched shapes on
+ * irregular (non-rectangular) footprints, where bounding-box roofs float off
+ * the walls. Returns null when even the first offset degenerates.
+ */
+export function buildFollowHipRoof(
+  fp: THREE.Vector2[],
+  roofHeight: number,
+  baseHeight: number,
+  mat: THREE.Material,
+  steps = 4,
+): THREE.Group | null {
+  const outer = cleanRing(fp)
+  if (outer.length < 3) return null
+  const bb = bboxOf(outer)
+  const minSpan = Math.min(bb.maxX - bb.minX, bb.maxY - bb.minY)
+  if (minSpan < 1.2) return null
+  const stepD = minSpan / (2 * (steps + 1))
+
+  const rings: THREE.Vector2[][] = [outer]
+  for (let s = 0; s < steps; s++) {
+    const prev = rings[rings.length - 1]!
+    const next = offsetRingInward(prev, stepD)
+    if (!next) break
+    rings.push(next)
+  }
+  if (rings.length < 2) return null
+
+  const group = new THREE.Group()
+  const peakY = baseHeight + roofHeight
+  // Slope bands between consecutive rings.
+  const pos: number[] = []
+  const idx: number[] = []
+  for (let r = 0; r < rings.length - 1; r++) {
+    const lower = rings[r]!
+    const upper = rings[r + 1]!
+    const y0 = baseHeight + (roofHeight * r) / (rings.length - 1)
+    const y1 = baseHeight + (roofHeight * (r + 1)) / (rings.length - 1)
+    const n = lower.length // upper has the same vertex count by construction
+    for (let i = 0; i < n; i++) {
+      const next = (i + 1) % n
+      const p1 = lower[i]!
+      const p2 = lower[next]!
+      const q1 = upper[i]!
+      const q2 = upper[next]!
+      const b = pos.length / 3
+      pos.push(p1.x, y0, p1.y, p2.x, y0, p2.y, q2.x, y1, q2.y, q1.x, y1, q1.y)
+      idx.push(b, b + 1, b + 2, b, b + 2, b + 3)
+    }
+  }
+  const slopeGeo = new THREE.BufferGeometry()
+  slopeGeo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
+  slopeGeo.setIndex(idx)
+  slopeGeo.computeVertexNormals()
+  ensureOutwardFaces(slopeGeo, outer)
+  slopeGeo.computeVertexNormals()
+  const slopes = new THREE.Mesh(slopeGeo, mat)
+  slopes.castShadow = true
+  slopes.receiveShadow = true
+  group.add(slopes)
+
+  // Deck cap over the innermost ring.
+  const cap = new THREE.Mesh(flatCapGeometry(rings[rings.length - 1]!, peakY), mat)
+  cap.receiveShadow = true
+  group.add(cap)
+  return group
+}
 
 // ── Roof Geometry Builders (Section 8: roof:shape=*) ──────────────────────────
 
@@ -154,37 +478,25 @@ export function buildMansardRoof(
   roofHeight: number,
   baseHeight: number,
   roofMat: THREE.MeshStandardMaterial,
-  facadeMat: THREE.MeshStandardMaterial,
-): THREE.Group {
+  _facadeMat: THREE.MeshStandardMaterial,
+): THREE.Group | null {
   const group = new THREE.Group()
 
-  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
-  for (const p of fp) {
-    minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x)
-    minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y)
-  }
-  const cx = (minX + maxX) / 2
-  const cy = (minY + maxY) / 2
-
-  // Inset factor for the mansard curb
-  const inset = 1.3
+  // Edge-offset curb: follows concave footprints too (radial scaling broke on
+  // L-shaped blocks, pushing the inner ring outside the walls).
+  const outerVerts = cleanRing(fp)
+  if (outerVerts.length < 3) return null
+  const bb = bboxOf(outerVerts)
+  const maxInset = Math.min(bb.maxX - bb.minX, bb.maxY - bb.minY) / 2 - 0.4
+  if (maxInset < 0.5) return null
+  const innerVerts = offsetRingInward(outerVerts, Math.min(1.3, maxInset))
+  if (!innerVerts) return null
   const lowerH = roofHeight * 0.70
-
-  const outerVerts: THREE.Vector2[] = fp
-  const innerVerts: THREE.Vector2[] = fp.map(p => {
-    const dx = cx - p.x
-    const dy = cy - p.y
-    const d = Math.hypot(dx, dy)
-    if (d < 0.1) return p
-    const ratio = Math.min(0.35, inset / d)
-    return new THREE.Vector2(p.x + dx * ratio, p.y + dy * ratio)
-  })
 
   // Steep mansard side slope quads
   const pos: number[] = []
-  const norm: number[] = []
   const idx: number[] = []
-  const N = fp.length
+  const N = outerVerts.length
 
   for (let i = 0; i < N; i++) {
     const next = (i + 1) % N
@@ -200,26 +512,19 @@ export function buildMansardRoof(
       q2.x, baseHeight + lowerH, q2.y,
       q1.x, baseHeight + lowerH, q1.y,
     )
-    norm.push(0, 0.7, 0.7,  0, 0.7, 0.7,  0, 0.7, 0.7,  0, 0.7, 0.7)
     idx.push(b, b + 1, b + 2,  b, b + 2, b + 3)
   }
 
-  // Upper flat zinc deck
-  const upperShape = new THREE.Shape()
-  upperShape.moveTo(innerVerts[0]!.x, -innerVerts[0]!.y)
-  for (let i = 1; i < innerVerts.length; i++) upperShape.lineTo(innerVerts[i]!.x, -innerVerts[i]!.y)
-  upperShape.closePath()
-
-  const upperGeo = new THREE.ShapeGeometry(upperShape)
-  upperGeo.rotateX(-Math.PI / 2)
-  upperGeo.translate(0, baseHeight + lowerH, 0)
-  const upperMesh = new THREE.Mesh(upperGeo, roofMat)
+  // Upper flat zinc deck (earcut-safe for concave inner rings)
+  const upperMesh = new THREE.Mesh(flatCapGeometry(innerVerts, baseHeight + lowerH), roofMat)
+  upperMesh.receiveShadow = true
   group.add(upperMesh)
 
   const slopeGeo = new THREE.BufferGeometry()
   slopeGeo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
-  slopeGeo.setAttribute('normal', new THREE.Float32BufferAttribute(norm, 3))
   slopeGeo.setIndex(idx)
+  slopeGeo.computeVertexNormals()
+  ensureOutwardFaces(slopeGeo, outerVerts)
   slopeGeo.computeVertexNormals()
   const slopeMesh = new THREE.Mesh(slopeGeo, roofMat)
   slopeMesh.castShadow = true
@@ -241,7 +546,12 @@ export function buildGabledRoof(
   roofMat: THREE.MeshStandardMaterial,
   facadeMat: THREE.MeshStandardMaterial,
   orientation?: 'along' | 'across',
-): THREE.Group {
+): THREE.Group | null {
+  // A bbox ridge roof only matches rectangular walls: irregular footprints get
+  // a footprint-following hip roof instead of a slab floating off the walls.
+  if (!isRectangleLike(fp)) {
+    return buildFollowHipRoof(fp, roofHeight, baseHeight, roofMat)
+  }
   const group = new THREE.Group()
 
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
@@ -356,7 +666,11 @@ export function buildHippedRoof(
   roofHeight: number,
   baseHeight: number,
   mat: THREE.MeshStandardMaterial,
-): THREE.Mesh {
+): THREE.Mesh | THREE.Group | null {
+  // Same rule as gabled: bbox hips only match rectangular walls.
+  if (!isRectangleLike(fp)) {
+    return buildFollowHipRoof(fp, roofHeight, baseHeight, mat)
+  }
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
   for (const p of fp) {
     minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x)
@@ -422,24 +736,31 @@ export function buildPyramidalRoof(
   roofHeight: number,
   baseHeight: number,
   mat: THREE.MeshStandardMaterial,
-): THREE.Mesh {
-  let cx = 0, cy = 0
-  for (const p of fp) { cx += p.x; cy += p.y }
-  cx /= fp.length; cy /= fp.length
+): THREE.Mesh | THREE.Group | null {
+  const ring = cleanRing(fp)
+  if (ring.length < 3) return null
+  // A single apex fan inverts on concave footprints (centroid outside the
+  // ring): those get a footprint-following hip roof instead.
+  if (!isConvexRing(ring)) {
+    return buildFollowHipRoof(ring, roofHeight, baseHeight, mat)
+  }
+  const c = areaCentroid(ring)
 
   const peakY = baseHeight + roofHeight
-  const verts: number[] = [cx, peakY, cy]
-  for (const p of fp) verts.push(p.x, baseHeight, p.y)
+  const verts: number[] = [c.x, peakY, c.y]
+  for (const p of ring) verts.push(p.x, baseHeight, p.y)
 
   const indices: number[] = []
-  for (let i = 0; i < fp.length; i++) {
-    const next = (i + 1) % fp.length
+  for (let i = 0; i < ring.length; i++) {
+    const next = (i + 1) % ring.length
     indices.push(0, i + 1, next + 1)
   }
 
   const geo = new THREE.BufferGeometry()
   geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3))
   geo.setIndex(indices)
+  geo.computeVertexNormals()
+  ensureOutwardFaces(geo, ring)
   geo.computeVertexNormals()
   const mesh = new THREE.Mesh(geo, mat)
   mesh.castShadow = true
@@ -469,22 +790,20 @@ export function buildSkillionRoof(
 
   const slopeAlongX = spanX <= spanY
 
-  // Sloping roof plane
-  const roofVerts: number[] = []
-  for (const p of fp) {
-    const t = slopeAlongX ? (p.x - minX) / spanX : (p.y - minY) / spanY
-    roofVerts.push(p.x, baseHeight + t * roofHeight, p.y)
+  // Sloping roof plane: earcut triangulation (safe on concave footprints —
+  // the old fan covered voids outside the walls), then displace to the slope.
+  // Returns null on degenerate footprints (caller falls back to flat).
+  const ring = cleanRing(fp)
+  if (ring.length < 3 || spanX < 1e-6 || spanY < 1e-6) return group
+  const roofGeo = flatCapGeometry(ring, 0)
+  const rp = roofGeo.getAttribute('position') as THREE.BufferAttribute
+  for (let i = 0; i < rp.count; i++) {
+    const x = rp.getX(i)
+    const z = rp.getZ(i)
+    const t = slopeAlongX ? (x - minX) / spanX : (z - minY) / spanY
+    rp.setY(i, baseHeight + Math.max(0, Math.min(1, t)) * roofHeight)
   }
-
-  // Simple fan triangulation for footprint
-  const roofIndices: number[] = []
-  for (let i = 1; i < fp.length - 1; i++) {
-    roofIndices.push(0, i, i + 1)
-  }
-
-  const roofGeo = new THREE.BufferGeometry()
-  roofGeo.setAttribute('position', new THREE.Float32BufferAttribute(roofVerts, 3))
-  roofGeo.setIndex(roofIndices)
+  rp.needsUpdate = true
   roofGeo.computeVertexNormals()
   const roofMesh = new THREE.Mesh(roofGeo, roofMat)
   roofMesh.castShadow = true
@@ -536,8 +855,11 @@ export function buildRoundRoof(
   roofHeight: number,
   baseHeight: number,
   roofMat: THREE.MeshStandardMaterial,
-  facadeMat: THREE.MeshStandardMaterial,
-): THREE.Group {
+  _facadeMat: THREE.MeshStandardMaterial,
+): THREE.Group | null {
+  // A barrel vault spans a rectangular hall: on irregular footprints the sheet
+  // floats off the walls, so decline (caller falls back to flat).
+  if (!isRectangleLike(fp)) return null
   const group = new THREE.Group()
 
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
@@ -599,15 +921,35 @@ export function buildDomeRoof(
   roofHeight: number,
   baseHeight: number,
   mat: THREE.MeshStandardMaterial,
-): THREE.Group {
+): THREE.Group | null {
   const group = new THREE.Group()
-  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
-  for (const p of fp) {
-    minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x)
-    minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y)
+  const ring = cleanRing(fp)
+  if (ring.length < 3) return null
+  // Inscribed fit: the drum must sit ON the walls. The bbox centre can lie
+  // outside an irregular footprint (and the area centroid in a thin spot), so
+  // scan a coarse grid over the bbox and keep the largest inscribed circle.
+  // Decline when nothing fits (caller falls back to flat).
+  const bb = bboxOf(ring)
+  const spanX = bb.maxX - bb.minX
+  const spanZ = bb.maxY - bb.minY
+  if (Math.min(spanX, spanZ) < 2.4) return null
+  let cx = 0, cy = 0, radius = 0
+  const steps = 8
+  for (let gx = 0; gx <= steps; gx++) {
+    for (let gz = 0; gz <= steps; gz++) {
+      const px = bb.minX + (spanX * gx) / steps
+      const pz = bb.minY + (spanZ * gz) / steps
+      if (!pointInRing2(px, pz, ring)) continue
+      let r = Infinity
+      for (let i = 0; i < ring.length; i++) {
+        const p = ring[i]!
+        const q = ring[(i + 1) % ring.length]!
+        r = Math.min(r, distToSegment2(px, pz, p.x, p.y, q.x, q.y))
+      }
+      if (r > radius) { radius = r; cx = px; cy = pz }
+    }
   }
-  const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2
-  const radius = Math.min(maxX - minX, maxY - minY) / 2
+  if (radius < 1.2) return null
 
   // Stepped drum base collar
   const drumH = roofHeight * 0.25

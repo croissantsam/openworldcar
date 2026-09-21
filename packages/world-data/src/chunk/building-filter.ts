@@ -51,17 +51,31 @@ function distancePointToSegment(px: number, pz: number, x1: number, z1: number, 
   return Math.hypot(px - closestX, pz - closestZ)
 }
 
-function polygonIntersectsCorridor(polygon: WorldPosition[], roadPoints: WorldPosition[], halfWidth: number): boolean {
+/**
+ * Fraction of the footprint's vertices inside the road corridor (0..1).
+ * A building merely touching a corridor with one corner is adjacency, not a conflict.
+ */
+function corridorVertexFraction(polygon: WorldPosition[], roadPoints: WorldPosition[], halfWidth: number): number {
   const bufferedHalfWidth = halfWidth + 1.5
-
+  let inside = 0
   for (const pt of polygon) {
     for (let i = 0; i < roadPoints.length - 1; i++) {
       const a = roadPoints[i]!
       const b = roadPoints[i + 1]!
       const dist = distancePointToSegment(pt.x, pt.z, a.x, a.z, b.x, b.z)
-      if (dist <= bufferedHalfWidth) return true
+      if (dist <= bufferedHalfWidth) { inside++; break }
     }
   }
+  return polygon.length > 0 ? inside / polygon.length : 0
+}
+
+/**
+ * True structural conflict: a road segment pierces the footprint, a road
+ * endpoint lands inside it, or its centroid sits in a corridor (a road
+ * running through the middle of a large footprint whose vertices are clear).
+ */
+function corridorPierces(polygon: WorldPosition[], roadPoints: WorldPosition[], halfWidth: number): boolean {
+  const bufferedHalfWidth = halfWidth + 1.5
 
   for (let i = 0; i < roadPoints.length - 1; i++) {
     const a = roadPoints[i]!
@@ -75,6 +89,17 @@ function polygonIntersectsCorridor(polygon: WorldPosition[], roadPoints: WorldPo
 
   if (polygon.length > 0 && pointInPolygon(roadPoints[0]!, polygon)) return true
   if (polygon.length > 0 && pointInPolygon(roadPoints[roadPoints.length - 1]!, polygon)) return true
+
+  if (polygon.length >= 3) {
+    let cx = 0, cz = 0
+    for (const p of polygon) { cx += p.x; cz += p.z }
+    cx /= polygon.length; cz /= polygon.length
+    for (let i = 0; i < roadPoints.length - 1; i++) {
+      const a = roadPoints[i]!
+      const b = roadPoints[i + 1]!
+      if (distancePointToSegment(cx, cz, a.x, a.z, b.x, b.z) <= bufferedHalfWidth) return true
+    }
+  }
 
   return false
 }
@@ -93,7 +118,12 @@ export function filterBuildingsOverlappingRoads(buildings: Building[], roads: Ro
 
     for (const road of roads) {
       const halfWidth = estimateRoadHalfWidth(road)
-      if (polygonIntersectsCorridor(building.footprint, road.points, halfWidth)) {
+      // A road genuinely through the building is a conflict; a corner merely
+      // touching the corridor is street adjacency — keep the building.
+      if (corridorPierces(building.footprint, road.points, halfWidth)) {
+        return false
+      }
+      if (corridorVertexFraction(building.footprint, road.points, halfWidth) >= 0.3) {
         return false
       }
     }

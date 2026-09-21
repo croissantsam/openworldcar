@@ -16,6 +16,9 @@
  *   - Untyped / residential buildings pick a hash-stable palette from a world-neutral pool; glass
  *     curtain walls only for office/commercial > 30 m or building:material=glass.
  *   - Stone facades with wrought-iron balconies on the 2nd and 5th floors counted from the ground.
+ *   - Real 3D relief on every masonry building: floor string-course bands, corner quoins
+ *     (pilasters), protruding entrance portals with steps; slim dark roofline caps on
+ *     modern / industrial blocks. All relief shares 4 materials (no draw-call explosion).
  *   - Courtyards (multipolygon inner rings) are extruded as holes with their own inner facades.
  *   - Comprehensive roof shapes from Section 8:
  *     * flat: with 3D perimeter parapet walls (acrotères), elevator penthouses, HVAC chillers & communication masts.
@@ -194,12 +197,14 @@ export class BuildingMeshGenerator {
     wallMesh.userData['buildingId'] = building.id
     group.add(wallMesh)
 
-    // ── 1b. Real ledges: cornice, plinth, balcony slabs + railings (shared materials) ──
+    // ── 1b. Real 3D relief: cornices, plinths, floor bands, corner quoins,
+    // entrance portals, balcony slabs + railings (shared materials only, so the
+    // chunk merger keeps draw calls bounded) ──
     const style = pal.style
-    const dressed = style === 'haussmann' || style === 'render' || style === 'brick' ||
+    const masonry = style === 'haussmann' || style === 'render' || style === 'brick' ||
       style === 'civic_classical' || style === 'commercial_boutique' || style === 'residential_house' ||
       style === 'religious'
-    if (dressed && wallHeight >= 3) {
+    if (masonry && wallHeight >= 3) {
       addLedges(group, {
         ring: fp2d,
         bottomY,
@@ -208,7 +213,29 @@ export class BuildingMeshGenerator {
         levels,
         cornice: true,
         plinth: style !== 'residential_house' && style !== 'religious',
-        balconies: style === 'haussmann',
+        balconies: style === 'haussmann' || style === 'render' || style === 'brick' ||
+          style === 'civic_classical',
+        bands: style !== 'residential_house',
+        pilasters: style === 'haussmann' || style === 'brick' || style === 'civic_classical' ||
+          style === 'religious',
+        entrance: true,
+        darkTrim: false,
+      })
+    } else if (wallHeight >= 3) {
+      // Modern / industrial / sheds: a slim dark cap so the roofline still reads in 3D.
+      addLedges(group, {
+        ring: fp2d,
+        bottomY,
+        topY: building.height,
+        floorH,
+        levels,
+        cornice: true,
+        plinth: false,
+        balconies: false,
+        bands: false,
+        pilasters: false,
+        entrance: false,
+        darkTrim: true,
       })
     }
 
@@ -233,31 +260,43 @@ export class BuildingMeshGenerator {
     const defaultPitch = Math.max(1.8, Math.min(8.0, building.height * 0.18))
     const roofPitch = building.roofHeight ?? defaultPitch
 
+    // Pitched builders decline (null) when the footprint cannot carry the shape
+    // (irregular rings, degenerate spans): fall back to flat so the roof always
+    // sits on the walls instead of floating beside them.
+    const addFlat = (): void => {
+      // Flat roof with 3D parapet border (acrotère) & rooftop HVAC/lift penthouse/antennae
+      const flat = buildFlatRoofWithDetails(shape, fp2d, roofBaseH, roofMat, facadeMat, hasHoles)
+      group.add(flat)
+    }
     if (roofShape === 'mansard') {
       const mansard = buildMansardRoof(fp2d, Math.max(2.2, roofPitch), roofBaseH, roofMat, facadeMat)
-      group.add(mansard)
+      if (mansard) group.add(mansard)
+      else addFlat()
     } else if (roofShape === 'gabled') {
       const gabled = buildGabledRoof(fp2d, roofPitch, roofBaseH, roofMat, facadeMat, building.roofOrientation)
-      group.add(gabled)
+      if (gabled) group.add(gabled)
+      else addFlat()
     } else if (roofShape === 'hipped') {
       const hipped = buildHippedRoof(fp2d, roofPitch, roofBaseH, roofMat)
-      group.add(hipped)
+      if (hipped) group.add(hipped)
+      else addFlat()
     } else if (roofShape === 'pyramidal') {
       const pyramidal = buildPyramidalRoof(fp2d, roofPitch, roofBaseH, roofMat)
-      group.add(pyramidal)
+      if (pyramidal) group.add(pyramidal)
+      else addFlat()
     } else if (roofShape === 'skillion') {
       const skillion = buildSkillionRoof(fp2d, roofPitch, roofBaseH, roofMat, facadeMat)
       group.add(skillion)
     } else if (roofShape === 'round') {
       const round = buildRoundRoof(fp2d, roofPitch, roofBaseH, roofMat, facadeMat)
-      group.add(round)
+      if (round) group.add(round)
+      else addFlat()
     } else if (roofShape === 'dome') {
       const dome = buildDomeRoof(fp2d, roofPitch, roofBaseH, roofMat)
-      group.add(dome)
+      if (dome) group.add(dome)
+      else addFlat()
     } else {
-      // Flat roof with 3D parapet border (acrotère) & rooftop HVAC/lift penthouse/antennae
-      const flat = buildFlatRoofWithDetails(shape, fp2d, roofBaseH, roofMat, facadeMat, hasHoles)
-      group.add(flat)
+      addFlat()
     }
 
     // ── 3. Religious Architecture: Church Spire / Belfry / Minaret ────────

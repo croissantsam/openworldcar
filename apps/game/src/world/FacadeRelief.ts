@@ -89,6 +89,8 @@ export function heightToNormalTexture(height: HTMLCanvasElement, strength = 2.0)
 export const LEDGE_MAT = new THREE.MeshStandardMaterial({ color: 0xd9d3c6, roughness: 0.9, metalness: 0.02 })
 export const PLINTH_MAT = new THREE.MeshStandardMaterial({ color: 0x6b6660, roughness: 0.92, metalness: 0.02 })
 export const IRON_MAT = new THREE.MeshStandardMaterial({ color: 0x1e2126, roughness: 0.55, metalness: 0.6 })
+/** Dark metal trim for modern / industrial cornices (one extra merge bucket per chunk at most). */
+export const TRIM_DARK_MAT = new THREE.MeshStandardMaterial({ color: 0x2c313a, roughness: 0.6, metalness: 0.45 })
 
 // ── Ledge geometry ───────────────────────────────────────────────────────────
 
@@ -221,6 +223,53 @@ export interface LedgeOptions {
   cornice: boolean
   plinth: boolean
   balconies: boolean
+  /** Thin string-course band on every floor line (masonry styles). */
+  bands: boolean
+  /** Vertical stone strips on corners (quoins). */
+  pilasters: boolean
+  /** Protruding portal + steps on the longest edge. */
+  entrance: boolean
+  /** Cornice in dark metal instead of stone (modern / industrial). */
+  darkTrim: boolean
+}
+
+/** Shoelace area of a ring (m²); tiny footprints skip pilasters / entrances. */
+function ringArea(ring: THREE.Vector2[]): number {
+  let a = 0
+  for (let i = 0; i < ring.length; i++) {
+    const p = ring[i]!
+    const q = ring[(i + 1) % ring.length]!
+    a += p.x * q.y - q.x * p.y
+  }
+  return Math.abs(a) / 2
+}
+
+/** Outward unit normal of edge p→q for a ring (x right / y down = world x / z). */
+function edgeOutward(p: THREE.Vector2, q: THREE.Vector2, sign: number): { nx: number; nz: number; len: number } {
+  const dx = q.x - p.x
+  const dz = q.y - p.y
+  const len = Math.hypot(dx, dz)
+  if (len < 1e-6) return { nx: 0, nz: 0, len: 0 }
+  return { nx: (dz / len) * sign, nz: (-dx / len) * sign, len }
+}
+
+function addBox(
+  group: THREE.Group,
+  mat: THREE.MeshStandardMaterial,
+  cx: number,
+  yBase: number,
+  cz: number,
+  sx: number,
+  sy: number,
+  sz: number,
+  rotY = 0,
+): void {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), mat)
+  m.position.set(cx, yBase + sy / 2, cz)
+  m.rotation.y = rotY
+  m.castShadow = true
+  m.receiveShadow = true
+  group.add(m)
 }
 
 /**
@@ -240,10 +289,18 @@ export function addLedges(group: THREE.Group, o: LedgeOptions): number {
 
   if (o.cornice) {
     // Roofline cornice: 0.28 m deep, 0.22 m tall, top flush with the roof base.
-    add(buildLedgeBand(o.ring, o.topY - 0.22, 0.22, 0.28), LEDGE_MAT)
+    add(buildLedgeBand(o.ring, o.topY - 0.22, 0.22, 0.28), o.darkTrim ? TRIM_DARK_MAT : LEDGE_MAT)
   }
   if (o.plinth) {
     add(buildLedgeBand(o.ring, o.bottomY, 0.6, 0.08), PLINTH_MAT)
+  }
+  if (o.bands && o.levels >= 2) {
+    // Floor string courses: a slim shadow line on every floor division so the
+    // storeys read in 3D even where the sun flattens the texture.
+    const step = o.levels > 8 ? 2 : 1
+    for (let f = step; f < o.levels; f += step) {
+      add(buildLedgeBand(o.ring, o.bottomY + f * o.floorH - 0.05, 0.1, 0.09), LEDGE_MAT)
+    }
   }
   if (o.balconies && o.levels >= 4) {
     for (const floor of [2, 5]) {
@@ -256,5 +313,84 @@ export function addLedges(group: THREE.Group, o: LedgeOptions): number {
       add(buildLedgeBand(o.ring, y, 0.05, 0.3, 0.25, 0.02), IRON_MAT)        // kick rail
     }
   }
+  if (o.pilasters) {
+    addPilasters(group, o.ring, o.bottomY, o.topY)
+  }
+  if (o.entrance) {
+    addEntrance(group, o.ring, o.bottomY, o.topY - o.bottomY)
+  }
   return verts
+}
+
+/**
+ * Corner quoins: vertical stone strips on spaced footprint vertices.
+ * Skipped on tiny footprints; vertices closer than 2 m share one strip.
+ */
+export function addPilasters(group: THREE.Group, ring: THREE.Vector2[], bottomY: number, topY: number): void {
+  const h = topY - bottomY
+  if (h < 3 || ringArea(ring) < 25) return
+  const sign = signedArea(ring) > 0 ? 1 : -1
+  const placed: THREE.Vector2[] = []
+  const N = ring.length
+  for (let i = 0; i < N && placed.length < 16; i++) {
+    const p = ring[i]!
+    let crowded = false
+    for (const q of placed) {
+      if (Math.hypot(q.x - p.x, q.y - p.y) < 2) { crowded = true; break }
+    }
+    if (crowded) continue
+    placed.push(p)
+    // Vertex outward direction: average of the adjacent edge normals.
+    const prev = ring[(i + N - 1) % N]!
+    const next = ring[(i + 1) % N]!
+    const n1 = edgeOutward(prev, p, sign)
+    const n2 = edgeOutward(p, next, sign)
+    let nx = n1.nx + n2.nx
+    let nz = n1.nz + n2.nz
+    const l = Math.hypot(nx, nz)
+    if (l < 1e-6) { nx = n1.nx; nz = n1.nz } else { nx /= l; nz /= l }
+    addBox(group, LEDGE_MAT, p.x + nx * 0.1, bottomY, p.y + nz * 0.1, 0.45, h, 0.45)
+  }
+}
+
+/**
+ * Entrance portal on the longest footprint edge: stone jambs + lintel with a
+ * step in front. The strongest street-level 3D cue on an otherwise flat wall.
+ */
+export function addEntrance(group: THREE.Group, ring: THREE.Vector2[], bottomY: number, wallH: number): void {
+  if (wallH < 3.2 || ringArea(ring) < 25) return
+  const sign = signedArea(ring) > 0 ? 1 : -1
+  const N = ring.length
+  let bi = 0
+  let best = 0
+  for (let i = 0; i < N; i++) {
+    const p = ring[i]!
+    const q = ring[(i + 1) % N]!
+    const len = Math.hypot(q.x - p.x, q.y - p.y)
+    if (len > best) { best = len; bi = i }
+  }
+  if (best < 3) return
+  const p = ring[bi]!
+  const q = ring[(bi + 1) % N]!
+  const ex = (q.x - p.x) / best
+  const ez = (q.y - p.y) / best
+  const nx = ez * sign
+  const nz = -ex * sign
+  const mx = (p.x + q.x) / 2
+  const mz = (p.y + q.y) / 2
+  // Local +X along the edge: rotation about Y mapping +X to (ex, ez).
+  const rotY = Math.atan2(-ez, ex)
+
+  const doorW = Math.min(3.4, Math.max(1.8, best * 0.22))
+  const doorH = Math.min(2.7, wallH - 0.6)
+  // Jambs
+  const jOff = doorW / 2 + 0.18
+  addBox(group, LEDGE_MAT, mx + ex * jOff + nx * 0.12, bottomY, mz + ez * jOff + nz * 0.12, 0.36, doorH, 0.6, rotY)
+  addBox(group, LEDGE_MAT, mx - ex * jOff + nx * 0.12, bottomY, mz - ez * jOff + nz * 0.12, 0.36, doorH, 0.6, rotY)
+  // Lintel
+  addBox(group, LEDGE_MAT, mx + nx * 0.14, bottomY + doorH, mz + nz * 0.14, doorW + 1.1, 0.4, 0.65, rotY)
+  // Step (only when the wall starts at street level)
+  if (bottomY <= 0.3) {
+    addBox(group, PLINTH_MAT, mx + nx * 0.85, bottomY, mz + nz * 0.85, doorW + 1.4, 0.18, 1.1, rotY)
+  }
 }

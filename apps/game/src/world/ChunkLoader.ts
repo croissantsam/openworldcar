@@ -292,7 +292,8 @@ export class ChunkLoader {
     }
     const uniqueBuildings = dedupeBuildings(chunk.buildings)
     for (const building of uniqueBuildings) {
-      yield 0.2 + 0.03 * building.footprint.length
+      // Relief (bands, quoins, portals, balconies) roughly doubles wall geometry.
+      yield 0.35 + 0.05 * building.footprint.length
       const buildingGroup = BuildingMeshGenerator.generate(building)
       if (buildingGroup) group.add(buildingGroup)
     }

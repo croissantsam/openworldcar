@@ -438,8 +438,22 @@ function parseCssColour(raw: string | undefined): string | undefined {
 
 function normalizeRoofShape(raw: string | undefined): RoofShape | undefined {
   if (!raw) return undefined
+  const v = raw.toLowerCase()
   const valid: RoofShape[] = ['flat', 'gabled', 'hipped', 'pyramidal', 'dome', 'round', 'mansard', 'skillion']
-  return valid.includes(raw as RoofShape) ? (raw as RoofShape) : undefined
+  if (valid.includes(v as RoofShape)) return v as RoofShape
+  // Common OSM aliases / regional spellings → closest supported shape.
+  // Without these, mapper-tagged roofs (pyramid, half-hipped, …) silently fell back to flat.
+  switch (v) {
+    case 'pyramid': return 'pyramidal'
+    case 'half-hipped':
+    case 'halfhipped':
+    case 'half_hipped': return 'hipped'
+    case 'gambrel': return 'gabled'
+    case 'saltbox': return 'skillion'
+    case 'cone': return 'pyramidal'
+    case 'onion': return 'dome'
+    default: return undefined
+  }
 }
 
 function normalizeBuildingType(raw: string | undefined, tags?: OsmTags): BuildingType | undefined {

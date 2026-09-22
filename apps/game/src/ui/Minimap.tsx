@@ -13,17 +13,6 @@ type Props = {
   destinationFlag?: string
 }
 
-// Fallback Paris landmarks for 1-click GPS routing (used only while live
-// OSM POIs are still loading and only in the Paris area — everywhere else
-// the map offers the nearest named POIs from the loaded chunks).
-const LANDMARKS: Array<{ name: string; pos: WorldPosition; desc: string }> = [
-  { name: 'Centre Pompidou', pos: { x: 480, y: 0, z: 420 }, desc: 'Art moderne & architecture' },
-  { name: 'Place des Victoires', pos: { x: -350, y: 0, z: 20 }, desc: 'Place circulaire historique' },
-  { name: 'Porte Saint-Denis', pos: { x: 180, y: 0, z: -400 }, desc: 'Arc de triomphe Louis XIV' },
-  { name: 'Bourse de Commerce', pos: { x: -280, y: 0, z: 320 }, desc: 'Collection Pinault' },
-  { name: 'Boulevard de Sébastopol', pos: { x: 250, y: 0, z: 60 }, desc: 'Grand axe nord-sud' },
-]
-
 /** True when any point lies within the squared radius (early exit, no sqrt). */
 function pointsInRange(
   pts: ReadonlyArray<{ x: number; z: number }>,
@@ -72,10 +61,8 @@ export function Minimap({
 
   const [autoIsMobile, setAutoIsMobile] = useState(false)
   // City shown in the headers: HUD state first (reactive), engine as fallback.
-  // LANDMARKS below are Paris-local coords, so they are only offered in Paris.
-  const displayCity = destinationCity ?? engine.currentDestination?.city ?? 'PARIS'
+  const displayCity = destinationCity ?? engine.currentDestination?.city ?? 'MONDE'
   const displayFlag = destinationFlag ?? engine.currentDestination?.flag ?? '🌍'
-  const isParisArea = displayCity === 'Paris'
   useEffect(() => {
     const check = () => {
       const isTouch =
@@ -97,9 +84,8 @@ export function Minimap({
   const [remainingDist, setRemainingDist] = useState<number | null>(null)
 
   // Worldwide 1-click destinations: nearest NAMED OSM POIs around the player
-  // (works in every city on Earth, not just the curated ones). Refreshed
-  // every 2 s while the map is expanded; the hardcoded Paris list below is
-  // only a fallback while chunks are still loading.
+  // (works in every city on Earth). Refreshed every 2 s while the map is
+  // expanded.
   const [nearbyPois, setNearbyPois] = useState<
     Array<{ name: string; desc: string; x: number; z: number }>
   >([])
@@ -994,31 +980,6 @@ export function Minimap({
                     <span style={{ fontSize: 8, color: '#94a3b8' }}>{poi.desc}</span>
                   </button>
                 ))
-              ) : isParisArea ? (
-                LANDMARKS.map((lm) => (
-                  <button
-                    key={lm.name}
-                    onClick={() => {
-                      engine.setGpsDestination(lm.pos)
-                      setExpanded(false)
-                    }}
-                    style={{
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'flex-start',
-                      background: 'rgba(255, 255, 255, 0.05)',
-                      border: '1px solid rgba(255, 255, 255, 0.1)',
-                      borderRadius: 8,
-                      padding: '5px 8px',
-                      cursor: 'pointer',
-                      color: '#ffffff',
-                      textAlign: 'left',
-                    }}
-                  >
-                    <span style={{ fontSize: 10, fontWeight: 700 }}>📍 {lm.name}</span>
-                    <span style={{ fontSize: 8, color: '#94a3b8' }}>{lm.desc}</span>
-                  </button>
-                ))
               ) : (
                 <div style={{ fontSize: 9, color: '#94a3b8', lineHeight: 1.5 }}>
                   Chargement des lieux autour de vous… ou touche T pour voyager.
@@ -1325,46 +1286,6 @@ export function Minimap({
                       📍 {poi.name}
                     </span>
                     <span style={{ fontSize: 9, color: '#888', marginTop: 1 }}>{poi.desc}</span>
-                  </button>
-                ))
-              ) : isParisArea ? (
-                LANDMARKS.map((lm) => (
-                  <button
-                    key={lm.name}
-                    onClick={() => {
-                      engine.setGpsDestination(lm.pos)
-                    }}
-                    style={{
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'flex-start',
-                      background: 'rgba(255, 255, 255, 0.05)',
-                      border: '1px solid rgba(255, 255, 255, 0.1)',
-                      borderRadius: 6,
-                      padding: '6px 10px',
-                      cursor: 'pointer',
-                      color: '#ffffff',
-                      transition: 'all 0.15s ease',
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background = 'rgba(0, 212, 255, 0.15)'
-                      e.currentTarget.style.borderColor = 'rgba(0, 212, 255, 0.6)'
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)'
-                      e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)'
-                    }}
-                  >
-                    <span
-                      style={{
-                        fontFamily: "'Inter', sans-serif",
-                        fontSize: 11,
-                        fontWeight: 700,
-                      }}
-                    >
-                      📍 {lm.name}
-                    </span>
-                    <span style={{ fontSize: 9, color: '#888', marginTop: 1 }}>{lm.desc}</span>
                   </button>
                 ))
               ) : (

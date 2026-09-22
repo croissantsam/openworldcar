@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react'
-import { worldToGeo } from '@world-drive/math'
 import { useSettingsStore, PRESETS, type ViewDistancePreset } from '../settings/SettingsStore.js'
 import type { GameEngine, VehicleMode } from '../game/GameEngine.js'
 import type { StreetInfo } from '../world/ChunkManager.js'
@@ -112,7 +111,7 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
   const [currentDest, setCurrentDest] = useState<WorldDestination>(() => engine.currentDestination)
   const currentDestRef = useRef<WorldDestination>(engine.currentDestination)
   const [district, setDistrict] = useState<string>(() =>
-    getDistrictLabel(worldToGeo(engine.getPlayerPosition()), engine.currentDestination)
+    getDistrictLabel(engine.currentDestination)
   )
   const [travelOpen, setTravelOpen] = useState(false)
   const [searchBarOpen, setSearchBarOpen] = useState(false)
@@ -201,9 +200,7 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
       lastStreetPosRef.current = null
       lastStreetAtRef.current = 0
       lastSeenRef.current = Date.now()
-      const pos = engine.getPlayerPosition()
-      const currentGeo = worldToGeo(pos)
-      setDistrict(getDistrictLabel(currentGeo, newDest))
+      setDistrict(getDistrictLabel(newDest))
     }
 
     engine.onInvincibilityChanged = () => {
@@ -348,8 +345,7 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
       if (movedM > 2 || nowMs - lastStreetAtRef.current > 1000) {
         lastStreetPosRef.current = { x: pos.x, z: pos.z }
         lastStreetAtRef.current = nowMs
-        const currentGeo = worldToGeo(pos)
-        setDistrict(getDistrictLabel(currentGeo, currentDestRef.current))
+        setDistrict(getDistrictLabel(currentDestRef.current))
 
         const current = engine.getCurrentStreet()
         if (current) {
@@ -474,7 +470,7 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
     lastStreetPosRef.current = null
     lastStreetAtRef.current = 0
     lastSeenRef.current = Date.now()
-    setDistrict(getDistrictLabel(dest.origin, dest))
+    setDistrict(getDistrictLabel(dest))
     engine.travelTo(dest)
     recordCityVisit(dest.id)
     setTimeout(() => {
@@ -1590,27 +1586,6 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
             `${currentDest.flag} ${district}`
           )}
         </span>
-        {street?.maxSpeed && (
-          <span
-            style={{
-              fontSize: isMobileLandscape ? 8 : 9,
-              fontWeight: 900,
-              color: '#111',
-              background: '#fff',
-              borderRadius: '50%',
-              width: isMobileLandscape ? 18 : 20,
-              height: isMobileLandscape ? 18 : 20,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              border: '1.5px solid #e02424',
-              marginLeft: 2,
-              flexShrink: 0,
-            }}
-          >
-            {street.maxSpeed}
-          </span>
-        )}
       </div>
 
       {/* Quick Menu Overlay */}

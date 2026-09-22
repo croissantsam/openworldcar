@@ -1669,30 +1669,20 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
               </button>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {/* 1. Voyage mondial */}
               <button
                 onClick={() => {
                   setMenuOpen(false)
                   setTravelOpen(true)
                 }}
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'flex-start',
-                  gap: 3,
-                  background: 'rgba(255, 255, 255, 0.05)',
-                  border: '1px solid rgba(0, 212, 255, 0.3)',
-                  borderRadius: 12,
-                  padding: '10px 12px',
-                  cursor: 'pointer',
-                  color: '#ffffff',
-                  textAlign: 'left',
-                }}
+                style={menuButtonStyle}
               >
-                <span style={{ fontSize: 20 }}>🌍</span>
-                <span style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 10, fontWeight: 800, color: '#00d4ff' }}>{t('hud_menu_travel')}</span>
-                <span style={{ fontSize: 8, color: '#94a3b8' }}>{t('hud_menu_travel_hint')}</span>
+                <span style={menuButtonIconStyle}>🌍</span>
+                <span style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                  <span style={menuButtonTitleStyle}>{t('hud_menu_travel')}</span>
+                  <span style={menuButtonHintStyle}>{t('hud_menu_travel_hint')}</span>
+                </span>
               </button>
 
               {/* 2. Recherche adresse */}
@@ -1701,23 +1691,13 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
                   setMenuOpen(false)
                   setSearchBarOpen(true)
                 }}
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'flex-start',
-                  gap: 3,
-                  background: 'rgba(255, 255, 255, 0.05)',
-                  border: '1px solid rgba(0, 212, 255, 0.3)',
-                  borderRadius: 12,
-                  padding: '10px 12px',
-                  cursor: 'pointer',
-                  color: '#ffffff',
-                  textAlign: 'left',
-                }}
+                style={menuButtonStyle}
               >
-                <span style={{ fontSize: 20 }}>🔍</span>
-                <span style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 10, fontWeight: 800, color: '#00d4ff' }}>{t('hud_menu_search')}</span>
-                <span style={{ fontSize: 8, color: '#94a3b8' }}>{t('hud_menu_search_hint')}</span>
+                <span style={menuButtonIconStyle}>🔍</span>
+                <span style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                  <span style={menuButtonTitleStyle}>{t('hud_menu_search')}</span>
+                  <span style={menuButtonHintStyle}>{t('hud_menu_search_hint')}</span>
+                </span>
               </button>
 
               {/* 3. Débloquer véhicule */}
@@ -1726,23 +1706,13 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
                   engine.respawnPlayer()
                   setMenuOpen(false)
                 }}
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'flex-start',
-                  gap: 3,
-                  background: 'rgba(255, 255, 255, 0.05)',
-                  border: '1px solid rgba(245, 158, 11, 0.35)',
-                  borderRadius: 12,
-                  padding: '10px 12px',
-                  cursor: 'pointer',
-                  color: '#ffffff',
-                  textAlign: 'left',
-                }}
+                style={menuButtonStyle}
               >
-                <span style={{ fontSize: 20 }}>🔄</span>
-                <span style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 10, fontWeight: 800, color: '#fbbf24' }}>{t('hud_menu_unstuck')}</span>
-                <span style={{ fontSize: 8, color: '#94a3b8' }}>{t('hud_menu_unstuck_hint')}</span>
+                <span style={menuButtonIconStyle}>🔄</span>
+                <span style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                  <span style={menuButtonTitleStyle}>{t('hud_menu_unstuck')}</span>
+                  <span style={menuButtonHintStyle}>{t('hud_menu_unstuck_hint')}</span>
+                </span>
               </button>
 
               {/* 4. Voiture / Avion */}
@@ -1751,26 +1721,16 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
                   toggleVehicle()
                   setMenuOpen(false)
                 }}
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'flex-start',
-                  gap: 3,
-                  background: 'rgba(255, 255, 255, 0.05)',
-                  border: isPlane ? '1px solid rgba(251, 191, 36, 0.35)' : '1px solid rgba(0, 212, 255, 0.3)',
-                  borderRadius: 12,
-                  padding: '10px 12px',
-                  cursor: 'pointer',
-                  color: '#ffffff',
-                  textAlign: 'left',
-                }}
+                style={menuButtonStyle}
               >
-                <span style={{ fontSize: 20 }}>{isPlane ? '🚗' : '✈️'}</span>
-                <span style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 10, fontWeight: 800, color: isPlane ? '#fbbf24' : '#00d4ff' }}>
-                  {isPlane ? t('hud_menu_car') : t('hud_menu_plane')}
-                </span>
-                <span style={{ fontSize: 8, color: '#94a3b8' }}>
-                  {isPlane ? t('hud_menu_to_car_hint') : t('hud_menu_to_plane_hint')}
+                <span style={menuButtonIconStyle}>{isPlane ? '🚗' : '✈️'}</span>
+                <span style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                  <span style={menuButtonTitleStyle}>
+                    {isPlane ? t('hud_menu_car') : t('hud_menu_plane')}
+                  </span>
+                  <span style={menuButtonHintStyle}>
+                    {isPlane ? t('hud_menu_to_car_hint') : t('hud_menu_to_plane_hint')}
+                  </span>
                 </span>
               </button>
 
@@ -1780,23 +1740,13 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
                   setMenuOpen(false)
                   setViewDistanceOpen(true)
                 }}
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'flex-start',
-                  gap: 3,
-                  background: 'rgba(255, 255, 255, 0.05)',
-                  border: '1px solid rgba(245, 158, 11, 0.35)',
-                  borderRadius: 12,
-                  padding: '10px 12px',
-                  cursor: 'pointer',
-                  color: '#ffffff',
-                  textAlign: 'left',
-                }}
+                style={menuButtonStyle}
               >
-                <span style={{ fontSize: 20 }}>👁️</span>
-                <span style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 10, fontWeight: 800, color: '#fbbf24' }}>{t('hud_menu_distance')}</span>
-                <span style={{ fontSize: 8, color: '#94a3b8' }}>{t('hud_menu_distance_hint')}</span>
+                <span style={menuButtonIconStyle}>👁️</span>
+                <span style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                  <span style={menuButtonTitleStyle}>{t('hud_menu_distance')}</span>
+                  <span style={menuButtonHintStyle}>{t('hud_menu_distance_hint')}</span>
+                </span>
               </button>
             </div>
 
@@ -1806,26 +1756,14 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
                 setMenuOpen(false)
                 setAuthOpen(true)
               }}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 10,
-                background: 'rgba(0, 212, 255, 0.07)',
-                border: '1px solid rgba(0, 212, 255, 0.35)',
-                borderRadius: 12,
-                padding: '10px 12px',
-                cursor: 'pointer',
-                color: '#ffffff',
-                textAlign: 'left',
-                width: '100%',
-              }}
+              style={menuButtonStyle}
             >
-              <span style={{ fontSize: 20 }}>{isGuest ? '👤' : '✅'}</span>
+              <span style={menuButtonIconStyle}>{isGuest ? '👤' : '✅'}</span>
               <span style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                <span style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 10, fontWeight: 800, color: '#00d4ff' }}>
+                <span style={menuButtonTitleStyle}>
                   {isGuest ? t('hud_menu_guest_account') : authLabel}
                 </span>
-                <span style={{ fontSize: 8, color: '#94a3b8' }}>
+                <span style={menuButtonHintStyle}>
                   {isGuest ? t('hud_menu_guest_hint') : t('hud_menu_sync_hint')}
                 </span>
               </span>
@@ -1837,26 +1775,14 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
                 setMenuOpen(false)
                 setTrophyOpen(true)
               }}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 10,
-                background: 'rgba(251, 191, 36, 0.07)',
-                border: '1px solid rgba(251, 191, 36, 0.35)',
-                borderRadius: 12,
-                padding: '10px 12px',
-                cursor: 'pointer',
-                color: '#ffffff',
-                textAlign: 'left',
-                width: '100%',
-              }}
+              style={menuButtonStyle}
             >
-              <span style={{ fontSize: 20 }}>🏆</span>
+              <span style={menuButtonIconStyle}>🏆</span>
               <span style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                <span style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 10, fontWeight: 800, color: '#fbbf24' }}>
+                <span style={menuButtonTitleStyle}>
                   {t('hud_menu_trophies')}
                 </span>
-                <span style={{ fontSize: 8, color: '#94a3b8' }}>
+                <span style={menuButtonHintStyle}>
                   {t('hud_menu_trophies_hint')}
                 </span>
               </span>
@@ -1868,26 +1794,14 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
                 setMenuOpen(false)
                 setTrialBoardOpen(true)
               }}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 10,
-                background: 'rgba(52, 211, 153, 0.07)',
-                border: '1px solid rgba(52, 211, 153, 0.35)',
-                borderRadius: 12,
-                padding: '10px 12px',
-                cursor: 'pointer',
-                color: '#ffffff',
-                textAlign: 'left',
-                width: '100%',
-              }}
+              style={menuButtonStyle}
             >
-              <span style={{ fontSize: 20 }}>⏱️</span>
+              <span style={menuButtonIconStyle}>⏱️</span>
               <span style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                <span style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 10, fontWeight: 800, color: '#34d399' }}>
+                <span style={menuButtonTitleStyle}>
                   {t('hud_menu_chrono')}
                 </span>
-                <span style={{ fontSize: 8, color: '#94a3b8' }}>
+                <span style={menuButtonHintStyle}>
                   {t('hud_menu_chrono_hint')}
                 </span>
               </span>
@@ -1953,7 +1867,7 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
                         textAlign: 'left',
                       }}
                     >
-                      <span style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 9, fontWeight: 800, color: viewDistance === key ? '#00d4ff' : '#fbbf24' }}>
+                      <span style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 9, fontWeight: 800, color: viewDistance === key ? '#00d4ff' : '#94a3b8' }}>
                         {(() => {
                           const labelKey = PRESET_LABEL_KEYS[key as ViewDistancePreset]
                           return labelKey ? t(labelKey) : preset.label.toUpperCase()
@@ -1975,49 +1889,24 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
             <button
               onClick={() => setTouchMode((v) => !v)}
               style={{
-                marginTop: 4,
-                background: 'rgba(0, 212, 255, 0.1)',
-                border: '1px solid rgba(0, 212, 255, 0.4)',
-                borderRadius: 10,
-                padding: '8px 12px',
-                color: '#00d4ff',
-                fontFamily: "'Orbitron', sans-serif",
-                fontSize: 10,
-                fontWeight: 800,
-                letterSpacing: 1,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
+                ...menuButtonStyle,
                 justifyContent: 'center',
-                gap: 6,
               }}
             >
-              <span>{touchMode ? t('hud_touch_on') : t('hud_touch_off')}</span>
+              <span style={{ ...menuButtonTitleStyle, letterSpacing: 1 }}>
+                {touchMode ? t('hud_touch_on') : t('hud_touch_off')}
+              </span>
             </button>
 
             {/* Language switcher (burger menu only — nothing on the HUD) */}
             <div
               style={{
-                marginTop: 4,
-                background: 'rgba(255, 255, 255, 0.03)',
-                border: '1px solid rgba(0, 212, 255, 0.2)',
-                borderRadius: 10,
-                padding: '8px 12px',
-                display: 'flex',
-                alignItems: 'center',
+                ...menuButtonStyle,
+                cursor: 'default',
                 justifyContent: 'center',
-                gap: 6,
               }}
             >
-              <span
-                style={{
-                  fontFamily: "'Orbitron', sans-serif",
-                  fontSize: 10,
-                  fontWeight: 800,
-                  letterSpacing: 1,
-                  color: '#00d4ff',
-                }}
-              >
+              <span style={{ ...menuButtonTitleStyle, letterSpacing: 1 }}>
                 🌐 {t('core_language_title')}
               </span>
               {SUPPORTED_LOCALES.map((lng) => (
@@ -2268,6 +2157,38 @@ const flightLabelStyle: React.CSSProperties = {
   fontWeight: 700,
   color: '#00d4ff',
   letterSpacing: 1.2,
+}
+
+/** Single shared look for every burger-menu button (grid + rows + toggles). */
+const menuButtonStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 10,
+  background: 'rgba(255, 255, 255, 0.05)',
+  border: '1px solid rgba(0, 212, 255, 0.3)',
+  borderRadius: 12,
+  padding: '10px 12px',
+  cursor: 'pointer',
+  color: '#ffffff',
+  textAlign: 'left',
+  width: '100%',
+}
+
+const menuButtonIconStyle: React.CSSProperties = {
+  fontSize: 20,
+  flexShrink: 0,
+}
+
+const menuButtonTitleStyle: React.CSSProperties = {
+  fontFamily: "'Orbitron', sans-serif",
+  fontSize: 10,
+  fontWeight: 800,
+  color: '#00d4ff',
+}
+
+const menuButtonHintStyle: React.CSSProperties = {
+  fontSize: 8,
+  color: '#94a3b8',
 }
 
 const flightUnitStyle: React.CSSProperties = {

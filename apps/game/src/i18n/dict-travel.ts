@@ -61,9 +61,9 @@ export const fr = {
   travel_key_before: 'Touche',
   travel_key_after: 'pour voyager',
   // Curated destinations (fr = exact name/description from destinations.ts)
-  dest_paris_saussure_name: "Paris — 164 Rue de Saussure (17e)",
-  dest_paris_saussure_desc:
-    "164 Rue de Saussure dans le 17e arrondissement de Paris, quartier des Batignolles et Parc Martin Luther King.",
+  dest_paris_etoile_name: "Paris — Place Charles de Gaulle",
+  dest_paris_etoile_desc:
+    "Le rond-point mythique de l’Arc de Triomphe, au sommet des Champs-Élysées.",
   dest_paris_2e_name: "Paris — 2e Arrondissement",
   dest_paris_2e_desc:
     "Le quartier historique de la Bourse, du Sentier et des passages couverts parisiens.",
@@ -132,9 +132,9 @@ export const en: TravelDict = {
     ': as soon as you drive toward the edge of the map, new chunks are generated live!',
   travel_key_before: 'Press',
   travel_key_after: 'to travel',
-  dest_paris_saussure_name: "Paris — 164 Rue de Saussure (17th arr.)",
-  dest_paris_saussure_desc:
-    "164 Rue de Saussure in Paris 17th arrondissement, Batignolles district and Martin Luther King Park.",
+  dest_paris_etoile_name: "Paris — Place Charles de Gaulle",
+  dest_paris_etoile_desc:
+    "The legendary Arc de Triomphe roundabout, crowning the Champs-Élysées.",
   dest_paris_2e_name: "Paris — 2nd Arrondissement",
   dest_paris_2e_desc:
     "The historic Bourse, Sentier and covered-passage district of Paris.",
@@ -201,9 +201,9 @@ export const es: TravelDict = {
     ': en cuanto conduzca hacia los límites del mapa, ¡los nuevos chunks se generan en directo!',
   travel_key_before: 'Pulse',
   travel_key_after: 'para viajar',
-  dest_paris_saussure_name: "París — 164 Rue de Saussure (distrito 17)",
-  dest_paris_saussure_desc:
-    "164 Rue de Saussure en el distrito 17 de París, barrio de Batignolles y parque Martin Luther King.",
+  dest_paris_etoile_name: "París — Place Charles de Gaulle",
+  dest_paris_etoile_desc:
+    "La mítica rotonda del Arco del Triunfo, en lo alto de los Campos Elíseos.",
   dest_paris_2e_name: "París — Distrito 2",
   dest_paris_2e_desc:
     "El barrio histórico de la Bolsa, del Sentier y de los pasajes cubiertos parisinos.",

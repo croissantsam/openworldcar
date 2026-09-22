@@ -20,21 +20,20 @@ export type WorldDestination = {
 
 export const WORLD_DESTINATIONS: WorldDestination[] = [
   {
-    id: 'paris_saussure',
-    name: 'Paris — 164 Rue de Saussure (17e)',
+    id: 'paris_etoile',
+    name: 'Paris — Place Charles de Gaulle',
     city: 'Paris',
     country: 'France',
     flag: '🇫🇷',
-    description: '164 Rue de Saussure dans le 17e arrondissement de Paris, quartier des Batignolles et Parc Martin Luther King.',
-    origin: { latitude: 48.890169, longitude: 2.305174 },
-    chunkDir: '/chunks/paris_saussure',
-    spawnPosition: { x: -15.4, y: 0.5, z: 8.6 },
-    spawnHeading: 1.106,
+    description: 'Le rond-point mythique de l’Arc de Triomphe, au sommet des Champs-Élysées.',
+    origin: { latitude: 48.8738, longitude: 2.295 },
+    chunkDir: '/chunks/paris_etoile',
+    spawnPosition: { x: 95, y: 0.5, z: 0 },
+    spawnHeading: Math.PI,
     landmarks: [
-      { name: '164 Rue de Saussure', icon: '🏠', category: 'address' },
-      { name: 'Parc Martin Luther King', icon: '🌳', category: 'park' },
-      { name: 'Boulevard Berthier', icon: '🛣️', category: 'street' },
-      { name: 'Pont Cardinet', icon: '🚆', category: 'station' },
+      { name: 'Arc de Triomphe', icon: '🏛️', category: 'monument' },
+      { name: 'Place Charles de Gaulle', icon: '⭐', category: 'square' },
+      { name: 'Avenue des Champs-Élysées', icon: '🛍️', category: 'avenue' },
     ],
   },
   {

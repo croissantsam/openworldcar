@@ -22,7 +22,13 @@ export const auth = betterAuth({
     autoSignIn: true,
   },
   plugins: [anonymous()],
-  trustedOrigins: ['http://localhost:5173'],
+  trustedOrigins: [
+    'http://localhost:5173',
+    ...(process.env['BETTER_AUTH_URL'] &&
+    process.env['BETTER_AUTH_URL'] !== 'http://localhost:5173'
+      ? [process.env['BETTER_AUTH_URL']]
+      : []),
+  ],
 })
 
 export type Session = typeof auth.$Infer.Session

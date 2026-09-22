@@ -15,6 +15,7 @@ import {
   AIRPLANE_FUSELAGE_Y,
 } from './AirplaneModel.js'
 import type { WorldPosition } from '@world-drive/math'
+import { geoToWorld, isWorldOriginSet } from '@world-drive/math'
 
 const MAX_HEALTH = 100
 /** Health below which a remote vehicle trails smoke. */
@@ -258,8 +259,32 @@ export class RemotePlayerManager {
   handleSnapshot(snapshots: PlayerSnapshot[], localPlayerId: string): void {
     const now = performance.now()
 
-    for (const snap of snapshots) {
+    for (let snap of snapshots) {
       if (snap.id === localPlayerId) continue // Don't render local car twice
+
+      // ── Geo rebase: the sender's GPS converted to OUR local frame. ──────
+      // Raw `position` values are only comparable on a shared world origin
+      // (same destination); without this, remotes render around our own
+      // spawn instead of where they really are. Same origin = exact
+      // round-trip. Absent = older client, raw position fallback.
+      const g = snap.geo
+      if (
+        g &&
+        Number.isFinite(g.latitude) &&
+        Number.isFinite(g.longitude) &&
+        isWorldOriginSet()
+      ) {
+        try {
+          const local = geoToWorld({
+            latitude: g.latitude,
+            longitude: g.longitude,
+            altitude: g.altitude ?? snap.position?.y ?? 0,
+          })
+          snap = { ...snap, position: local }
+        } catch {
+          // keep the raw position
+        }
+      }
 
       let player = this.players.get(snap.id)
       if (!player) {

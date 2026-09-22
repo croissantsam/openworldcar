@@ -1,10 +1,16 @@
-import type { WorldPosition } from '@world-drive/math'
+import type { GeoPosition, WorldPosition } from '@world-drive/math'
 
 // ─── Player ───────────────────────────────────────────────────────────────────
 
 export type PlayerSnapshot = {
   id: string
   position: WorldPosition
+  /**
+   * GPS of `position` (WGS84, forwarded from the sender). Receivers on a
+   * different local origin convert it to their own frame instead of using
+   * `position` raw. Absent = older server/client (raw position fallback).
+   */
+  geo?: GeoPosition
   /** Euler angles (radians): { x, y, z } or Quaternion { x, y, z, w } */
   rotation: { x: number; y: number; z: number; w?: number }
   velocity: { x: number; y: number; z: number }

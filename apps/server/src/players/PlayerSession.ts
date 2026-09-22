@@ -2,7 +2,7 @@
  * PlayerSession — state for one connected client.
  */
 
-import type { WorldPosition } from '@world-drive/math'
+import type { GeoPosition, WorldPosition } from '@world-drive/math'
 import type { PlayerInput } from '@world-drive/protocol'
 import type { WebSocket } from 'ws'
 
@@ -17,6 +17,8 @@ export const MIN_HIT_INTERVAL_MS = 60
 export type PlayerState = {
   id: string
   position: WorldPosition
+  /** GPS of `position` (client-reported, validated). Absent = older client. */
+  geo?: GeoPosition | undefined
   rotation: { x: number; y: number; z: number; w?: number }
   velocity: { x: number; y: number; z: number }
   steering?: number

@@ -7,6 +7,7 @@ import {
   serializeMessage,
   type ServerMessage,
 } from '@world-drive/protocol'
+import type { GeoPosition } from '@world-drive/math'
 import {
   MAX_DAMAGE_PER_HIT,
   MAX_HEALTH,
@@ -37,6 +38,7 @@ export class MessageHandler {
       case 'player_state':
         session.hasClientState = true
         session.state.position = msg.state.position
+        session.state.geo = sanitizeGeo(msg.state.geo)
         session.state.rotation = msg.state.rotation
         session.state.velocity = msg.state.velocity
         session.state.steering = msg.state.steering ?? 0
@@ -156,4 +158,24 @@ function sanitizeDisplayName(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined
   const clean = value.trim().slice(0, 24)
   return clean.length > 0 ? clean : undefined
+}
+
+/**
+ * Keep client-reported GPS safe to use for interest filtering and broadcast:
+ * finite WGS84 coordinates, otherwise absent (raw-position fallback, as with
+ * older clients that never send the field).
+ */
+function sanitizeGeo(value: unknown): GeoPosition | undefined {
+  if (value === null || typeof value !== 'object') return undefined
+  const { latitude, longitude, altitude } = value as Record<string, unknown>
+  if (typeof latitude !== 'number' || !Number.isFinite(latitude) || Math.abs(latitude) > 90) {
+    return undefined
+  }
+  if (typeof longitude !== 'number' || !Number.isFinite(longitude) || Math.abs(longitude) > 180) {
+    return undefined
+  }
+  if (typeof altitude === 'number' && Number.isFinite(altitude)) {
+    return { latitude, longitude, altitude }
+  }
+  return { latitude, longitude }
 }

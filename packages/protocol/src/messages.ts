@@ -1,5 +1,5 @@
 import type { PlayerSnapshot, NPCSnapshot, SerializedChunk } from '@world-drive/shared'
-import type { ChunkId, WorldPosition } from '@world-drive/math'
+import type { ChunkId, GeoPosition, WorldPosition } from '@world-drive/math'
 
 // ─── Client → Server ─────────────────────────────────────────────────────────
 
@@ -16,6 +16,13 @@ export type PlayerInput = {
 
 export type PlayerStateUpdate = {
   position: WorldPosition
+  /**
+   * GPS of `position` (WGS84). The shared reference frame: every client has
+   * its own local world origin, so raw `position` is only comparable between
+   * players on the same origin. Servers forward it; receivers convert it to
+   * their local frame. Absent = older client (raw position fallback).
+   */
+  geo?: GeoPosition
   rotation: { x: number; y: number; z: number; w?: number }
   velocity: { x: number; y: number; z: number }
   steering?: number

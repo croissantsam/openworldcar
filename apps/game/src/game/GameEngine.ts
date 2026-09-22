@@ -610,8 +610,10 @@ export class GameEngine {
       if (this._vehicleMode === 'plane' && this.plane) {
         const q = this.plane.getQuaternion()
         const v = this.plane.getVelocity()
+        const planePos = this.plane.getPosition()
         this.gameClient.sendState({
-          position: this.plane.getPosition(),
+          position: planePos,
+          geo: worldToGeo(planePos),
           rotation: { x: q.x, y: q.y, z: q.z, w: q.w },
           velocity: v,
           steering: 0,
@@ -625,6 +627,7 @@ export class GameEngine {
         const speed = this.playerCar.getSpeed()
         this.gameClient.sendState({
           position: carPos,
+          geo: worldToGeo(carPos),
           rotation: { x: quat.x, y: quat.y, z: quat.z, w: quat.w },
           velocity: vel,
           steering: driveInput.steering,

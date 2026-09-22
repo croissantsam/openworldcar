@@ -81,11 +81,11 @@ export class GameServer {
       }
     }
 
-    // Broadcast snapshots (interest-filtered)
+    // Broadcast snapshots (interest-filtered; GPS-aware across origins)
     const playerMap = new Map(
       Array.from(this.sessions.entries()).map(([id, s]) => [
         id,
-        { position: s.state.position },
+        { position: s.state.position, geo: s.state.geo },
       ]),
     )
 
@@ -93,7 +93,7 @@ export class GameServer {
 
     for (const [id, session] of this.sessions) {
       const nearbyIds = this.interest.getPlayersInRange(
-        session.state.position,
+        { position: session.state.position, geo: session.state.geo },
         playerMap,
         id,
       )
@@ -103,6 +103,8 @@ export class GameServer {
         return {
           id: pid,
           position: s.state.position,
+          // Receivers on another origin convert this to their local frame.
+          ...(s.state.geo ? { geo: s.state.geo } : {}),
           rotation: s.state.rotation,
           velocity: s.state.velocity,
           tick: this.tick,

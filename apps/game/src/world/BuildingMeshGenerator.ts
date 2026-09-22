@@ -381,6 +381,35 @@ export class BuildingMeshGenerator {
       }
     }
 
+    // ── Roof cap (flat slab at wall-top height) ──────────────────────────
+    // Closes the volume so aircraft collide with roofs — and can land on
+    // them (the flight ground-ray accepts TriMesh) — instead of falling
+    // through into the building. Courtyard holes stay open (earcut skips
+    // them), so airshafts remain flyable. Pitched visual roofs protrude
+    // above the flat cap: collision stays at eave level by design.
+    // Both windings are emitted (OSM ring winding is arbitrary) so the
+    // slab collides from above regardless of triangle facing.
+    try {
+      const contour = fp.map((p) => new THREE.Vector2(p.x, p.z))
+      const holeRings = (building.holes ?? []).filter((h) => h.length >= 3)
+      const holeContours = holeRings.map((h) => h.map((p) => new THREE.Vector2(p.x, p.z)))
+      const faces = THREE.ShapeUtils.triangulateShape(contour, holeContours)
+      if (faces.length > 0) {
+        const base = verts.length / 3
+        for (const p of fp) verts.push(p.x, building.height, p.z)
+        for (const h of holeRings) for (const p of h) verts.push(p.x, building.height, p.z)
+        for (const f of faces) {
+          const a = base + f[0]!
+          const b = base + f[1]!
+          const c = base + f[2]!
+          indices.push(a, b, c)
+          indices.push(a, c, b)
+        }
+      }
+    } catch {
+      // Degenerate footprint: keep walls-only rather than no collider at all.
+    }
+
     return RAPIER.ColliderDesc.trimesh(
       new Float32Array(verts),
       new Uint32Array(indices),

@@ -10,7 +10,6 @@ import { buildDashedLine, buildCrosswalk, buildStopLine, buildBicycleMarking, bu
 import { getStreetLampTemplate, getTrafficLightTemplate } from './templates.js'
 import { extendArmEnds, continuationEndNormals, clampArmEndPoke } from './junction-helpers.js'
 import { buildStrip } from './geometry.js'
-import { buildParkedCars } from '../ParkedCarGenerator.js'
 import type { Road } from '@world-drive/shared'
 
 export interface RoadPortion {
@@ -497,25 +496,8 @@ export function generateGroundPortion(
       if (baysL) group.add(baysL)
     }
 
-    const sideFree = (side: 'left' | 'right'): boolean =>
-      side === 'right' ? !cycleRight && !busLane : !cycleLeft
-    const carSides: number[] = []
-    if ((road.parkingLane === 'both' || road.parkingLane === 'right') && sideFree('right')) carSides.push(1)
-    if ((road.parkingLane === 'both' || road.parkingLane === 'left') && sideFree('left')) carSides.push(-1)
-    if (roadW < 5.4) carSides.length = 0
-    else if (carSides.length === 2 && roadW < 7.4) carSides.length = 1
-    if (carSides.length > 0) {
-      const cars = buildParkedCars({
-        roadId: road.id,
-        points: smoothPts,
-        halfW,
-        sides: carSides,
-        crossingArcs: crossingPlacements.map((c) => c.arc),
-        oneway: road.oneway ?? false,
-        isOnOtherRoad: (x, z) => junction.others.length > 0 && isPointInRoadAsphalt(x, z, getObstacles(), 2.6),
-      })
-      if (cars) group.add(cars)
-    }
+    // Parked cars disabled for now (visual-only, no gameplay use yet).
+    // See ParkedCarGenerator.buildParkedCars to re-enable per-road parking.
   }
 
   const poleBlocked = blockedAt(0.5)

@@ -211,7 +211,7 @@ export interface FlightEnvironment {
    * Returns the hit fraction in [0, 1], or -1 for no hit.
    */
   sweepSphere(ax: number, ay: number, az: number, bx: number, by: number, bz: number, radius: number, ignorePosts?: boolean): number
-  /** True when the point is enclosed by a building's walls (the colliders have no roof). */
+  /** True when the point is enclosed by a building's walls (below its roof cap). */
   isEnclosed(x: number, y: number, z: number): boolean
   /** Like sweepSphere but against large static triangle meshes only (building walls, decks): camera arm. */
   sweepWalls?(ax: number, ay: number, az: number, bx: number, by: number, bz: number, radius: number): number
@@ -792,7 +792,7 @@ export class FlightSim {
     if (gBelow !== null && Number.isFinite(gBelow)) this.groundY = gBelow
     this.altitudeAGL = Math.max(0, this.pos.y - this.groundY)
 
-    // Descended into a building (walls-only colliders)
+    // Descended into a building volume (below its roof cap, between walls)
     if (fuseY - this.groundY < 150 && this.env.isEnclosed(_tmp.x, fuseY, _tmp.z)) {
       this.crash(this.pos.x, fuseY, this.pos.z)
       return
@@ -1198,8 +1198,9 @@ export class RapierFlightEnvironment implements FlightEnvironment {
   }
 
   isEnclosed(x: number, y: number, z: number): boolean {
-    // Building colliders are wall rings without a roof: a point inside one sees
-    // the same collider in the four horizontal directions.
+    // Building colliders are wall rings closed by a flat roof cap: a point
+    // inside the volume (below the roof) sees the same collider in the four
+    // horizontal directions. Points on/above the roof see past it.
     const r = this.ray
     r.origin.x = x
     r.origin.y = y

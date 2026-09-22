@@ -1,10 +1,11 @@
 /**
  * Time trials between monuments (shared client logic).
  *
- * Generation is deterministic for a given destination + OSM data: trial ids
- * are derived from the destination and the two monument node ids (sorted),
- * so every player in the same area generates the same trials → shared
- * leaderboards without any server-side generation.
+ * Generation is deterministic for a given world dataset: trial ids
+ * (`tt_<poiA>_<poiB>`, OSM-stable poi ids, sorted) never include the
+ * destination — the same monument pair raced from two destinations (or
+ * two `osm_loc_*` searches) is the same race with one shared
+ * leaderboard, no server-side generation needed.
  */
 
 import { buildRoadGraph, findAStarPath } from '@world-drive/world-data'
@@ -20,8 +21,9 @@ export interface TrialPoint {
 }
 
 export interface TrialDef {
-  /** `tt_<destinationId>_<poiA>_<poiB>` (poi ids sorted). */
+  /** `tt_<poiA>_<poiB>` (poi ids sorted) — see `trialIdFor`. */
   id: string
+  /** Racing context (submit metadata only — never part of the id). */
   destinationId: string
   from: TrialPoint
   to: TrialPoint
@@ -107,6 +109,94 @@ function snapToRoad(
   return best
 }
 
+/**
+ * Canonical trial id — destination-independent on purpose. The same
+ * monument pair raced from two different destinations (or two address
+ * searches resolving to different `osm_loc_*` ids) is the same physical
+ * race and must share one leaderboard. POI ids are OSM-stable
+ * (`ov_node_*` / `ov_way_*` for radar, chunk POI ids otherwise).
+ */
+export function trialIdFor(poiA: string, poiB: string): string {
+  const [first, second] = poiA < poiB ? [poiA, poiB] : [poiB, poiA]
+  return `tt_${first}_${second}`
+}
+
+interface MonumentPt {
+  id: string
+  name: string
+  x: number
+  z: number
+}
+
+type TrialExtra = {
+  monuments?: Array<{ id: string; name: string; x: number; z: number }> | undefined
+  roads?: Road[] | undefined
+}
+
+/** Tourism monuments from loaded chunks + far-radar extras (deduped). */
+function collectMonuments(
+  pois: PointOfInterest[],
+  extra?: TrialExtra,
+): MonumentPt[] {
+  const monuments: MonumentPt[] = []
+  for (const poi of pois) {
+    if (poi.kind !== 'tourism') continue
+    const name = monumentName(poi)
+    if (!name) continue
+    const { x, z } = poi.position
+    if (!Number.isFinite(x) || !Number.isFinite(z)) continue
+    monuments.push({ id: poi.id, name, x, z })
+  }
+  if (extra?.monuments) {
+    for (const m of extra.monuments) {
+      if (!m || typeof m.id !== 'string' || typeof m.name !== 'string') continue
+      if (!Number.isFinite(m.x) || !Number.isFinite(m.z)) continue
+      const dupe = monuments.some((e) => e.id === m.id || Math.hypot(e.x - m.x, e.z - m.z) < 25)
+      if (!dupe) monuments.push({ id: m.id, name: m.name.slice(0, 48), x: m.x, z: m.z })
+    }
+  }
+  return monuments
+}
+
+type RoadGraph = ReturnType<typeof buildRoadGraph>
+
+/**
+ * Validate one monument pair: snap both ends onto a surface road, keep
+ * crow-flies pairs in band, prove drivability with A*. The A* road path
+ * only proves the pair is drivable — the stored distance is crow-flies
+ * (shortest path, shortcuts allowed).
+ */
+function tryBuildTrial(
+  a: MonumentPt,
+  b: MonumentPt,
+  allRoads: Road[],
+  graph: RoadGraph,
+  destinationId: string,
+): TrialDef | null {
+  // Snap both ends onto the nearest surface road: monuments often sit
+  // inside buildings, courtyards or pedestrian zones — beacons and the
+  // finish line must be where the car can actually drive.
+  const snapA = snapToRoad(a.x, a.z, allRoads)
+  const snapB = snapToRoad(b.x, b.z, allRoads)
+  if (!snapA || !snapB) return null
+  const crowM = Math.hypot(snapA.x - snapB.x, snapA.z - snapB.z)
+  if (crowM < TRIAL_MIN_DIST_M || crowM > TRIAL_MAX_DIST_M) return null
+  const path = findAStarPath(graph, { x: snapA.x, y: 0, z: snapA.z }, { x: snapB.x, y: 0, z: snapB.z })
+  if (!path || path.length < 2) return null
+  const [first, second] = a.id < b.id ? [a, b] : [b, a]
+  const [snapFirst, snapSecond] = a.id < b.id ? [snapA, snapB] : [snapB, snapA]
+  return {
+    id: trialIdFor(first!.id, second!.id),
+    destinationId,
+    from: { id: first!.id, name: first!.name, x: snapFirst!.x, z: snapFirst!.z },
+    to: { id: second!.id, name: second!.name, x: snapSecond!.x, z: snapSecond!.z },
+    distanceM: crowM,
+  }
+}
+
+function sortTrials(trials: TrialDef[]): void {
+  trials.sort((a, b) => (a.distanceM !== b.distanceM ? a.distanceM - b.distanceM : a.id < b.id ? -1 : 1))
+}
 /** Merge corridor roads, deduped by OSM way id (corridors overlap). */
 function dedupeRoads(base: Road[], extra: Road[]): Road[] {
   const seen = new Set(base.map((r) => r.id))
@@ -133,31 +223,12 @@ export function generateTrials(
   destinationId: string,
   playerPos: WorldPosition,
   count = 3,
-  extra?: {
-    monuments?: Array<{ id: string; name: string; x: number; z: number }> | undefined
-    roads?: Road[] | undefined
-  },
+  extra?: TrialExtra,
 ): TrialDef[] {
   const allRoads = extra?.roads && extra.roads.length > 0 ? dedupeRoads(roads, extra.roads) : roads
   if (allRoads.length === 0) return []
 
-  const monuments: Array<{ id: string; name: string; x: number; z: number }> = []
-  for (const poi of pois) {
-    if (poi.kind !== 'tourism') continue
-    const name = monumentName(poi)
-    if (!name) continue
-    const { x, z } = poi.position
-    if (!Number.isFinite(x) || !Number.isFinite(z)) continue
-    monuments.push({ id: poi.id, name, x, z })
-  }
-  if (extra?.monuments) {
-    for (const m of extra.monuments) {
-      if (!m || typeof m.id !== 'string' || typeof m.name !== 'string') continue
-      if (!Number.isFinite(m.x) || !Number.isFinite(m.z)) continue
-      const dupe = monuments.some((e) => e.id === m.id || Math.hypot(e.x - m.x, e.z - m.z) < 25)
-      if (!dupe) monuments.push({ id: m.id, name: m.name.slice(0, 48), x: m.x, z: m.z })
-    }
-  }
+  const monuments = collectMonuments(pois, extra)
   if (monuments.length < 2) return []
 
   // Nearest monuments first (stable order: distance, then id).
@@ -183,36 +254,62 @@ export function generateTrials(
       const key = a.id < b.id ? `${a.id}|${b.id}` : `${b.id}|${a.id}`
       if (seen.has(key)) continue
       seen.add(key)
-      // Snap both ends onto the nearest surface road: monuments often sit
-      // inside buildings, courtyards or pedestrian zones — beacons and the
-      // finish line must be where the car can actually drive.
-      const snapA = snapToRoad(a.x, a.z, allRoads)
-      const snapB = snapToRoad(b.x, b.z, allRoads)
-      if (!snapA || !snapB) continue
-      // Displayed distance is crow-flies (shortest path, shortcuts allowed):
-      // the A* road path only proves the pair is drivable.
-      const crowM = Math.hypot(snapA.x - snapB.x, snapA.z - snapB.z)
-      if (crowM < TRIAL_MIN_DIST_M || crowM > TRIAL_MAX_DIST_M) continue
-      const path = findAStarPath(graph, { x: snapA.x, y: 0, z: snapA.z }, { x: snapB.x, y: 0, z: snapB.z })
-      if (!path || path.length < 2) continue
-      const distanceM = crowM
-      const [first, second] = a.id < b.id ? [a, b] : [b, a]
-      const [snapFirst, snapSecond] = a.id < b.id ? [snapA, snapB] : [snapB, snapA]
-      trials.push({
-        id: `tt_${destinationId}_${first!.id}_${second!.id}`,
-        destinationId,
-        from: { id: first!.id, name: first!.name, x: snapFirst!.x, z: snapFirst!.z },
-        to: { id: second!.id, name: second!.name, x: snapSecond!.x, z: snapSecond!.z },
-        distanceM,
-      })
+      const t = tryBuildTrial(a, b, allRoads, graph, destinationId)
+      if (t) trials.push(t)
     }
   }
-  trials.sort((a, b) => (a.distanceM !== b.distanceM ? a.distanceM - b.distanceM : a.id < b.id ? -1 : 1))
+  sortTrials(trials)
+  return trials
+}
+
+/**
+ * Every race from one start beacon, shortest first. Deterministic for a
+ * given beacon + loaded world data: candidates are ordered by crow-flies
+ * distance from the beacon (then id) — never by player position — so two
+ * players at the same beacon list the same races and query the same
+ * leaderboard ids. Used by the start panel and the ENTRÉE selection.
+ */
+export function getBeaconTrials(
+  beaconId: string,
+  pois: PointOfInterest[],
+  roads: Road[],
+  destinationId: string,
+  count = 6,
+  extra?: TrialExtra,
+  maxAttempts = 32,
+): TrialDef[] {
+  const allRoads = extra?.roads && extra.roads.length > 0 ? dedupeRoads(roads, extra.roads) : roads
+  if (allRoads.length === 0) return []
+
+  const monuments = collectMonuments(pois, extra)
+  const beacon = monuments.find((m) => m.id === beaconId)
+  if (!beacon) return []
+
+  const others = monuments
+    .filter((m) => m.id !== beaconId)
+    .sort((p, q) => {
+      const dp = (p.x - beacon.x) ** 2 + (p.z - beacon.z) ** 2
+      const dq = (q.x - beacon.x) ** 2 + (q.z - beacon.z) ** 2
+      if (dp !== dq) return dp - dq
+      return p.id < q.id ? -1 : p.id > q.id ? 1 : 0
+    })
+
+  const graph = buildRoadGraph(allRoads)
+  if (graph.nodes.size === 0) return []
+
+  const trials: TrialDef[] = []
+  let attempts = 0
+  for (const other of others) {
+    if (trials.length >= count || attempts >= maxAttempts) break
+    attempts++
+    const t = tryBuildTrial(beacon, other, allRoads, graph, destinationId)
+    if (t) trials.push(t)
+  }
+  sortTrials(trials)
   return trials
 }
 
 export type TrialPhase = 'idle' | 'countdown' | 'running' | 'finished'
-
 /** Snapshot of the trial state machine for HUD/minimap. */
 export interface TrialStatus {
   phase: TrialPhase
@@ -230,4 +327,52 @@ export interface TrialStatus {
   remainingM: number
   /** Last finished run (banner until dismissed). */
   lastResult: { trial: TrialDef; timeMs: number } | null
+}
+
+// ── Leaderboard liveness ─────────────────────────────────────────────────
+// Leaderboards used to fetch once on mount: a run submitted by another
+// player (or by yourself, then walking back to the beacon) never showed
+// up until you left and re-entered the zone. Panels subscribe below and
+// HUD notifies after every successful submit.
+
+/** localStorage key pinging other tabs + window event name. */
+export const TRIAL_TIMES_CHANGED_KEY = 'wd:trial-times-changed'
+export const TRIAL_TIMES_CHANGED_EVENT = 'trial-times-changed'
+
+/** Background refresh interval for open leaderboards, ms. */
+export const TRIAL_LEADERBOARD_POLL_MS = 10_000
+
+/** Notify open leaderboards (this tab via event, other tabs via storage). */
+export function notifyTrialTimesChanged(): void {
+  try {
+    window.dispatchEvent(new CustomEvent(TRIAL_TIMES_CHANGED_EVENT))
+  } catch {
+    // non-DOM context — ignore
+  }
+  try {
+    localStorage.setItem(TRIAL_TIMES_CHANGED_KEY, String(Date.now()))
+  } catch {
+    // private mode / SSR — ignore
+  }
+}
+
+/**
+ * Re-run `onChange` when trial times may have changed: submit event from
+ * this tab, storage ping from another tab, window focus, plus polling.
+ * Returns an unsubscribe function.
+ */
+export function subscribeTrialTimesChanged(onChange: () => void): () => void {
+  const onStorage = (e: StorageEvent) => {
+    if (e.key === TRIAL_TIMES_CHANGED_KEY) onChange()
+  }
+  window.addEventListener('focus', onChange)
+  window.addEventListener(TRIAL_TIMES_CHANGED_EVENT, onChange)
+  window.addEventListener('storage', onStorage)
+  const id = window.setInterval(onChange, TRIAL_LEADERBOARD_POLL_MS)
+  return () => {
+    window.removeEventListener('focus', onChange)
+    window.removeEventListener(TRIAL_TIMES_CHANGED_EVENT, onChange)
+    window.removeEventListener('storage', onStorage)
+    window.clearInterval(id)
+  }
 }

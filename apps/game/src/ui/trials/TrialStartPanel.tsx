@@ -3,6 +3,7 @@ import type { GameEngine } from '../../game/GameEngine.js'
 import {
   formatTrialDist,
   formatTrialTime,
+  subscribeTrialTimesChanged,
   TRIAL_START_RADIUS_M,
   type TrialDef,
 } from '../../lib/trials.js'
@@ -31,38 +32,55 @@ function rankIcon(rank: number): string {
 export function TrialStartPanel({ engine, proposal, distToStartM, touchMode }: TrialStartPanelProps) {
   const [trials, setTrials] = useState<TrialDef[]>([])
   const [tops, setTops] = useState<Record<string, TrialLeaderboardRow[]>>({})
+  // Ids whose leaderboard fetch failed (vs. genuinely empty): shown as
+  // "indisponible" instead of "Aucun temps", retried on the next tick.
+  const [topsErr, setTopsErr] = useState<Record<string, boolean>>({})
   const [selectedId, setSelectedId] = useState<string | null>(proposal.id)
+  // Bumped by the liveness subscription (submit / other tab / focus / poll)
+  // to refetch race list + leaderboards without wiping the display.
+  const [refreshTick, setRefreshTick] = useState(0)
   const fromId = proposal.from.id
 
+  // Race list for this beacon — deterministic per beacon (see
+  // getBeaconTrials): every player at the same beacon lists the same
+  // races. Regenerated on beacon change and on source-data ticks (chunks
+  // / radar settling) via the engine cache.
   useEffect(() => {
-    let cancelled = false
     let list: TrialDef[] = []
     try {
-      list = engine
-        .getNearbyTrials(12)
-        .filter((t) => t.from.id === fromId)
-        .slice(0, 6)
+      list = engine.getBeaconTrials(fromId, 6)
     } catch {
       list = []
     }
     setTrials(list)
     if (list.length === 0) {
       setTops({})
+      setTopsErr({})
       setSelectedId(null)
       engine.setTrialSelection(null)
-      return () => {
-        cancelled = true
-      }
+      return
     }
     // Default selection: the proposal (shortest), so ENTRÉE behaves as before.
-    const first = list[0]!.id
-    setSelectedId(first)
+    const first = list[0]!
+    setSelectedId(first.id)
     engine.setTrialSelection(first)
     // Reset tops for the new beacon so stale times aren't shown, then fetch.
     // No fetchedRef cache: it poisoned retries when a previous fetch was
     // cancelled (StrictMode remount / quick beacon switch) → infinite
     // "Chargement des temps…". The effect deps ([engine, fromId]) already dedupe.
     setTops({})
+    setTopsErr({})
+  }, [engine, fromId, refreshTick])
+
+  useEffect(() => subscribeTrialTimesChanged(() => setRefreshTick((t) => t + 1)), [])
+
+  // Top-3 per race. Background refreshes (other players' runs, own submit)
+  // merge over the current display — no wipe, no "Chargement…" flicker.
+  // Failures are flagged per id (retried next tick), never shown as empty.
+  useEffect(() => {
+    if (trials.length === 0) return
+    let cancelled = false
+    const list = trials
     const ids = list.map((t) => t.id)
     function withTimeout<T>(p: Promise<T>, ms = 10000): Promise<T | null> {
       let timer: ReturnType<typeof setTimeout> | undefined
@@ -79,38 +97,58 @@ export function TrialStartPanel({ engine, proposal, distToStartM, touchMode }: T
       Promise.all(
         list.map((t) =>
           withTimeout(getTrialLeaderboard({ data: t.id }))
-            .then((rows) => ({ id: t.id, rows: (rows ?? []).slice(0, 3) }))
-            .catch(() => ({ id: t.id, rows: [] as TrialLeaderboardRow[] })),
+            .then((rows) =>
+              rows === null
+                ? { id: t.id, ok: false as const, rows: [] as TrialLeaderboardRow[] }
+                : { id: t.id, ok: true as const, rows: rows.slice(0, 3) },
+            )
+            .catch(() => ({ id: t.id, ok: false as const, rows: [] as TrialLeaderboardRow[] })),
         ),
-      )
-        .then((all) => {
-          if (cancelled) return
-          const map: Record<string, TrialLeaderboardRow[]> = {}
-          for (const r of all) map[r.id] = r.rows
-          // Safety net: every requested id gets an entry (empty = "Aucun temps"),
-          // so the UI can never stay stuck on "Chargement des temps…".
-          for (const id of ids) map[id] ??= []
-          setTops(map)
+      ).then((all) => {
+        if (cancelled) return
+        const map: Record<string, TrialLeaderboardRow[]> = {}
+        const errs: Record<string, boolean> = {}
+        for (const r of all) {
+          if (r.ok) map[r.id] = r.rows
+          else errs[r.id] = true
+        }
+        // Safety net: every ok id gets an entry (empty = "Aucun temps"), so
+        // the UI can never stay stuck on "Chargement des temps…".
+        for (const id of ids) {
+          if (!(id in map) && !errs[id]) map[id] = []
+        }
+        setTops((prev) => {
+          const next = { ...prev }
+          for (const id of ids) {
+            if (id in map) next[id] = map[id]!
+            // Failed ids keep their previous rows (stale beats empty).
+          }
+          return next
         })
-        .catch(() => {
-          if (cancelled) return
-          const map: Record<string, TrialLeaderboardRow[]> = {}
-          for (const id of ids) map[id] = []
-          setTops(map)
+        setTopsErr((prev) => {
+          const next = { ...prev }
+          for (const id of ids) {
+            if (errs[id]) next[id] = true
+            else if (id in map) delete next[id]
+          }
+          return next
         })
+      })
     } catch {
-      const map: Record<string, TrialLeaderboardRow[]> = {}
-      for (const id of ids) map[id] = []
-      setTops(map)
+      if (cancelled) return
+      // Synchronously-broken RPC: flag everything, retried next tick.
+      const errs: Record<string, boolean> = {}
+      for (const id of ids) errs[id] = true
+      setTopsErr((prev) => ({ ...prev, ...errs }))
     }
     return () => {
       cancelled = true
     }
-  }, [engine, fromId])
+  }, [trials, refreshTick]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const select = (id: string) => {
-    setSelectedId(id)
-    engine.setTrialSelection(id)
+  const select = (trial: TrialDef) => {
+    setSelectedId(trial.id)
+    engine.setTrialSelection(trial)
   }
 
   // Keys 1-6 pick a race (free: digits aren't driving controls). Ignored
@@ -122,7 +160,7 @@ export function TrialStartPanel({ engine, proposal, distToStartM, touchMode }: T
       if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) return
       const n = e.key >= '1' && e.key <= '9' ? Number(e.key) : NaN
       if (Number.isInteger(n) && n >= 1 && n <= trials.length) {
-        select(trials[n - 1]!.id)
+        select(trials[n - 1]!)
       }
     }
     window.addEventListener('keydown', onKey)
@@ -187,11 +225,12 @@ export function TrialStartPanel({ engine, proposal, distToStartM, touchMode }: T
 
       {trials.map((t, i) => {
         const top = tops[t.id]
+        const failed = topsErr[t.id] === true && top === undefined
         const isSel = selectedId === t.id
         return (
           <div
             key={t.id}
-            onClick={() => select(t.id)}
+            onClick={() => select(t)}
             title="Choisir cette course"
             style={{
               background: isSel ? 'rgba(52, 211, 153, 0.1)' : 'rgba(255, 255, 255, 0.03)',
@@ -210,12 +249,14 @@ export function TrialStartPanel({ engine, proposal, distToStartM, touchMode }: T
               {isSel ? '▶ ' : ''}
               {trials.length > 1 ? `${i + 1}. ` : ''}→ {t.to.name} · {formatTrialDist(t.distanceM)}
             </span>
-            {!top ? (
+            {!top && !failed ? (
               <span style={{ fontSize: 10, color: '#64748b' }}>Chargement des temps…</span>
-            ) : top.length === 0 ? (
+            ) : failed ? (
+              <span style={{ fontSize: 10, color: '#fbbf24' }}>Classement indisponible — nouvel essai…</span>
+            ) : top!.length === 0 ? (
               <span style={{ fontSize: 10, color: '#64748b' }}>Aucun temps — à vous !</span>
             ) : (
-              top.map((r) => (
+              top!.map((r) => (
                 <span
                   key={r.rank}
                   style={{

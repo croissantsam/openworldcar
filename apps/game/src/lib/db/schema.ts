@@ -104,8 +104,9 @@ export type PlayerStats = typeof playerStats.$inferSelect
 
 /**
  * Individual time-trial runs. Trials are generated client-side with
- * deterministic ids (`tt_<dest>_<poiA>_<poiB>`), so leaderboards merge
- * across players without server-side generation. Every run is kept;
+ * deterministic, destination-independent ids (`tt_<poiA>_<poiB>`, OSM poi
+ * ids sorted), so leaderboards merge across players, destinations and
+ * searches without server-side generation. Every run is kept;
  * leaderboards use each player's best.
  */
 export const trialTimes = sqliteTable(

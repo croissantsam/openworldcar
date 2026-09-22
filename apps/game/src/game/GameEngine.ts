@@ -38,6 +38,7 @@ import {
 import type { WorldPosition, GeoPosition } from '@world-drive/math'
 import {
   generateTrials,
+  getBeaconTrials,
   TRIAL_COUNTDOWN_S,
   TRIAL_FINISH_RADIUS_M,
   TRIAL_START_RADIUS_M,
@@ -58,7 +59,7 @@ import { OsmWorkerClient } from '../world/OsmWorkerClient.js'
 import type { ChunkMap } from '@world-drive/world-data'
 import { tickWater } from '../world/waterway/index.js'
 import { ImpactFX } from '../effects/ImpactFX.js'
-import type { Road } from '@world-drive/shared'
+import type { PointOfInterest, Road } from '@world-drive/shared'
 import * as THREE from 'three'
 
 /** Fixed physics timestep (60 Hz). */
@@ -197,9 +198,20 @@ export class GameEngine {
   private trialT = 0
   private trialFinalMs = 0
   private trialResult: { trial: TrialDef; timeMs: number } | null = null
-  /** Trial id picked in the start panel (same beacon); ENTRÉE starts it instead of the proposal. */
-  private trialSelectedId: string | null = null
+  /** Trial picked in the start panel (same beacon); ENTRÉE starts it instead of the proposal. */
+  private trialSelected: TrialDef | null = null
   private trialCache: { list: TrialDef[]; count: number; atX: number; atZ: number; atTime: number } | null = null
+  /** Cached per-beacon race list (start panel); invalidated via trialDataVersion. */
+  private beaconTrialCache: {
+    beaconId: string
+    destId: string
+    count: number
+    list: TrialDef[]
+    atTime: number
+    dataVersion: number
+  } | null = null
+  /** Bumped whenever trial source data changes (radar arrival, travel). */
+  private trialDataVersion = 0
   /** Player GPS stashed while a trial shows direct guidance (restored after). */
   private trialSavedGps: WorldPosition | null = null
   /**
@@ -1229,6 +1241,37 @@ export class GameEngine {
   // Time trials (monument → monument, started on foot with Enter)
   // ───────────────────────────────────────────────────────────────────────────
 
+  /**
+   * Shared trial source data: loaded POIs/roads plus far-radar monuments
+   * and corridors for the current destination (best-effort).
+   */
+  private trialSourceData(): {
+    pois: PointOfInterest[]
+    roads: Road[]
+    extra: { monuments?: { id: string; name: string; x: number; z: number }[]; roads?: Road[] } | undefined
+  } {
+    const pois = this.chunkManager.getActivePOIs()
+    const roads = this.chunkManager.getActiveRoads()
+    const radar = this.trialRadar && this.trialRadar.destId === this.currentDestination.id
+      ? this.trialRadar
+      : null
+    const extraMonuments = radar
+      ? radar.monuments.map((m) => {
+          const w = geoToWorld({ latitude: m.lat, longitude: m.lon })
+          return { id: m.id, name: m.name, x: w.x, z: w.z }
+        })
+      : undefined
+    const extraRoads = radar ? [...radar.corridors.values()].flat() : undefined
+    const extra =
+      extraMonuments || extraRoads
+        ? {
+            ...(extraMonuments ? { monuments: extraMonuments } : {}),
+            ...(extraRoads ? { roads: extraRoads } : {}),
+          }
+        : undefined
+    return { pois, roads, extra }
+  }
+
   /** Nearby generated trials (cached, recomputed at most every 5s / 150m). */
   getNearbyTrials(count = 3): TrialDef[] {
     const pos = this.getPlayerPosition()
@@ -1241,23 +1284,14 @@ export class GameEngine {
     let list: TrialDef[] = []
     try {
       if (this.chunkManager) {
-        const radar = this.trialRadar && this.trialRadar.destId === this.currentDestination.id
-          ? this.trialRadar
-          : null
-        const extraMonuments = radar
-          ? radar.monuments.map((m) => {
-              const w = geoToWorld({ latitude: m.lat, longitude: m.lon })
-              return { id: m.id, name: m.name, x: w.x, z: w.z }
-            })
-          : undefined
-        const extraRoads = radar ? [...radar.corridors.values()].flat() : undefined
+        const src = this.trialSourceData()
         list = generateTrials(
-          this.chunkManager.getActivePOIs(),
-          this.chunkManager.getActiveRoads(),
+          src.pois,
+          src.roads,
           this.currentDestination.id,
           pos,
           count,
-          extraMonuments || extraRoads ? { monuments: extraMonuments, roads: extraRoads } : undefined,
+          src.extra,
         )
       }
     } catch {
@@ -1265,6 +1299,50 @@ export class GameEngine {
     }
     this.trialCache = { list, count, atX: pos.x, atZ: pos.z, atTime: now }
     return list
+  }
+
+  /**
+   * Every race from one start beacon (start panel list). Cached 30s and
+   * invalidated with the trial source data, so all players at the same
+   * beacon converge on the same races once chunks/radar settle.
+   */
+  getBeaconTrials(beaconId: string, count = 6): TrialDef[] {
+    const now = performance.now()
+    const c = this.beaconTrialCache
+    if (
+      c &&
+      c.beaconId === beaconId &&
+      c.destId === this.currentDestination.id &&
+      c.dataVersion === this.trialDataVersion &&
+      now - c.atTime < 30_000
+    ) {
+      return c.list.slice(0, count)
+    }
+    let list: TrialDef[] = []
+    try {
+      if (this.chunkManager) {
+        const src = this.trialSourceData()
+        list = getBeaconTrials(
+          beaconId,
+          src.pois,
+          src.roads,
+          this.currentDestination.id,
+          Math.max(count, 6),
+          src.extra,
+        )
+      }
+    } catch {
+      list = []
+    }
+    this.beaconTrialCache = {
+      beaconId,
+      destId: this.currentDestination.id,
+      count,
+      list,
+      atTime: now,
+      dataVersion: this.trialDataVersion,
+    }
+    return list.slice(0, count)
   }
 
   /**
@@ -1338,6 +1416,7 @@ export class GameEngine {
       radar.loading = false
       // Surface the new data on the next read.
       this.trialCache = null
+      this.trialDataVersion++
     }
   }
 
@@ -1454,16 +1533,16 @@ export class GameEngine {
     const st = this.getTrialStatus()
     if (st.proposal && st.distToStartM <= TRIAL_START_RADIUS_M) {
       // A race picked in the start panel (click / keys 1-6) wins over the
-      // default proposal. Unknown/stale ids fall back to the proposal.
-      const sel = this.trialSelectedId
+      // default proposal. startTrial() itself enforces proximity, so a
+      // stale pick simply falls back to the proposal.
+      const sel = this.trialSelected
       if (sel) {
-        const match = this.getNearbyTrials(12).find((t) => t.id === sel)
-        if (match && this.startTrial(match)) {
-          this.trialSelectedId = null
+        if (this.startTrial(sel)) {
+          this.trialSelected = null
           return
         }
       }
-      this.trialSelectedId = null
+      this.trialSelected = null
       this.startTrial(st.proposal)
     } else if (this._vehicleMode === 'plane') {
       this.exitPlane()
@@ -1471,8 +1550,8 @@ export class GameEngine {
   }
 
   /** Race picked in the start panel (same beacon). ENTRÉE starts it. */
-  setTrialSelection(trialId: string | null): void {
-    this.trialSelectedId = trialId
+  setTrialSelection(trial: TrialDef | null): void {
+    this.trialSelected = trial
   }
 
   private _updateTrial(delta: number, pos: WorldPosition): void {
@@ -1651,6 +1730,9 @@ export class GameEngine {
     this.abortTrial()
     // The world origin moves: radar caches are tied to the destination.
     this.trialRadar = null
+    this.trialCache = null
+    this.beaconTrialCache = null
+    this.trialDataVersion++
     // Travel always lands in the car
     const wasFlying = this._vehicleMode === 'plane'
     this._leavePlane()

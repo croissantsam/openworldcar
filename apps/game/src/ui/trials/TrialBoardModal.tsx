@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { GameEngine } from '../../game/GameEngine.js'
 import {
   formatTrialDist,
   formatTrialTime,
+  subscribeTrialTimesChanged,
   type TrialDef,
 } from '../../lib/trials.js'
 import {
@@ -25,6 +26,13 @@ export function TrialBoardModal({ engine, onClose }: { engine: GameEngine; onClo
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [rows, setRows] = useState<TrialLeaderboardRow[] | null>(null)
   const [boardError, setBoardError] = useState(false)
+  // Bumped by the liveness subscription (submit / other tab / focus / poll).
+  const [refreshTick, setRefreshTick] = useState(0)
+  // Selection the rows were last (re)set for — distinguishes a new
+  // selection (loading state) from a background refresh (keep stale rows).
+  const fetchedSelRef = useRef<string | null>(null)
+
+  useEffect(() => subscribeTrialTimesChanged(() => setRefreshTick((t) => t + 1)), [])
 
   // Nearby trials now, then far-monument radar (Overpass, cached), then again.
   useEffect(() => {
@@ -64,24 +72,34 @@ export function TrialBoardModal({ engine, onClose }: { engine: GameEngine; onClo
     return () => {
       cancelled = true
     }
-  }, [trials])
+  }, [trials, refreshTick])
 
   useEffect(() => {
     if (!selected) return
     let cancelled = false
-    setRows(null)
-    setBoardError(false)
+    const isBackground = fetchedSelRef.current === selected.id && rows !== null
+    if (!isBackground) {
+      // New selection: full reset to loading state.
+      fetchedSelRef.current = selected.id
+      setRows(null)
+      setBoardError(false)
+    }
     getTrialLeaderboard({ data: selected.id })
       .then((r) => {
-        if (!cancelled) setRows(r)
+        if (!cancelled) {
+          setRows(r)
+          setBoardError(false)
+        }
       })
       .catch(() => {
-        if (!cancelled) setBoardError(true)
+        // Background refresh failure: keep stale rows. Only flag an error
+        // when there is nothing to show yet.
+        if (!cancelled && !isBackground) setBoardError(true)
       })
     return () => {
       cancelled = true
     }
-  }, [selected?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selected?.id, refreshTick]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div
@@ -201,14 +219,43 @@ export function TrialBoardModal({ engine, onClose }: { engine: GameEngine; onClo
 
             <div
               style={{
-                fontFamily: "'Orbitron', sans-serif",
-                fontSize: 9,
-                fontWeight: 800,
-                color: '#00d4ff',
-                letterSpacing: 1.5,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 8,
               }}
             >
-              CLASSEMENT{selected ? ` — ${selected.from.name.toUpperCase()} → ${selected.to.name.toUpperCase()}` : ''}
+              <div
+                style={{
+                  fontFamily: "'Orbitron', sans-serif",
+                  fontSize: 9,
+                  fontWeight: 800,
+                  color: '#00d4ff',
+                  letterSpacing: 1.5,
+                }}
+              >
+                CLASSEMENT{selected ? ` — ${selected.from.name.toUpperCase()} → ${selected.to.name.toUpperCase()}` : ''}
+              </div>
+              <button
+                onClick={() => setRefreshTick((t) => t + 1)}
+                title="Rafraîchir le classement"
+                style={{
+                  background: 'rgba(0, 212, 255, 0.1)',
+                  border: '1px solid rgba(0, 212, 255, 0.4)',
+                  borderRadius: 8,
+                  color: '#00d4ff',
+                  width: 24,
+                  height: 24,
+                  cursor: 'pointer',
+                  fontSize: 12,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                ↻
+              </button>
             </div>
             {boardError ? (
               <div style={{ color: '#fca5a5', fontSize: 12, textAlign: 'center' }}>Classement indisponible hors-ligne.</div>

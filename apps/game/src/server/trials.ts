@@ -79,7 +79,7 @@ export interface TrialLeaderboardRow {
 }
 
 /** Public leaderboard for one trial: best run per player. */
-export const getTrialLeaderboard = createServerFn({ method: 'GET' })
+export const getTrialLeaderboard = createServerFn({ method: 'POST' })
   .validator((trialId: string) => trialId)
   .handler(async ({ data }): Promise<TrialLeaderboardRow[]> => {
     const trialId = data.slice(0, 200)

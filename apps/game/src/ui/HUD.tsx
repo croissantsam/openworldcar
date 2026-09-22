@@ -19,6 +19,7 @@ import { authClient } from '../lib/auth-client.js'
 import { recordCityVisit } from '../services/profileSync.js'
 import { submitTrialTime } from '../server/trials.js'
 import {
+  notifyTrialTimesChanged,
   TRIAL_START_RADIUS_M,
   type TrialStatus,
 } from '../lib/trials.js'
@@ -210,7 +211,10 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
           timeMs,
         },
       })
-        .then((res) => setTrialSubmit({ timeMs, bestMs: res.bestMs, isRecord: res.isRecord }))
+        .then((res) => {
+          setTrialSubmit({ timeMs, bestMs: res.bestMs, isRecord: res.isRecord })
+          notifyTrialTimesChanged()
+        })
         .catch(() => setTrialSubmit({ timeMs, bestMs: timeMs, isRecord: false }))
     }
 

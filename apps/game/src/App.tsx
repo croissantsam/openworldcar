@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useLocale } from './i18n/index.js'
 import { GameEngine } from './game/GameEngine.js'
 import { HUD } from './ui/HUD.js'
 import { DebugOverlay } from './renderer/DebugOverlay.js'
@@ -109,6 +110,7 @@ export default function App() {
 }
 
 function LoadingScreen() {
+  const { t } = useLocale()
   return (
     <div
       style={{
@@ -137,7 +139,7 @@ function LoadingScreen() {
         WORLD DRIVE
       </h1>
       <div style={{ color: '#888', fontSize: 14, letterSpacing: 2 }}>
-        INITIALISING PHYSICS ENGINE…
+        {t('core_loading_game')}
       </div>
       <div
         style={{

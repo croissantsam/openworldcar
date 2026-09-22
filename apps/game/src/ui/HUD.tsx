@@ -220,6 +220,12 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
         fromName: trial.from.name,
         toName: trial.to.name,
         distanceM: trial.distanceM,
+        fromX: trial.from.x,
+        fromZ: trial.from.z,
+        toX: trial.to.x,
+        toZ: trial.to.z,
+        originLat: engine.currentDestination.origin.latitude,
+        originLng: engine.currentDestination.origin.longitude,
       }
       recordLocalTrialBest(trial.id, timeMs)
       if (isOnlineMode() && navigator.onLine) {
@@ -1458,54 +1464,6 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
         </span>
       </button>
 
-      {/* Car / plane toggle, next to the menu button */}
-      <button
-        onClick={(e) => {
-          e.currentTarget.blur()
-          toggleVehicle()
-        }}
-        onMouseDown={(e) => e.preventDefault()}
-        tabIndex={-1}
-        style={{
-          position: 'absolute',
-          top: isMobileLandscape ? 'max(8px, env(safe-area-inset-top, 8px))' : 16,
-          right: isMobileLandscape ? 'calc(max(14px, env(safe-area-inset-right, 14px)) + 42px)' : 68,
-          height: isMobileLandscape ? 34 : 40,
-          padding: isMobileLandscape ? '0 10px' : '0 14px',
-          borderRadius: 10,
-          background: isPlane ? 'rgba(10, 16, 28, 0.75)' : 'rgba(0, 60, 90, 0.78)',
-          backdropFilter: 'blur(10px)',
-          WebkitBackdropFilter: 'blur(10px)',
-          border: isPlane ? '1px solid rgba(251, 191, 36, 0.55)' : '1px solid rgba(0, 212, 255, 0.6)',
-          color: isPlane ? '#fbbf24' : '#7dd3fc',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: 6,
-          cursor: 'pointer',
-          zIndex: 60,
-          boxShadow: isPlane
-            ? '0 4px 16px rgba(0, 0, 0, 0.4), 0 0 12px rgba(251, 191, 36, 0.2)'
-            : '0 4px 16px rgba(0, 0, 0, 0.4), 0 0 12px rgba(0, 212, 255, 0.25)',
-          touchAction: 'manipulation',
-          userSelect: 'none',
-          WebkitUserSelect: 'none',
-        }}
-        title={isPlane ? 'Reprendre la voiture (P)' : 'Prendre l’avion (P) — Maj+P : directement en vol'}
-      >
-        <span style={{ fontSize: isMobileLandscape ? 15 : 17, lineHeight: 1 }}>{isPlane ? '🚗' : '✈️'}</span>
-        <span
-          style={{
-            fontFamily: "'Orbitron', sans-serif",
-            fontSize: isMobileLandscape ? 9 : 11,
-            fontWeight: 800,
-            letterSpacing: 1.2,
-          }}
-        >
-          {isPlane ? 'VOITURE' : 'AVION'}
-        </span>
-      </button>
-
       {/* Sleek Top-Right Menu Button */}
       <button
         onClick={() => setMenuOpen(true)}
@@ -1734,6 +1692,35 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
                 <span style={{ fontSize: 20 }}>🔄</span>
                 <span style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 10, fontWeight: 800, color: '#fbbf24' }}>Débloquer</span>
                 <span style={{ fontSize: 8, color: '#94a3b8' }}>Recentrer voiture</span>
+              </button>
+
+              {/* 4. Voiture / Avion */}
+              <button
+                onClick={() => {
+                  toggleVehicle()
+                  setMenuOpen(false)
+                }}
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'flex-start',
+                  gap: 3,
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  border: isPlane ? '1px solid rgba(251, 191, 36, 0.35)' : '1px solid rgba(0, 212, 255, 0.3)',
+                  borderRadius: 12,
+                  padding: '10px 12px',
+                  cursor: 'pointer',
+                  color: '#ffffff',
+                  textAlign: 'left',
+                }}
+              >
+                <span style={{ fontSize: 20 }}>{isPlane ? '🚗' : '✈️'}</span>
+                <span style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 10, fontWeight: 800, color: isPlane ? '#fbbf24' : '#00d4ff' }}>
+                  {isPlane ? 'Voiture' : 'Avion'}
+                </span>
+                <span style={{ fontSize: 8, color: '#94a3b8' }}>
+                  {isPlane ? 'Reprendre la voiture (P)' : 'Prendre l’avion (P)'}
+                </span>
               </button>
 
               {/* 5. Distance de vue */}

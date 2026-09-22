@@ -16,6 +16,19 @@ export interface TrialMeta {
   fromName: string
   toName: string
   distanceM: number
+  // Start/finish beacons (world meters, origin-relative) + world origin.
+  // Optional (offline queue from older clients); null = no teleport.
+  fromX?: number
+  fromZ?: number
+  toX?: number
+  toZ?: number
+  originLat?: number
+  originLng?: number
+}
+
+/** Finite number or null (junk in → null, never NaN in the DB). */
+function finiteOrNull(v: unknown): number | null {
+  return typeof v === 'number' && Number.isFinite(v) ? v : null
 }
 
 async function requireUserId(): Promise<string> {
@@ -62,6 +75,12 @@ export const submitTrialTime = createServerFn({ method: 'POST' })
       toName: data.trial.toName.slice(0, 48),
       distanceM,
       timeMs,
+      fromX: finiteOrNull(data.trial.fromX),
+      fromZ: finiteOrNull(data.trial.fromZ),
+      toX: finiteOrNull(data.trial.toX),
+      toZ: finiteOrNull(data.trial.toZ),
+      originLat: finiteOrNull(data.trial.originLat),
+      originLng: finiteOrNull(data.trial.originLng),
     })
     const best = await db
       .select({ best: sql<number>`min(${trialTimes.timeMs})` })
@@ -124,3 +143,88 @@ export const getMyTrialBests = createServerFn({ method: 'POST' })
     for (const r of rows) out[r.trialId] = r.best
     return out
   })
+
+export interface TrialHistoryRow {
+  trialId: string
+  destinationId: string
+  label: string
+  fromName: string
+  toName: string
+  distanceM: number
+  bestMs: number
+  runs: number
+  lastAt: string
+  fromX: number | null
+  fromZ: number | null
+  toX: number | null
+  toZ: number | null
+  originLat: number | null
+  originLng: number | null
+}
+
+/**
+ * Every distinct trial the player has run (signed-in player), most recent
+ * first — powers the CHRONO "MES CHRONOS" tab with teleport-to-redo.
+ * Grouped by (trial, destination): the same monument pair raced from two
+ * destinations is two entries (leaderboards stay shared by trial id, but
+ * each entry teleports to its own start beacon).
+ */
+export const getMyTrialHistory = createServerFn({ method: 'GET' }).handler(
+  async (): Promise<TrialHistoryRow[]> => {
+    const userId = await requireUserId()
+    try {
+      const runs = await db
+        .select({
+          trialId: trialTimes.trialId,
+          destinationId: trialTimes.destinationId,
+          label: trialTimes.label,
+          fromName: trialTimes.fromName,
+          toName: trialTimes.toName,
+          distanceM: trialTimes.distanceM,
+          timeMs: trialTimes.timeMs,
+          fromX: trialTimes.fromX,
+          fromZ: trialTimes.fromZ,
+          toX: trialTimes.toX,
+          toZ: trialTimes.toZ,
+          originLat: trialTimes.originLat,
+          originLng: trialTimes.originLng,
+          createdAt: trialTimes.createdAt,
+        })
+        .from(trialTimes)
+        .where(eq(trialTimes.userId, userId))
+        .orderBy(sql`${trialTimes.createdAt} desc`)
+        .limit(500)
+      const byKey = new Map<string, TrialHistoryRow>()
+      for (const r of runs) {
+        const key = `${r.trialId} ${r.destinationId}`
+        const prev = byKey.get(key)
+        if (!prev) {
+          byKey.set(key, {
+            trialId: r.trialId,
+            destinationId: r.destinationId,
+            label: r.label,
+            fromName: r.fromName,
+            toName: r.toName,
+            distanceM: r.distanceM,
+            bestMs: r.timeMs,
+            runs: 1,
+            lastAt: r.createdAt.toISOString(),
+            fromX: r.fromX,
+            fromZ: r.fromZ,
+            toX: r.toX,
+            toZ: r.toZ,
+            originLat: r.originLat,
+            originLng: r.originLng,
+          })
+        } else {
+          prev.runs++
+          if (r.timeMs < prev.bestMs) prev.bestMs = r.timeMs
+        }
+      }
+      return [...byKey.values()]
+    } catch (err) {
+      console.error('[trials] getMyTrialHistory failed:', err instanceof Error ? err.message : err)
+      throw err
+    }
+  },
+)

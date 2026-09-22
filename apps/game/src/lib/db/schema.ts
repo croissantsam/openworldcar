@@ -124,6 +124,15 @@ export const trialTimes = sqliteTable(
     distanceM: real('distance_m').notNull(),
     /** Run duration, milliseconds. */
     timeMs: integer('time_ms').notNull(),
+    // Start/finish beacons (world meters, origin-relative) + world origin at
+    // record time — powers CHRONO history teleport ("refaire"). Null for runs
+    // recorded before these columns existed (teleport unavailable for those).
+    fromX: real('from_x'),
+    fromZ: real('from_z'),
+    toX: real('to_x'),
+    toZ: real('to_z'),
+    originLat: real('origin_lat'),
+    originLng: real('origin_lng'),
     createdAt: integer('created_at', { mode: 'timestamp_ms' })
       .$defaultFn(() => new Date())
       .notNull(),

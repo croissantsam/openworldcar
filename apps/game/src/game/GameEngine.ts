@@ -53,7 +53,7 @@ import {
   type RadarMonument,
 } from '../lib/trialRadar.js'
 import { buildRoadGraph, findAStarPath } from '@world-drive/world-data'
-import { WORLD_DESTINATIONS, type WorldDestination } from '../world/destinations.js'
+import { WORLD_DESTINATIONS, createCustomDestination, type WorldDestination } from '../world/destinations.js'
 import { fetchOsmChunksForArea, fetchRealOsmArea, type RealOsmAreaResult } from '../world/LiveOsmFetcher.js'
 import { OsmStreamingManager } from '../world/OsmStreamingManager.js'
 import { OsmWorkerClient } from '../world/OsmWorkerClient.js'
@@ -1735,9 +1735,10 @@ export class GameEngine {
   /**
    * Fast travels to another city/region in the world.
    * Re-centers the Mercator projection, reloads chunks from the destination pack,
-   * and places the player car safely at the spawn point.
+   * and places the player car safely at the spawn point — or at `opts.landAt`
+   * (trial-start redo: lands facing the finish instead of the spawn).
    */
-  travelTo(destination: WorldDestination): void {
+  travelTo(destination: WorldDestination, opts?: { landAt?: { x: number; z: number; heading?: number } }): void {
     // A world jump voids any running time trial (and its GPS guidance).
     this.abortTrial()
     // The world origin moves: radar caches are tied to the destination.
@@ -1762,9 +1763,12 @@ export class GameEngine {
     this.gpsDestination = null
     this.gpsRoute = null
 
-    // 3. Teleport player car to destination spawn
-    const spawnPos = destination.spawnPosition ?? { x: 62.5, y: 0.5, z: 62.5 }
-    const spawnHeading = destination.spawnHeading ?? 0
+    // 3. Teleport player car to destination spawn (or the trial start)
+    const landAt = opts?.landAt
+    const spawnPos = landAt
+      ? { x: landAt.x, y: 0.5, z: landAt.z }
+      : (destination.spawnPosition ?? { x: 62.5, y: 0.5, z: 62.5 })
+    const spawnHeading = landAt?.heading ?? destination.spawnHeading ?? 0
     this.playerCar.teleport(spawnPos, spawnHeading)
     this.gameClient.sendRespawn()
 
@@ -1796,15 +1800,20 @@ export class GameEngine {
         ) {
           this.chunkManager.setRealOsmChunks(realOsm.chunks)
           this.chunkManager.clearAllChunks()
-          // Reposition car directly onto the real OSM road centerline
+          // Reposition car directly onto the real OSM road centerline —
+          // unless we landed on a trial start (redo): keep that spot.
           // (the player may have taken the plane meanwhile: back to the car)
           const wasFlying = this._vehicleMode === 'plane'
           this._leavePlane()
-          this.playerCar.teleport(realOsm.spawnPoint, realOsm.spawnHeading)
+          if (!landAt) {
+            this.playerCar.teleport(realOsm.spawnPoint, realOsm.spawnHeading)
+          }
           this.gameClient.sendRespawn()
           if (wasFlying) this._snapCarCamera()
           else this.camera.update(0.016)
-          this.chunkManager.update(realOsm.spawnPoint)
+          this.chunkManager.update(
+            landAt ? { x: landAt.x, y: 0.5, z: landAt.z } : realOsm.spawnPoint,
+          )
           // Mark the new destination as covered so streaming doesn't re-fetch immediately
           this.osmStreaming.markCovered(destination.origin)
           if (realOsm.streetName) {
@@ -1820,6 +1829,57 @@ export class GameEngine {
         console.warn('[GameEngine] Live OSM fetch failed, keeping procedural chunks:', err)
         if (this.currentDestination.id === destination.id && !this.disposed) this.osmStreaming.reset()
       })
+  }
+
+  /**
+   * Teleport to a trial start from the run history (CHRONO redo). Travels to
+   * the trial's destination when needed, then lands on the start beacon
+   * facing the finish — the start panel appears, ENTRÉE re-runs the race.
+   * Returns false when the destination can't be resolved (rows recorded
+   * before start coordinates were stored).
+   */
+  gotoTrialStart(t: {
+    destinationId: string
+    fromX: number | null
+    fromZ: number | null
+    toX?: number | null
+    toZ?: number | null
+    originLat?: number | null
+    originLng?: number | null
+  }): boolean {
+    if (t.fromX === null || t.fromZ === null || !Number.isFinite(t.fromX) || !Number.isFinite(t.fromZ)) {
+      return false
+    }
+    const fromX = t.fromX
+    const fromZ = t.fromZ
+    this.abortTrial()
+    const dx = (t.toX ?? fromX) - fromX
+    const dz = (t.toZ ?? fromZ) - fromZ
+    const heading = dx === 0 && dz === 0 ? 0 : Math.atan2(dx, dz)
+    if (this.currentDestination.id === t.destinationId) {
+      const p = this.getPlayerPosition()
+      this.playerCar.teleport({ x: fromX, y: p.y, z: fromZ }, heading)
+      this.gameClient?.sendRespawn()
+      return true
+    }
+    const known = WORLD_DESTINATIONS.find((d) => d.id === t.destinationId)
+    if (known) {
+      this.travelTo(known, { landAt: { x: fromX, z: fromZ, heading } })
+      return true
+    }
+    // Old search area: rebuild a custom destination around the stored origin.
+    if (
+      typeof t.originLat === 'number' &&
+      typeof t.originLng === 'number' &&
+      Number.isFinite(t.originLat) &&
+      Number.isFinite(t.originLng)
+    ) {
+      this.travelTo(createCustomDestination(t.originLat, t.originLng, 'Chrono'), {
+        landAt: { x: fromX, z: fromZ, heading },
+      })
+      return true
+    }
+    return false
   }
 
   getCurrentStreet(): StreetInfo | null {

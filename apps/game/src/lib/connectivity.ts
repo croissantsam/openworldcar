@@ -28,6 +28,12 @@ export interface OfflineTrialMeta {
   fromName: string
   toName: string
   distanceM: number
+  fromX?: number
+  fromZ?: number
+  toX?: number
+  toZ?: number
+  originLat?: number
+  originLng?: number
 }
 
 export interface OfflineTrialRun {

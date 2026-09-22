@@ -3,7 +3,6 @@ import type { GameEngine } from '../../game/GameEngine.js'
 import {
   formatTrialDist,
   formatTrialTime,
-  subscribeTrialTimesChanged,
   TRIAL_START_RADIUS_M,
   type TrialDef,
 } from '../../lib/trials.js'
@@ -33,18 +32,16 @@ export function TrialStartPanel({ engine, proposal, distToStartM, touchMode }: T
   const [trials, setTrials] = useState<TrialDef[]>([])
   const [tops, setTops] = useState<Record<string, TrialLeaderboardRow[]>>({})
   // Ids whose leaderboard fetch failed (vs. genuinely empty): shown as
-  // "indisponible" instead of "Aucun temps", retried on the next tick.
+  // "indisponible" with a manual retry button.
   const [topsErr, setTopsErr] = useState<Record<string, boolean>>({})
   const [selectedId, setSelectedId] = useState<string | null>(proposal.id)
-  // Bumped by the liveness subscription (submit / other tab / focus / poll)
-  // to refetch race list + leaderboards without wiping the display.
-  const [refreshTick, setRefreshTick] = useState(0)
+  // Manual retry counter — the only refetch trigger besides beacon change.
+  const [retryTick, setRetryTick] = useState(0)
   const fromId = proposal.from.id
 
-  // Race list for this beacon — deterministic per beacon (see
-  // getBeaconTrials): every player at the same beacon lists the same
-  // races. Regenerated on beacon change and on source-data ticks (chunks
-  // / radar settling) via the engine cache.
+  // Race list for this beacon — computed ONCE when the panel appears (mount
+  // / beacon change). Deterministic per beacon (see getBeaconTrials): every
+  // player at the same beacon lists the same races.
   useEffect(() => {
     let list: TrialDef[] = []
     try {
@@ -65,18 +62,13 @@ export function TrialStartPanel({ engine, proposal, distToStartM, touchMode }: T
     setSelectedId(first.id)
     engine.setTrialSelection(first)
     // Reset tops for the new beacon so stale times aren't shown, then fetch.
-    // No fetchedRef cache: it poisoned retries when a previous fetch was
-    // cancelled (StrictMode remount / quick beacon switch) → infinite
-    // "Chargement des temps…". The effect deps ([engine, fromId]) already dedupe.
     setTops({})
     setTopsErr({})
-  }, [engine, fromId, refreshTick])
+  }, [engine, fromId])
 
-  useEffect(() => subscribeTrialTimesChanged(() => setRefreshTick((t) => t + 1)), [])
-
-  // Top-3 per race. Background refreshes (other players' runs, own submit)
-  // merge over the current display — no wipe, no "Chargement…" flicker.
-  // Failures are flagged per id (retried next tick), never shown as empty.
+  // Top-3 per race — ONE plain HTTP flight when the panel appears (or on
+  // manual retry). No polling, no focus refetch, no socket: background
+  // retries merge over the current display without wiping it.
   useEffect(() => {
     if (trials.length === 0) return
     let cancelled = false
@@ -144,7 +136,7 @@ export function TrialStartPanel({ engine, proposal, distToStartM, touchMode }: T
     return () => {
       cancelled = true
     }
-  }, [trials, refreshTick]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [trials, retryTick])
 
   const select = (trial: TrialDef) => {
     setSelectedId(trial.id)
@@ -252,7 +244,24 @@ export function TrialStartPanel({ engine, proposal, distToStartM, touchMode }: T
             {!top && !failed ? (
               <span style={{ fontSize: 10, color: '#64748b' }}>Chargement des temps…</span>
             ) : failed ? (
-              <span style={{ fontSize: 10, color: '#fbbf24' }}>Classement indisponible — nouvel essai…</span>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setRetryTick((t) => t + 1)
+                }}
+                title="Réessayer le chargement du classement"
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  padding: 0,
+                  fontSize: 10,
+                  color: '#fbbf24',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                }}
+              >
+                Classement indisponible — réessayer ↻
+              </button>
             ) : top!.length === 0 ? (
               <span style={{ fontSize: 10, color: '#64748b' }}>Aucun temps — à vous !</span>
             ) : (

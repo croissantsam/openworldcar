@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { authClient } from '../../lib/auth-client.js'
 import { getMyProfile, saveDisplayName } from '../../server/profile.js'
 import { persistCurrentState } from '../../services/profileSync.js'
+import { useLocale } from '../../i18n/index.js'
 import type { GameEngine } from '../../game/GameEngine.js'
 
 interface AuthModalProps {
@@ -101,6 +102,7 @@ function labelStyle(): React.CSSProperties {
 }
 
 export function AuthModal({ engine, onClose }: AuthModalProps) {
+  const { t } = useLocale()
   const { data: session, isPending } = authClient.useSession()
   const user = session?.user as { name?: string; email?: string; isAnonymous?: boolean | null } | undefined
   const isGuest = !user || user.isAnonymous === true || user.isAnonymous === null
@@ -110,7 +112,7 @@ export function AuthModal({ engine, onClose }: AuthModalProps) {
       <div style={panelStyle()} onClick={(e) => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 12, fontWeight: 900, color: '#00d4ff', letterSpacing: 2 }}>
-            COMPTE PILOTE
+            {t('auth_title')}
           </span>
           <button
             onClick={onClose}
@@ -134,7 +136,7 @@ export function AuthModal({ engine, onClose }: AuthModalProps) {
 
         {isPending ? (
           <div style={{ color: '#94a3b8', fontSize: 13, textAlign: 'center', padding: '12px 0' }}>
-            Chargement de la session…
+            {t('auth_session_loading')}
           </div>
         ) : isGuest ? (
           <GuestPanel engine={engine} onDone={onClose} />
@@ -147,6 +149,7 @@ export function AuthModal({ engine, onClose }: AuthModalProps) {
 }
 
 function GuestPanel({ engine, onDone }: { engine: GameEngine; onDone: () => void }) {
+  const { t } = useLocale()
   const [mode, setMode] = useState<Mode>('signup')
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
@@ -159,14 +162,14 @@ function GuestPanel({ engine, onDone }: { engine: GameEngine; onDone: () => void
     setError(null)
     try {
       if (mode === 'signup') {
-        if (name.trim().length < 2) throw new Error('Choisis un pseudo (2 caractères min).')
+        if (name.trim().length < 2) throw new Error(t('auth_err_name_short'))
         const res = await authClient.signUp.email({
           name: name.trim(),
           email: email.trim(),
           password,
           callbackURL: window.location.origin,
         })
-        if (res.error) throw new Error(res.error.message ?? 'Inscription impossible.')
+        if (res.error) throw new Error(res.error.message ?? t('auth_err_signup'))
         // New permanent account: carry the guest's current progress over and
         // publish the chosen pseudo (leaderboard + online nametag).
         await persistCurrentState(engine)
@@ -178,7 +181,7 @@ function GuestPanel({ engine, onDone }: { engine: GameEngine; onDone: () => void
           password,
           callbackURL: window.location.origin,
         })
-        if (res.error) throw new Error(res.error.message ?? 'Connexion impossible.')
+        if (res.error) throw new Error(res.error.message ?? t('auth_err_login'))
         // Existing account without a save yet: start from the current state.
         // Either way, publish this account's pseudo to online players.
         const existing = await getMyProfile().catch(() => null)
@@ -188,7 +191,7 @@ function GuestPanel({ engine, onDone }: { engine: GameEngine; onDone: () => void
       }
       onDone()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Une erreur est survenue.')
+      setError(err instanceof Error ? err.message : t('auth_err_generic'))
     } finally {
       setBusy(false)
     }
@@ -207,8 +210,7 @@ function GuestPanel({ engine, onDone }: { engine: GameEngine; onDone: () => void
           lineHeight: 1.5,
         }}
       >
-        👤 <strong>Mode invité</strong> — ton spawn et tes réglages sont sauvegardés. Crée un compte pour les
-        retrouver sur tous tes appareils.
+        👤 <strong>{t('auth_guest_hint_lead')}</strong>{t('auth_guest_hint_rest')}
       </div>
 
       <div style={{ display: 'flex', gap: 8 }}>
@@ -233,36 +235,36 @@ function GuestPanel({ engine, onDone }: { engine: GameEngine; onDone: () => void
               cursor: 'pointer',
             }}
           >
-            {m === 'signup' ? 'CRÉER UN COMPTE' : 'SE CONNECTER'}
+            {m === 'signup' ? t('auth_tab_signup') : t('auth_tab_login')}
           </button>
         ))}
       </div>
 
       {mode === 'signup' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <span style={labelStyle()}>Pseudo</span>
+          <span style={labelStyle()}>{t('auth_label_name')}</span>
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="Ex : SpeedRacer"
+            placeholder={t('auth_name_placeholder')}
             maxLength={40}
             style={inputStyle()}
           />
         </div>
       )}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <span style={labelStyle()}>Email</span>
+        <span style={labelStyle()}>{t('auth_label_email')}</span>
         <input
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          placeholder="pilote@exemple.fr"
+          placeholder={t('auth_email_placeholder')}
           type="email"
           autoComplete="email"
           style={inputStyle()}
         />
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <span style={labelStyle()}>Mot de passe (8 caractères min)</span>
+        <span style={labelStyle()}>{t('auth_label_password')}</span>
         <input
           value={password}
           onChange={(e) => setPassword(e.target.value)}
@@ -292,7 +294,7 @@ function GuestPanel({ engine, onDone }: { engine: GameEngine; onDone: () => void
       )}
 
       <button onClick={() => void submit()} disabled={busy} style={primaryButtonStyle(busy)}>
-        {busy ? '…' : mode === 'signup' ? "CRÉER MON COMPTE" : 'SE CONNECTER'}
+        {busy ? '…' : mode === 'signup' ? t('auth_submit_signup') : t('auth_submit_login')}
       </button>
     </>
   )
@@ -309,6 +311,7 @@ function MemberPanel({
   email: string
   onDone: () => void
 }) {
+  const { t } = useLocale()
   const [displayName, setDisplayName] = useState(name)
   const [saving, setSaving] = useState(false)
   const [savedTick, setSavedTick] = useState(false)
@@ -357,14 +360,14 @@ function MemberPanel({
           lineHeight: 1.5,
         }}
       >
-        ✅ <strong>Connecté{email.includes('@') ? '' : 'e'}</strong> — spawn et réglages synchronisés sur ton compte.
+        ✅ <strong>{t('auth_connected_lead')}</strong>{t('auth_connected_rest')}
         <div style={{ color: '#6ee7b7', opacity: 0.8, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis' }}>
           {email}
         </div>
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <span style={labelStyle()}>Pseudo pilote</span>
+        <span style={labelStyle()}>{t('auth_label_driver_name')}</span>
         <div style={{ display: 'flex', gap: 8 }}>
           <input
             value={displayName}
@@ -394,7 +397,7 @@ function MemberPanel({
       </div>
 
       <button onClick={() => void logout()} disabled={busy} style={ghostButtonStyle()}>
-        {busy ? '…' : 'Se déconnecter (retour invité)'}
+        {busy ? '…' : t('auth_logout')}
       </button>
     </>
   )

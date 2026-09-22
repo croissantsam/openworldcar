@@ -1,23 +1,14 @@
 import { useEffect, useState } from 'react'
 import { getLeaderboard, getMyProgress, type LeaderboardMetric, type MyProgress } from '../../server/stats.js'
 import { TROPHIES, trophyProgress, type TrophyCategory, type TrophyDef } from '../../lib/trophies.js'
+import { useLocale } from '../../i18n/index.js'
+import { trophyDesc, trophyName } from '../../i18n/dict-trophy.js'
 
 type Tab = 'trophies' | 'leaderboard'
 
-const CATEGORY_LABELS: Record<TrophyCategory, string> = {
-  distance: 'Distance totale',
-  jump: 'Sauts',
-  cities: 'Villes explorées',
-  playtime: 'Temps de jeu',
-}
+const CATEGORIES: TrophyCategory[] = ['distance', 'jump', 'cities', 'playtime']
 
-const METRICS: Array<{ id: LeaderboardMetric; label: string }> = [
-  { id: 'distance', label: 'Distance' },
-  { id: 'jump', label: 'Sauts' },
-  { id: 'cities', label: 'Villes' },
-  { id: 'playtime', label: 'Temps' },
-  { id: 'trophies', label: 'Trophées' },
-]
+const METRICS: LeaderboardMetric[] = ['distance', 'jump', 'cities', 'playtime', 'trophies']
 
 function formatValue(metric: LeaderboardMetric, value: number): string {
   switch (metric) {
@@ -47,6 +38,7 @@ function rankIcon(rank: number): string {
 }
 
 export function TrophyModal({ onClose }: { onClose: () => void }) {
+  const { t } = useLocale()
   const [tab, setTab] = useState<Tab>('trophies')
   const [progress, setProgress] = useState<MyProgress | null>(null)
   const [progressError, setProgressError] = useState(false)
@@ -130,7 +122,7 @@ export function TrophyModal({ onClose }: { onClose: () => void }) {
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 12, fontWeight: 900, color: '#fbbf24', letterSpacing: 2 }}>
-            TROPHÉES & CLASSEMENT
+            {t('trophy_title')}
           </span>
           <button
             onClick={onClose}
@@ -153,17 +145,17 @@ export function TrophyModal({ onClose }: { onClose: () => void }) {
         </div>
 
         <div style={{ display: 'flex', gap: 8 }}>
-          {(['trophies', 'leaderboard'] as Tab[]).map((t) => (
+          {(['trophies', 'leaderboard'] as Tab[]).map((tabId) => (
             <button
-              key={t}
-              onClick={() => setTab(t)}
+              key={tabId}
+              onClick={() => setTab(tabId)}
               style={{
                 flex: 1,
-                background: tab === t ? 'rgba(251, 191, 36, 0.15)' : 'rgba(255,255,255,0.04)',
-                border: tab === t ? '1px solid rgba(251, 191, 36, 0.6)' : '1px solid rgba(255,255,255,0.1)',
+                background: tab === tabId ? 'rgba(251, 191, 36, 0.15)' : 'rgba(255,255,255,0.04)',
+                border: tab === tabId ? '1px solid rgba(251, 191, 36, 0.6)' : '1px solid rgba(255,255,255,0.1)',
                 borderRadius: 10,
                 padding: '8px 0',
-                color: tab === t ? '#fbbf24' : '#94a3b8',
+                color: tab === tabId ? '#fbbf24' : '#94a3b8',
                 fontFamily: "'Orbitron', sans-serif",
                 fontSize: 10,
                 fontWeight: 800,
@@ -171,7 +163,11 @@ export function TrophyModal({ onClose }: { onClose: () => void }) {
                 cursor: 'pointer',
               }}
             >
-              {t === 'trophies' ? `🏆 TROPHÉES${progress ? ` (${progress.trophies.length}/${TROPHIES.length})` : ''}` : '📊 CLASSEMENT'}
+              {tabId === 'trophies'
+                ? progress
+                  ? t('trophy_tab_trophies_count', { unlocked: progress.trophies.length, total: TROPHIES.length })
+                  : t('trophy_tab_trophies')
+                : t('trophy_tab_leaderboard')}
             </button>
           ))}
         </div>
@@ -195,22 +191,23 @@ function TrophyList({
   unlockedIds: Set<string>
   error: boolean
 }) {
+  const { t } = useLocale()
   if (error) {
-    return <div style={{ color: '#fca5a5', fontSize: 12, textAlign: 'center' }}>Progression indisponible hors-ligne.</div>
+    return <div style={{ color: '#fca5a5', fontSize: 12, textAlign: 'center' }}>{t('trophy_progress_offline')}</div>
   }
   if (!progress) {
-    return <div style={{ color: '#94a3b8', fontSize: 12, textAlign: 'center', padding: '12px 0' }}>Chargement…</div>
+    return <div style={{ color: '#94a3b8', fontSize: 12, textAlign: 'center', padding: '12px 0' }}>{t('trophy_loading')}</div>
   }
-  const categories = (Object.keys(CATEGORY_LABELS) as TrophyCategory[]).map((cat) => ({
+  const categories = CATEGORIES.map((cat) => ({
     cat,
-    items: TROPHIES.filter((t) => t.category === cat),
+    items: TROPHIES.filter((item) => item.category === cat),
   }))
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       {categories.map(({ cat, items }) => (
         <div key={cat}>
           <div style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 9, fontWeight: 800, color: '#00d4ff', letterSpacing: 1.5, marginBottom: 6 }}>
-            {CATEGORY_LABELS[cat].toUpperCase()}
+            {t(`trophy_cat_${cat}`).toUpperCase()}
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {items.map((t) => (
@@ -224,6 +221,7 @@ function TrophyList({
 }
 
 function TrophyCard({ def, unlocked, ratio }: { def: TrophyDef; unlocked: boolean; ratio: number }) {
+  const { t } = useLocale()
   return (
     <div
       style={{
@@ -240,9 +238,9 @@ function TrophyCard({ def, unlocked, ratio }: { def: TrophyDef; unlocked: boolea
       <span style={{ fontSize: 22, filter: unlocked ? 'none' : 'grayscale(1)', flexShrink: 0 }}>{def.icon}</span>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 3, flex: 1, minWidth: 0 }}>
         <span style={{ fontFamily: "'Inter', sans-serif", fontSize: 12, fontWeight: 800, color: unlocked ? '#fde68a' : '#e2e8f0' }}>
-          {def.name}
+          {trophyName(t, def.id, def.name)}
         </span>
-        <span style={{ fontSize: 10, color: '#94a3b8' }}>{def.description}</span>
+        <span style={{ fontSize: 10, color: '#94a3b8' }}>{trophyDesc(t, def.id, def.description)}</span>
         {!unlocked && (
           <div style={{ height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.1)', overflow: 'hidden', marginTop: 2 }}>
             <div
@@ -272,37 +270,38 @@ function Leaderboard({
   rows: Array<{ rank: number; label: string; value: number; you: boolean }> | null
   error: boolean
 }) {
+  const { t } = useLocale()
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-        {METRICS.map((m) => (
+        {METRICS.map((id) => (
           <button
-            key={m.id}
-            onClick={() => setMetric(m.id)}
+            key={id}
+            onClick={() => setMetric(id)}
             style={{
-              background: metric === m.id ? 'rgba(0, 212, 255, 0.15)' : 'rgba(255,255,255,0.04)',
-              border: metric === m.id ? '1px solid rgba(0, 212, 255, 0.6)' : '1px solid rgba(255,255,255,0.1)',
+              background: metric === id ? 'rgba(0, 212, 255, 0.15)' : 'rgba(255,255,255,0.04)',
+              border: metric === id ? '1px solid rgba(0, 212, 255, 0.6)' : '1px solid rgba(255,255,255,0.1)',
               borderRadius: 8,
               padding: '6px 10px',
-              color: metric === m.id ? '#00d4ff' : '#94a3b8',
+              color: metric === id ? '#00d4ff' : '#94a3b8',
               fontFamily: "'Inter', sans-serif",
               fontSize: 11,
               fontWeight: 700,
               cursor: 'pointer',
             }}
           >
-            {m.label}
+            {t(`trophy_metric_${id}`)}
           </button>
         ))}
       </div>
 
       {error ? (
-        <div style={{ color: '#fca5a5', fontSize: 12, textAlign: 'center' }}>Classement indisponible hors-ligne.</div>
+        <div style={{ color: '#fca5a5', fontSize: 12, textAlign: 'center' }}>{t('trophy_board_offline')}</div>
       ) : !rows ? (
-        <div style={{ color: '#94a3b8', fontSize: 12, textAlign: 'center', padding: '12px 0' }}>Chargement…</div>
+        <div style={{ color: '#94a3b8', fontSize: 12, textAlign: 'center', padding: '12px 0' }}>{t('trophy_loading')}</div>
       ) : rows.length === 0 ? (
         <div style={{ color: '#94a3b8', fontSize: 12, textAlign: 'center', padding: '12px 0' }}>
-          Personne au classement pour l’instant — roule pour être le premier !
+          {t('trophy_board_empty')}
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -334,7 +333,7 @@ function Leaderboard({
                 }}
               >
                 {r.label}
-                {r.you ? ' (toi)' : ''}
+                {r.you ? t('trophy_you_suffix') : ''}
               </span>
               <span style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 11, fontWeight: 800, color: '#fff', flexShrink: 0 }}>
                 {formatValue(metric, r.value)}

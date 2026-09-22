@@ -4,6 +4,8 @@ export interface TrophyToast {
   key: number
   icon: string
   name: string
+  /** Trophy id for localized rendering (name falls back to `name`). */
+  trophyId?: string
 }
 
 interface TrophyToastState {

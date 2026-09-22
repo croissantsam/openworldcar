@@ -150,7 +150,7 @@ async function flushTripStats(engine: GameEngine): Promise<void> {
   if (unlocked.length === 0) return
   const push = useTrophyToast.getState().push
   for (const def of fresh) {
-    if (unlocked.includes(def.id)) push({ icon: def.icon, name: def.name })
+    if (unlocked.includes(def.id)) push({ icon: def.icon, name: def.name, trophyId: def.id })
   }
 }
 

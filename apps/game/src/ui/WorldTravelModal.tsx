@@ -5,6 +5,8 @@ import {
   type WorldDestination,
 } from '../world/destinations.js'
 import { AddressSearchBar } from './AddressSearchBar.js'
+import { useLocale } from '../i18n/index.js'
+import { destName, destDesc } from '../i18n/dict-travel.js'
 
 interface WorldTravelModalProps {
   isOpen: boolean
@@ -26,6 +28,7 @@ export const WorldTravelModal: React.FC<WorldTravelModalProps> = ({
   const [customName, setCustomName] = useState('')
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [isCompact, setIsCompact] = useState(false)
+  const { t } = useLocale()
 
   useEffect(() => {
     const check = () => {
@@ -37,6 +40,12 @@ export const WorldTravelModal: React.FC<WorldTravelModalProps> = ({
   }, [])
 
   if (!isOpen) return null
+
+  const franceCount = WORLD_DESTINATIONS.filter((d) => d.country === 'France').length
+  const europeCount = WORLD_DESTINATIONS.filter((d) =>
+    ['France', 'Royaume-Uni', 'Italie', 'Allemagne'].includes(d.country),
+  ).length
+  const intlCount = WORLD_DESTINATIONS.filter((d) => !['France'].includes(d.country)).length
 
   const filtered = WORLD_DESTINATIONS.filter((d) => {
     if (selectedFilter === 'france') return d.country === 'France'
@@ -51,11 +60,11 @@ export const WorldTravelModal: React.FC<WorldTravelModalProps> = ({
     const lon = parseFloat(customLon.trim().replace(',', '.'))
 
     if (isNaN(lat) || lat < -90 || lat > 90) {
-      setErrorMsg('Veuillez saisir une latitude valide entre -90 et 90.')
+      setErrorMsg(t('travel_lat_error'))
       return
     }
     if (isNaN(lon) || lon < -180 || lon > 180) {
-      setErrorMsg('Veuillez saisir une longitude valide entre -180 et 180.')
+      setErrorMsg(t('travel_lon_error'))
       return
     }
 
@@ -124,12 +133,12 @@ export const WorldTravelModal: React.FC<WorldTravelModalProps> = ({
                   WebkitTextFillColor: 'transparent',
                 }}
               >
-                VOYAGE MONDIAL & GÉNÉRATION EN DIRECT
+                {t('travel_title')}
               </h2>
             </div>
             {!isCompact && (
               <p style={{ margin: '6px 0 0', fontSize: '13px', color: '#94a3b8' }}>
-                Explorez les métropoles mondiales et générez de nouveaux chunks OpenStreetMap en temps réel pendant que vous roulez.
+                {t('travel_subtitle')}
               </p>
             )}
           </div>
@@ -175,18 +184,18 @@ export const WorldTravelModal: React.FC<WorldTravelModalProps> = ({
         >
           <div style={{ marginBottom: isCompact ? '4px' : '8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <span style={{ fontSize: isCompact ? '10px' : '12px', fontWeight: 700, color: '#38bdf8', letterSpacing: '0.06em' }}>
-              📍 RECHERCHER UNE ADRESSE DANS LE MONDE (OPENSTREETMAP) :
+              {t('travel_search_label')}
             </span>
             {!isCompact && (
               <span style={{ fontSize: '11px', color: '#94a3b8' }}>
-                Streaming 100% procédural au fur et à mesure
+                {t('travel_search_hint')}
               </span>
             )}
           </div>
           <AddressSearchBar
             autoFocus={!isCompact}
             compact={isCompact}
-            placeholder="Saisissez une adresse, rue ou monument (ex: 10 rue de la Paix, Tour Eiffel, Times Square)..."
+            placeholder={t('travel_search_placeholder')}
             onSelectAddress={(dest) => {
               onSelectDestination(dest)
               onClose()
@@ -210,10 +219,10 @@ export const WorldTravelModal: React.FC<WorldTravelModalProps> = ({
           <div style={{ display: 'flex', gap: isCompact ? '4px' : '8px', flexWrap: 'wrap' }}>
             {(
               [
-                { id: 'all', label: `Toutes (${WORLD_DESTINATIONS.length})` },
-                { id: 'france', label: '🇫🇷 France (3)' },
-                { id: 'europe', label: '🇪🇺 Europe (5)' },
-                { id: 'international', label: '🌐 International (8)' },
+                { id: 'all', label: t('travel_filter_all', { count: WORLD_DESTINATIONS.length }) },
+                { id: 'france', label: t('travel_filter_france', { count: franceCount }) },
+                { id: 'europe', label: t('travel_filter_europe', { count: europeCount }) },
+                { id: 'international', label: t('travel_filter_intl', { count: intlCount }) },
               ] as const
             ).map((filter) => (
               <button
@@ -267,7 +276,7 @@ export const WorldTravelModal: React.FC<WorldTravelModalProps> = ({
               transition: 'all 0.2s',
             }}
           >
-            <span>🧭 Coordonnées GPS Libres</span>
+            <span>{t('travel_gps_toggle')}</span>
             <span>{showCustomGps ? '▲' : '▼'}</span>
           </button>
         </div>
@@ -288,7 +297,7 @@ export const WorldTravelModal: React.FC<WorldTravelModalProps> = ({
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <span style={{ fontSize: '18px' }}>🚀</span>
               <span style={{ fontSize: '14px', fontWeight: 700, color: '#e2e8f0' }}>
-                Téléportation & Génération en temps réel n'importe où sur Terre
+                {t('travel_gps_title')}
               </span>
             </div>
 
@@ -303,11 +312,11 @@ export const WorldTravelModal: React.FC<WorldTravelModalProps> = ({
             >
               <div>
                 <label style={{ display: 'block', fontSize: '11px', color: '#94a3b8', marginBottom: '4px', fontWeight: 600 }}>
-                  LATITUDE (-90° à +90°)
+                  {t('travel_lat_label')}
                 </label>
                 <input
                   type="text"
-                  placeholder="Ex: 48.8584"
+                  placeholder={t('travel_lat_placeholder')}
                   value={customLat}
                   onChange={(e) => setCustomLat(e.target.value)}
                   style={{
@@ -327,11 +336,11 @@ export const WorldTravelModal: React.FC<WorldTravelModalProps> = ({
 
               <div>
                 <label style={{ display: 'block', fontSize: '11px', color: '#94a3b8', marginBottom: '4px', fontWeight: 600 }}>
-                  LONGITUDE (-180° à +180°)
+                  {t('travel_lon_label')}
                 </label>
                 <input
                   type="text"
-                  placeholder="Ex: 2.2945"
+                  placeholder={t('travel_lon_placeholder')}
                   value={customLon}
                   onChange={(e) => setCustomLon(e.target.value)}
                   style={{
@@ -351,11 +360,11 @@ export const WorldTravelModal: React.FC<WorldTravelModalProps> = ({
 
               <div>
                 <label style={{ display: 'block', fontSize: '11px', color: '#94a3b8', marginBottom: '4px', fontWeight: 600 }}>
-                  NOM DU LIEU (OPTIONNEL)
+                  {t('travel_name_label')}
                 </label>
                 <input
                   type="text"
-                  placeholder="Ex: Mon Quartier, Circuit..."
+                  placeholder={t('travel_name_placeholder')}
                   value={customName}
                   onChange={(e) => setCustomName(e.target.value)}
                   style={{
@@ -391,7 +400,7 @@ export const WorldTravelModal: React.FC<WorldTravelModalProps> = ({
                   height: '38px',
                 }}
               >
-                <span>Téléporter & Rouler</span>
+                <span>{t('travel_submit')}</span>
                 <span>⚡</span>
               </button>
             </form>
@@ -501,7 +510,7 @@ export const WorldTravelModal: React.FC<WorldTravelModalProps> = ({
                             boxShadow: '0 0 6px #4ade80',
                           }}
                         />
-                        ACTUEL
+                        {t('travel_current_badge')}
                       </span>
                     ) : (
                       <span
@@ -528,7 +537,7 @@ export const WorldTravelModal: React.FC<WorldTravelModalProps> = ({
                       color: '#f1f5f9',
                     }}
                   >
-                    {dest.name}
+                    {destName(dest, t)}
                   </h3>
 
                   {/* Description */}
@@ -540,7 +549,7 @@ export const WorldTravelModal: React.FC<WorldTravelModalProps> = ({
                       color: '#94a3b8',
                     }}
                   >
-                    {dest.description}
+                    {destDesc(dest, t)}
                   </p>
 
                   {/* Landmarks preview tags */}
@@ -615,10 +624,10 @@ export const WorldTravelModal: React.FC<WorldTravelModalProps> = ({
                   }}
                 >
                   {isCurrent ? (
-                    'Position actuelle'
+                    t('travel_current_btn')
                   ) : (
                     <>
-                      <span>Voyager ici</span>
+                      <span>{t('travel_go_btn')}</span>
                       <span>✈️</span>
                     </>
                   )}
@@ -642,10 +651,11 @@ export const WorldTravelModal: React.FC<WorldTravelModalProps> = ({
           }}
         >
           <div>
-            💡 <strong style={{ color: '#38bdf8' }}>Génération continue</strong> : Dès que vous conduisez vers les limites de la carte, les nouveaux chunks sont générés en direct !
+            💡 <strong style={{ color: '#38bdf8' }}>{t('travel_footer_highlight')}</strong>
+            {t('travel_footer_rest')}
           </div>
           <div style={{ color: '#38bdf8', fontWeight: 600 }}>
-            Touche <kbd style={kbdStyle}>T</kbd> pour voyager
+            {t('travel_key_before')} <kbd style={kbdStyle}>T</kbd> {t('travel_key_after')}
           </div>
         </div>
       </div>

@@ -8,6 +8,7 @@ import {
 } from '../../lib/trials.js'
 import { getLocalTrialBests, isOnlineMode, subscribeOnlineMode } from '../../lib/connectivity.js'
 import { getTrialLeaderboard, type TrialLeaderboardRow } from '../../server/trials.js'
+import { useLocale } from '../../i18n/index.js'
 
 interface TrialStartPanelProps {
   engine: GameEngine
@@ -30,6 +31,7 @@ function rankIcon(rank: number): string {
  * DÉPART button starts it.
  */
 export function TrialStartPanel({ engine, proposal, distToStartM, touchMode }: TrialStartPanelProps) {
+  const { t } = useLocale()
   const [trials, setTrials] = useState<TrialDef[]>([])
   const [tops, setTops] = useState<Record<string, TrialLeaderboardRow[]>>({})
   // Ids whose leaderboard fetch failed (vs. genuinely empty): shown as
@@ -78,9 +80,9 @@ export function TrialStartPanel({ engine, proposal, distToStartM, touchMode }: T
     if (!isOnlineMode()) {
       const bests = getLocalTrialBests()
       const map: Record<string, TrialLeaderboardRow[]> = {}
-      for (const t of trials) {
-        const b = bests[t.id]
-        map[t.id] = b !== undefined ? [{ rank: 1, label: 'Record local', timeMs: b, you: true }] : []
+      for (const trial of trials) {
+        const b = bests[trial.id]
+        map[trial.id] = b !== undefined ? [{ rank: 1, label: t('trial_local_record'), timeMs: b, you: true }] : []
       }
       setTops(map)
       setTopsErr({})
@@ -205,7 +207,7 @@ export function TrialStartPanel({ engine, proposal, distToStartM, touchMode }: T
     >
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
         <span style={{ fontFamily: "'Inter', sans-serif", fontSize: touchMode ? 11 : 13, fontWeight: 800, color: '#fff' }}>
-          ⏱️ Départ : {proposal.from.name}
+          {t('trial_start_departure', { name: proposal.from.name })}
         </span>
         {inZone ? (
           <span
@@ -218,29 +220,29 @@ export function TrialStartPanel({ engine, proposal, distToStartM, touchMode }: T
               animation: 'hudFlash 0.5s ease-in-out infinite alternate',
             }}
           >
-            APPUYEZ SUR ENTRÉE
+            {t('trial_press_enter')}
           </span>
         ) : (
           <span style={{ fontFamily: "'Inter', sans-serif", fontSize: touchMode ? 9 : 11, color: '#94a3b8' }}>
-            À {Math.round(distToStartM)} m — roulez-y !
+            {t('trial_start_distance', { dist: Math.round(distToStartM) })}
           </span>
         )}
         {trials.length > 1 && (
           <span style={{ fontFamily: "'Inter', sans-serif", fontSize: 9, color: '#64748b' }}>
-            Clic ou touches 1-{Math.min(trials.length, 9)} pour choisir la course
+            {t('trial_choose_hint', { max: Math.min(trials.length, 9) })}
           </span>
         )}
       </div>
 
-      {trials.map((t, i) => {
-        const top = tops[t.id]
-        const failed = topsErr[t.id] === true && top === undefined
-        const isSel = selectedId === t.id
+      {trials.map((trial, i) => {
+        const top = tops[trial.id]
+        const failed = topsErr[trial.id] === true && top === undefined
+        const isSel = selectedId === trial.id
         return (
           <div
-            key={t.id}
-            onClick={() => select(t)}
-            title="Choisir cette course"
+            key={trial.id}
+            onClick={() => select(trial)}
+            title={t('trial_choose_title')}
             style={{
               background: isSel ? 'rgba(52, 211, 153, 0.1)' : 'rgba(255, 255, 255, 0.03)',
               border: isSel ? '1px solid rgba(52, 211, 153, 0.45)' : '1px solid rgba(255, 255, 255, 0.07)',
@@ -256,17 +258,17 @@ export function TrialStartPanel({ engine, proposal, distToStartM, touchMode }: T
           >
             <span style={{ fontSize: touchMode ? 11 : 12, fontWeight: 800, color: '#e2e8f0' }}>
               {isSel ? '▶ ' : ''}
-              {trials.length > 1 ? `${i + 1}. ` : ''}→ {t.to.name} · {formatTrialDist(t.distanceM)}
+              {trials.length > 1 ? `${i + 1}. ` : ''}→ {trial.to.name} · {formatTrialDist(trial.distanceM)}
             </span>
             {!top && !failed ? (
-              <span style={{ fontSize: 10, color: '#64748b' }}>Chargement des temps…</span>
+              <span style={{ fontSize: 10, color: '#64748b' }}>{t('trial_times_loading')}</span>
             ) : failed ? (
               <button
                 onClick={(e) => {
                   e.stopPropagation()
                   setRetryTick((t) => t + 1)
                 }}
-                title="Réessayer le chargement du classement"
+                title={t('trial_retry_title')}
                 style={{
                   background: 'none',
                   border: 'none',
@@ -277,10 +279,10 @@ export function TrialStartPanel({ engine, proposal, distToStartM, touchMode }: T
                   textAlign: 'left',
                 }}
               >
-                Classement indisponible — réessayer ↻
+                {t('trial_unavailable_retry')}
               </button>
             ) : top!.length === 0 ? (
-              <span style={{ fontSize: 10, color: '#64748b' }}>Aucun temps — à vous !</span>
+              <span style={{ fontSize: 10, color: '#64748b' }}>{t('trial_no_times_yet')}</span>
             ) : (
               top!.map((r) => (
                 <span
@@ -295,7 +297,7 @@ export function TrialStartPanel({ engine, proposal, distToStartM, touchMode }: T
                   }}
                 >
                   {rankIcon(r.rank)} {formatTrialTime(r.timeMs)} · {r.label}
-                  {r.you ? ' (vous)' : ''}
+                  {r.you ? t('trial_you_suffix') : ''}
                 </span>
               ))
             )}
@@ -303,7 +305,7 @@ export function TrialStartPanel({ engine, proposal, distToStartM, touchMode }: T
               <button
                 onClick={(e) => {
                   e.stopPropagation()
-                  engine.startTrial(t)
+                  engine.startTrial(trial)
                 }}
                 style={{
                   marginTop: 4,
@@ -320,7 +322,7 @@ export function TrialStartPanel({ engine, proposal, distToStartM, touchMode }: T
                   width: '100%',
                 }}
               >
-                ▶ DÉPART
+                {t('trial_start_go')}
               </button>
             )}
           </div>

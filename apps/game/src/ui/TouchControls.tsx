@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react'
 import type { GameEngine } from '../game/GameEngine.js'
+import { useLocale } from '../i18n/index.js'
 
 interface TouchControlsProps {
   engine: GameEngine
@@ -17,6 +18,7 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
   vehicleMode = 'car',
 }) => {
   const isPlane = vehicleMode === 'plane'
+  const { t } = useLocale()
   // Joystick knob offset from base center
   const [knobPos, setKnobPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
   const [isJoystickActive, setIsJoystickActive] = useState(false)
@@ -481,7 +483,7 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
               pointerEvents: 'none',
             }}
           >
-            ▲ PIQUER · ▼ CABRER
+            {t('touch_stick_hint')}
           </div>
         )}
       </div>
@@ -498,7 +500,7 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
           }}
         >
           <button
-            aria-label="Mitrailleuse"
+            aria-label={t('touch_fire_label')}
             onTouchStart={handleFireStart}
             onTouchEnd={handleFireEnd}
             onTouchCancel={handleFireEnd}
@@ -540,7 +542,7 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
                 textShadow: isFiring ? '0 0 8px #ffffff' : '0 0 6px rgba(251, 191, 36, 0.4)',
               }}
             >
-              TIR
+              {t('touch_fire')}
             </span>
           </button>
         </div>
@@ -603,7 +605,7 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
                 textShadow: isNitro ? '0 0 8px #ffffff' : '0 0 6px rgba(0, 242, 254, 0.4)',
               }}
             >
-              NITRO
+              {t('touch_nitro')}
             </span>
           </button>
         )}
@@ -649,7 +651,7 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
               textShadow: isBraking ? '0 0 8px #ffffff' : '0 0 6px rgba(239, 68, 68, 0.4)',
             }}
           >
-            FREIN
+            {t('touch_brake')}
           </span>
           {isPlane && (
             <span
@@ -662,7 +664,7 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
                 color: isBraking ? '#ffffff' : 'rgba(248, 113, 113, 0.8)',
               }}
             >
-              GAZ 0
+              {t('touch_throttle_zero')}
             </span>
           )}
         </button>

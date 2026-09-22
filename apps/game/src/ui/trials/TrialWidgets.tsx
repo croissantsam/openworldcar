@@ -1,4 +1,5 @@
 import { formatTrialTime, TRIAL_START_RADIUS_M, type TrialStatus } from '../../lib/trials.js'
+import { useLocale } from '../../i18n/index.js'
 
 interface TrialWidgetsProps {
   status: TrialStatus
@@ -33,6 +34,7 @@ function pillStyle(touchMode: boolean): React.CSSProperties {
 }
 
 export function TrialWidgets({ status, submit, touchMode, onAbort }: TrialWidgetsProps) {
+  const { t } = useLocale()
   if (status.phase === 'idle') {
     // Discovery lives on the minimap (all starts) + the in-zone ENTRÉE chip:
     // no idle guidance message.
@@ -77,7 +79,7 @@ export function TrialWidgets({ status, submit, touchMode, onAbort }: TrialWidget
             color: '#6ee7b7',
           }}
         >
-          {status.active ? `${status.active.from.name.toUpperCase()} → ${status.active.to.name.toUpperCase()}` : 'PRÉPAREZ-VOUS'}
+          {status.active ? `${status.active.from.name.toUpperCase()} → ${status.active.to.name.toUpperCase()}` : t('trial_get_ready')}
         </span>
       </div>
     )
@@ -115,13 +117,13 @@ export function TrialWidgets({ status, submit, touchMode, onAbort }: TrialWidget
               alignItems: 'center',
               justifyContent: 'center',
             }}
-            title="Abandonner le chrono"
+            title={t('trial_abort_title')}
           >
             ✕
           </button>
         </div>
         <span style={{ fontFamily: "'Inter', sans-serif", fontSize: touchMode ? 9 : 11, color: '#94a3b8' }}>
-          → {status.active.to.name} · reste {Math.round(status.remainingM)} m
+          {t('trial_running_remain', { name: status.active.to.name, dist: Math.round(status.remainingM) })}
         </span>
       </div>
     )
@@ -173,7 +175,7 @@ export function TrialWidgets({ status, submit, touchMode, onAbort }: TrialWidget
             animation: submit?.isRecord ? 'hudFlash 0.5s ease-in-out infinite alternate' : undefined,
           }}
         >
-          {submit ? (submit.isRecord ? 'NOUVEAU RECORD !' : `RECORD : ${formatTrialTime(submit.bestMs)}`) : 'ENVOI DU TEMPS…'}
+          {submit ? (submit.isRecord ? t('trial_new_record') : t('trial_record_is', { time: formatTrialTime(submit.bestMs) })) : t('trial_sending_time')}
         </span>
         {submit?.offline && (
           <span
@@ -184,11 +186,11 @@ export function TrialWidgets({ status, submit, touchMode, onAbort }: TrialWidget
               color: '#fbbf24',
             }}
           >
-            📴 ENREGISTRÉ HORS-LIGNE — ENVOI AU RETOUR EN LIGNE
+            {t('trial_offline_saved')}
           </span>
         )}
         <span style={{ fontFamily: "'Inter', sans-serif", fontSize: touchMode ? 9 : 11, color: 'rgba(255,255,255,0.7)' }}>
-          {status.lastResult.trial.from.name} → {status.lastResult.trial.to.name} · ENTRÉE pour continuer
+          {t('trial_continue_hint', { from: status.lastResult.trial.from.name, to: status.lastResult.trial.to.name })}
         </span>
       </div>
     )

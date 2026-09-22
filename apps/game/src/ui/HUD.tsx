@@ -1,4 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
+import { useNavigate } from '@tanstack/react-router'
+import { useLocale } from '../i18n/index.js'
+import { LOCALE_LABELS, SUPPORTED_LOCALES, saveLocale, type Locale } from '../i18n/locales.js'
+import { destName } from '../i18n/dict-travel.js'
+import { trophyName } from '../i18n/dict-trophy.js'
 import { useSettingsStore, PRESETS, type ViewDistancePreset } from '../settings/SettingsStore.js'
 import type { GameEngine, VehicleMode } from '../game/GameEngine.js'
 import type { StreetInfo } from '../world/ChunkManager.js'
@@ -37,6 +42,14 @@ interface HUDProps {
 }
 
 const KMH = 3.6
+
+/** Burger-menu view-distance preset keys (low/medium/high/ultra) → hud_ labels. */
+const PRESET_LABEL_KEYS: Record<ViewDistancePreset, string> = {
+  low: 'hud_preset_low',
+  medium: 'hud_preset_medium',
+  high: 'hud_preset_high',
+  ultra: 'hud_preset_ultra',
+}
 
 /** Flight instruments shown in plane mode (rounded for display). */
 type FlightReadout = {
@@ -90,6 +103,17 @@ function sameGun(a: GunReadout | null, b: GunReadout | null): boolean {
 }
 
 export const HUD: React.FC<HUDProps> = ({ engine }) => {
+  const { locale, t } = useLocale()
+  const navigate = useNavigate()
+  // Burger-menu language switch: persists the choice and moves to the
+  // matching locale route (/fr, /en, /es). The game reboots on the saved
+  // spawn, so the session continues where it was.
+  const switchLanguage = (lng: Locale) => {
+    if (lng === locale) return
+    saveLocale(lng)
+    setMenuOpen(false)
+    navigate({ to: '/$locale', params: { locale: lng } })
+  }
   const [speed, setSpeed] = useState(0)
   const [gear, setGear] = useState('D')
   const [nitro, setNitro] = useState(1)
@@ -129,7 +153,7 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
   const { data: authSession } = authClient.useSession()
   const authUser = authSession?.user as { name?: string; email?: string; isAnonymous?: boolean | null } | undefined
   const isGuest = !authUser || authUser.isAnonymous === true || authUser.isAnonymous === null
-  const authLabel = isGuest ? 'INVITÉ' : (authUser?.name || authUser?.email || 'PILOTE').toUpperCase().slice(0, 18)
+  const authLabel = isGuest ? t('hud_guest_name') : (authUser?.name || authUser?.email || t('hud_pilot_name')).toUpperCase().slice(0, 18)
   const [mapExpanded, setMapExpanded] = useState(false)
   const [viewDistanceOpen, setViewDistanceOpen] = useState(false)
   const viewDistance = useSettingsStore((state) => state.viewDistance)
@@ -520,7 +544,7 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
           <div style={{ display: 'flex', alignItems: 'flex-end', gap: touchMode ? 10 : 16 }}>
             {/* Airspeed */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-              <span style={flightLabelStyle}>VITESSE</span>
+              <span style={flightLabelStyle}>{t('hud_airspeed')}</span>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
                 <span
                   style={{
@@ -541,7 +565,7 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
             </div>
             {/* Altitude above ground */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-              <span style={flightLabelStyle}>ALTITUDE</span>
+              <span style={flightLabelStyle}>{t('hud_altitude')}</span>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
                 <span
                   style={{
@@ -561,7 +585,7 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
             </div>
             {/* Vertical speed */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-              <span style={flightLabelStyle}>VARIO</span>
+              <span style={flightLabelStyle}>{t('hud_vario')}</span>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
                 <span
                   style={{
@@ -583,7 +607,7 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
           </div>
           {/* Throttle */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ ...flightLabelStyle, minWidth: 24 }}>GAZ</span>
+            <span style={{ ...flightLabelStyle, minWidth: 24 }}>{t('hud_throttle')}</span>
             <div
               style={{
                 flex: 1,
@@ -625,13 +649,13 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
                 color: flight.onGround ? '#fbbf24' : '#34d399',
               }}
             >
-              {flight.onGround ? 'SOL' : 'VOL'}
+              {flight.onGround ? t('hud_ground') : t('hud_airborne')}
             </span>
           </div>
           {/* Machine guns: ammo + barrel heat */}
           {gun && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ ...flightLabelStyle, minWidth: 24, color: gun.overheated ? '#f87171' : '#fbbf24' }}>MUN</span>
+              <span style={{ ...flightLabelStyle, minWidth: 24, color: gun.overheated ? '#f87171' : '#fbbf24' }}>{t('hud_ammo')}</span>
               <span
                 style={{
                   fontFamily: "'Orbitron', sans-serif",
@@ -678,7 +702,7 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
                   animation: gun.overheated ? 'hudFlash 0.45s ease-in-out infinite alternate' : undefined,
                 }}
               >
-                {gun.overheated ? 'SURCHAUFFE' : `${gun.heat}%`}
+                {gun.overheated ? t('hud_overheat') : `${gun.heat}%`}
               </span>
             </div>
           )}
@@ -780,10 +804,10 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
                 color: '#fecaca',
               }}
             >
-              DÉCROCHAGE
+              {t('hud_stall_title')}
             </span>
             <span style={{ fontFamily: "'Inter', sans-serif", fontSize: touchMode ? 9 : 11, color: 'rgba(255,255,255,0.8)' }}>
-              {touchMode ? 'Poussez le joystick ▲ pour reprendre de la vitesse' : 'Piquez (↑) et remettez les gaz (Z / W)'}
+              {touchMode ? t('hud_stall_hint_touch') : t('hud_stall_hint_keys')}
             </span>
           </div>
         </div>
@@ -810,10 +834,10 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
                 color: '#fecaca',
               }}
             >
-              CRASH
+              {t('hud_crash_title')}
             </span>
             <span style={{ fontFamily: "'Inter', sans-serif", fontSize: touchMode ? 9 : 11, color: 'rgba(255,255,255,0.85)' }}>
-              {touchMode ? 'Touchez 🚗 Voiture pour repartir' : 'P : reprendre la voiture · Maj+P : redécoller en vol'}
+              {touchMode ? t('hud_crash_hint_touch') : t('hud_crash_hint_keys')}
             </span>
           </div>
         </div>
@@ -844,8 +868,8 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
         >
           ✈️{' '}
           {touchMode
-            ? 'Gaz automatiques : roulez tout droit, puis tirez le joystick ▼ pour décoller'
-            : 'Plein gaz (Z / W) sur une grande ligne droite, puis tirez (↓) pour décoller'}
+            ? t('hud_takeoff_hint_touch')
+            : t('hud_takeoff_hint_keys')}
         </div>
       )}
 
@@ -939,7 +963,7 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
               animation: 'hudFlash 0.4s ease-in-out infinite alternate',
             }}
           >
-            DRIFT
+            {t('hud_drift')}
           </div>
         )}
         <div
@@ -971,7 +995,7 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
               whiteSpace: 'nowrap',
             }}
           >
-            NITRO
+            {t('hud_nitro')}
           </span>
           <div
             style={{
@@ -1043,7 +1067,7 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
                 textTransform: 'uppercase',
               }}
             >
-              Remise sur roues dans {Math.ceil(flipCountdown)}s
+              {t('hud_flip_countdown', undefined, Math.ceil(flipCountdown))}
             </span>
           </div>
         )}
@@ -1113,7 +1137,7 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
                 textTransform: 'uppercase',
               }}
             >
-              {invincibilitySec <= 5.0 ? '⚠️ Fin bouclier' : '🛡️ Invincibilité'}
+              {invincibilitySec <= 5.0 ? t('hud_shield_ending') : t('hud_shield_active')}
             </span>
             <span
               style={{
@@ -1171,7 +1195,7 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
             transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
           }}
         >
-          <span style={{ ...flightLabelStyle, color: damageFlash ? '#fca5a5' : '#00d4ff' }}>PV</span>
+          <span style={{ ...flightLabelStyle, color: damageFlash ? '#fca5a5' : '#00d4ff' }}>{t('hud_hp')}</span>
           <div
             style={{
               width: touchMode ? 110 : 150,
@@ -1236,10 +1260,10 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
                 color: '#fecaca',
               }}
             >
-              DÉTRUIT
+              {t('hud_destroyed_title')}
             </span>
             <span style={{ fontFamily: "'Inter', sans-serif", fontSize: touchMode ? 9 : 11, color: 'rgba(255,255,255,0.85)' }}>
-              Abattu — réapparition en cours…
+              {t('hud_destroyed_sub')}
             </span>
           </div>
         </div>
@@ -1267,28 +1291,28 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
         >
           {isPlane ? (
             <>
-              <div><strong style={{ color: '#00d4ff' }}>Z / W</strong> — Gaz +</div>
-              <div><strong style={{ color: '#00d4ff' }}>S</strong> — Gaz −</div>
-              <div><strong style={{ color: '#00d4ff' }}>↓</strong> — Cabrer (monter)</div>
-              <div><strong style={{ color: '#00d4ff' }}>↑</strong> — Piquer (descendre)</div>
-              <div><strong style={{ color: '#00d4ff' }}>← / → ou Q / D</strong> — Roulis (virer)</div>
-              <div><strong style={{ color: '#00d4ff' }}>ESPACE</strong> — Freins (au sol)</div>
-              <div><strong style={{ color: '#fbbf24' }}>F / clic gauche</strong> — Mitrailleuse</div>
-              <div><strong style={{ color: '#38bdf8' }}>P</strong> — 🚗 Reprendre la voiture</div>
-              <div><strong style={{ color: '#38bdf8' }}>MAJ + P</strong> — Redécoller en vol</div>
-              <div><strong style={{ color: '#00d4ff' }}>M</strong> — Carte GPS</div>
+              <div><strong style={{ color: '#00d4ff' }}>Z / W</strong> — {t('hud_ctl_throttle_up')}</div>
+              <div><strong style={{ color: '#00d4ff' }}>S</strong> — {t('hud_ctl_throttle_down')}</div>
+              <div><strong style={{ color: '#00d4ff' }}>↓</strong> — {t('hud_ctl_pull_up')}</div>
+              <div><strong style={{ color: '#00d4ff' }}>↑</strong> — {t('hud_ctl_push_down')}</div>
+              <div><strong style={{ color: '#00d4ff' }}>← / → {t('hud_key_or')} Q / D</strong> — {t('hud_ctl_roll')}</div>
+              <div><strong style={{ color: '#00d4ff' }}>ESPACE</strong> — {t('hud_ctl_brakes')}</div>
+              <div><strong style={{ color: '#fbbf24' }}>F / {t('hud_ctl_leftclick')}</strong> — {t('hud_ctl_gun')}</div>
+              <div><strong style={{ color: '#38bdf8' }}>P</strong> — {t('hud_ctl_back_to_car')}</div>
+              <div><strong style={{ color: '#38bdf8' }}>{t('hud_key_shift')} + P</strong> — {t('hud_ctl_retakeoff')}</div>
+              <div><strong style={{ color: '#00d4ff' }}>M</strong> — {t('hud_ctl_map')}</div>
             </>
           ) : (
             <>
-              <div><strong style={{ color: '#00d4ff' }}>W / Z / ↑</strong> — Accélérer</div>
-              <div><strong style={{ color: '#00d4ff' }}>S / ↓</strong> — Frein / Marche arrière</div>
-              <div><strong style={{ color: '#00d4ff' }}>A / Q / ←</strong> — Tourner à gauche</div>
-              <div><strong style={{ color: '#00d4ff' }}>D / →</strong> — Tourner à droite</div>
-              <div><strong style={{ color: '#00d4ff' }}>ESPACE</strong> — Frein à main (drift)</div>
-              <div><strong style={{ color: '#00f2fe' }}>MAJ</strong> — Nitro (rechargé en driftant)</div>
-              <div><strong style={{ color: '#00d4ff' }}>M</strong> — Carte GPS</div>
-              <div><strong style={{ color: '#38bdf8' }}>P</strong> — ✈️ Prendre l’avion</div>
-              <div><strong style={{ color: '#38bdf8' }}>T</strong> — 🌍 Voyager dans le monde</div>
+              <div><strong style={{ color: '#00d4ff' }}>W / Z / ↑</strong> — {t('hud_ctl_accelerate')}</div>
+              <div><strong style={{ color: '#00d4ff' }}>S / ↓</strong> — {t('hud_ctl_brake')}</div>
+              <div><strong style={{ color: '#00d4ff' }}>A / Q / ←</strong> — {t('hud_ctl_left')}</div>
+              <div><strong style={{ color: '#00d4ff' }}>D / →</strong> — {t('hud_ctl_right')}</div>
+              <div><strong style={{ color: '#00d4ff' }}>ESPACE</strong> — {t('hud_ctl_handbrake')}</div>
+              <div><strong style={{ color: '#00f2fe' }}>{t('hud_key_shift')}</strong> — {t('hud_ctl_nitro')}</div>
+              <div><strong style={{ color: '#00d4ff' }}>M</strong> — {t('hud_ctl_map')}</div>
+              <div><strong style={{ color: '#38bdf8' }}>P</strong> — {t('hud_ctl_take_plane')}</div>
+              <div><strong style={{ color: '#38bdf8' }}>T</strong> — {t('hud_ctl_travel')}</div>
             </>
           )}
         </div>
@@ -1331,13 +1355,18 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
         title={
           onlineMode
             ? isNetworkConnected
-              ? `${playerCount} ${playerCount > 1 ? 'joueurs connectés' : 'joueur connecté'} au serveur${
-                  networkPing >= 0 ? ` (${networkPing}ms)` : ''
-                } — cliquer pour passer hors-ligne`
-              : 'Déconnecté du serveur multijoueur — cliquer pour passer en mode hors-ligne'
-            : `Mode hors-ligne${
-                getOfflineTrialRuns().length > 0 ? ` — ${getOfflineTrialRuns().length} temps en attente` : ''
-              } — cliquer pour repasser en ligne`
+              ? t('hud_net_title_online', {
+                  count: playerCount,
+                  players: t('hud_net_players', undefined, playerCount),
+                  ping: networkPing >= 0 ? ` (${networkPing}ms)` : '',
+                })
+              : t('hud_net_title_reconnect')
+            : t('hud_net_title_offline', {
+                pending:
+                  getOfflineTrialRuns().length > 0
+                    ? t('hud_net_pending', { count: getOfflineTrialRuns().length })
+                    : '',
+              })
         }
       >
         {/* Animated Live Status Dot */}
@@ -1413,12 +1442,8 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
               }}
             >
               {isMobileLandscape
-                ? playerCount > 1
-                  ? 'JOUEURS'
-                  : 'JOUEUR'
-                : playerCount > 1
-                ? 'JOUEURS CONNECTÉS'
-                : 'JOUEUR CONNECTÉ'}
+                ? t('hud_players_short', undefined, playerCount)
+                : t('hud_players', undefined, playerCount)}
             </span>
           </div>
         ) : (
@@ -1433,7 +1458,7 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
               textTransform: 'uppercase',
             }}
           >
-            HORS-LIGNE
+            {t('hud_offline')}
           </span>
         )}
 
@@ -1489,7 +1514,7 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
           zIndex: 60,
           boxShadow: '0 4px 16px rgba(0, 0, 0, 0.4)',
         }}
-        title={isGuest ? 'Mode invité — créer un compte pour tout synchroniser' : 'Compte pilote'}
+        title={isGuest ? t('hud_account_guest_title') : t('hud_account_pilot_title')}
       >
         <span style={{ fontSize: isMobileLandscape ? 10 : 12 }}>{isGuest ? '👤' : '✅'}</span>
         <span
@@ -1534,7 +1559,7 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
           zIndex: 60,
           boxShadow: '0 4px 16px rgba(0, 0, 0, 0.4)',
         }}
-        title="Menu du jeu (Voyager, Chercher, Débloquer)"
+        title={t('hud_menu_button_title')}
       >
         ☰
       </button>
@@ -1622,7 +1647,7 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 12, fontWeight: 900, color: '#00d4ff', letterSpacing: 2 }}>
-                MENU DU JEU
+                {t('hud_menu_title')}
               </span>
               <button
                 onClick={() => setMenuOpen(false)}
@@ -1666,8 +1691,8 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
                 }}
               >
                 <span style={{ fontSize: 20 }}>🌍</span>
-                <span style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 10, fontWeight: 800, color: '#00d4ff' }}>Voyager</span>
-                <span style={{ fontSize: 8, color: '#94a3b8' }}>Changer de ville</span>
+                <span style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 10, fontWeight: 800, color: '#00d4ff' }}>{t('hud_menu_travel')}</span>
+                <span style={{ fontSize: 8, color: '#94a3b8' }}>{t('hud_menu_travel_hint')}</span>
               </button>
 
               {/* 2. Recherche adresse */}
@@ -1691,8 +1716,8 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
                 }}
               >
                 <span style={{ fontSize: 20 }}>🔍</span>
-                <span style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 10, fontWeight: 800, color: '#00d4ff' }}>Rechercher</span>
-                <span style={{ fontSize: 8, color: '#94a3b8' }}>Rue ou monument</span>
+                <span style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 10, fontWeight: 800, color: '#00d4ff' }}>{t('hud_menu_search')}</span>
+                <span style={{ fontSize: 8, color: '#94a3b8' }}>{t('hud_menu_search_hint')}</span>
               </button>
 
               {/* 3. Débloquer véhicule */}
@@ -1716,8 +1741,8 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
                 }}
               >
                 <span style={{ fontSize: 20 }}>🔄</span>
-                <span style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 10, fontWeight: 800, color: '#fbbf24' }}>Débloquer</span>
-                <span style={{ fontSize: 8, color: '#94a3b8' }}>Remettre sur route</span>
+                <span style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 10, fontWeight: 800, color: '#fbbf24' }}>{t('hud_menu_unstuck')}</span>
+                <span style={{ fontSize: 8, color: '#94a3b8' }}>{t('hud_menu_unstuck_hint')}</span>
               </button>
 
               {/* 4. Voiture / Avion */}
@@ -1742,10 +1767,10 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
               >
                 <span style={{ fontSize: 20 }}>{isPlane ? '🚗' : '✈️'}</span>
                 <span style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 10, fontWeight: 800, color: isPlane ? '#fbbf24' : '#00d4ff' }}>
-                  {isPlane ? 'Voiture' : 'Avion'}
+                  {isPlane ? t('hud_menu_car') : t('hud_menu_plane')}
                 </span>
                 <span style={{ fontSize: 8, color: '#94a3b8' }}>
-                  {isPlane ? 'Reprendre la voiture (P)' : 'Prendre l’avion (P)'}
+                  {isPlane ? t('hud_menu_to_car_hint') : t('hud_menu_to_plane_hint')}
                 </span>
               </button>
 
@@ -1770,8 +1795,8 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
                 }}
               >
                 <span style={{ fontSize: 20 }}>👁️</span>
-                <span style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 10, fontWeight: 800, color: '#fbbf24' }}>Distance</span>
-                <span style={{ fontSize: 8, color: '#94a3b8' }}>Voir plus loin</span>
+                <span style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 10, fontWeight: 800, color: '#fbbf24' }}>{t('hud_menu_distance')}</span>
+                <span style={{ fontSize: 8, color: '#94a3b8' }}>{t('hud_menu_distance_hint')}</span>
               </button>
             </div>
 
@@ -1798,10 +1823,10 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
               <span style={{ fontSize: 20 }}>{isGuest ? '👤' : '✅'}</span>
               <span style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
                 <span style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 10, fontWeight: 800, color: '#00d4ff' }}>
-                  {isGuest ? 'COMPTE INVITÉ' : authLabel}
+                  {isGuest ? t('hud_menu_guest_account') : authLabel}
                 </span>
                 <span style={{ fontSize: 8, color: '#94a3b8' }}>
-                  {isGuest ? 'Sauvegardé ici — créer un compte pour synchroniser' : 'Spawn et réglages synchronisés'}
+                  {isGuest ? t('hud_menu_guest_hint') : t('hud_menu_sync_hint')}
                 </span>
               </span>
             </button>
@@ -1829,10 +1854,10 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
               <span style={{ fontSize: 20 }}>🏆</span>
               <span style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
                 <span style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 10, fontWeight: 800, color: '#fbbf24' }}>
-                  TROPHÉES
+                  {t('hud_menu_trophies')}
                 </span>
                 <span style={{ fontSize: 8, color: '#94a3b8' }}>
-                  Distance, sauts, villes, classement
+                  {t('hud_menu_trophies_hint')}
                 </span>
               </span>
             </button>
@@ -1860,10 +1885,10 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
               <span style={{ fontSize: 20 }}>⏱️</span>
               <span style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
                 <span style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 10, fontWeight: 800, color: '#34d399' }}>
-                  CHRONO
+                  {t('hud_menu_chrono')}
                 </span>
                 <span style={{ fontSize: 8, color: '#94a3b8' }}>
-                  Contre-la-montre entre monuments
+                  {t('hud_menu_chrono_hint')}
                 </span>
               </span>
             </button>
@@ -1881,7 +1906,7 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                   <span style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 10, fontWeight: 800, color: '#00d4ff' }}>
-                    DISTANCE DE VUE
+                    {t('hud_view_distance')}
                   </span>
                   <button
                     onClick={() => setViewDistanceOpen(false)}
@@ -1929,17 +1954,19 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
                       }}
                     >
                       <span style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 9, fontWeight: 800, color: viewDistance === key ? '#00d4ff' : '#fbbf24' }}>
-                        {preset.label.split(' ')[0]?.toUpperCase() ?? preset.label.toUpperCase()}
+                        {(() => {
+                          const labelKey = PRESET_LABEL_KEYS[key as ViewDistancePreset]
+                          return labelKey ? t(labelKey) : preset.label.toUpperCase()
+                        })()}
                       </span>
                       <span style={{ fontSize: 7, color: '#94a3b8' }}>
-                        {preset.loadRadius} chunks charg\u00E9s
+                        {t('hud_preset_chunks', { count: preset.loadRadius })}
                       </span>
                     </button>
                   ))}
                 </div>
                 <div style={{ marginTop: 8, fontSize: 8, color: '#94a3b8', lineHeight: 1.4 }}>
-                  Les changements prennent effet immédiatement. Les valeurs plus élevées
-                  augmentent la qualité visuelle mais peuvent réduire les performances.
+                  {t('hud_view_distance_note')}
                 </div>
               </div>
             )}
@@ -1965,8 +1992,57 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
                 gap: 6,
               }}
             >
-              <span>{touchMode ? '🎮 COMMANDES TACTILES ACTIVES' : '⌨️ COMMANDES CLAVIER ACTIVES'}</span>
+              <span>{touchMode ? t('hud_touch_on') : t('hud_touch_off')}</span>
             </button>
+
+            {/* Language switcher (burger menu only — nothing on the HUD) */}
+            <div
+              style={{
+                marginTop: 4,
+                background: 'rgba(255, 255, 255, 0.03)',
+                border: '1px solid rgba(0, 212, 255, 0.2)',
+                borderRadius: 10,
+                padding: '8px 12px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6,
+              }}
+            >
+              <span
+                style={{
+                  fontFamily: "'Orbitron', sans-serif",
+                  fontSize: 10,
+                  fontWeight: 800,
+                  letterSpacing: 1,
+                  color: '#00d4ff',
+                }}
+              >
+                🌐 {t('core_language_title')}
+              </span>
+              {SUPPORTED_LOCALES.map((lng) => (
+                <button
+                  key={lng}
+                  onClick={() => switchLanguage(lng)}
+                  style={{
+                    background: locale === lng ? 'rgba(0, 212, 255, 0.2)' : 'rgba(255, 255, 255, 0.05)',
+                    border:
+                      locale === lng
+                        ? '1px solid rgba(0, 212, 255, 0.6)'
+                        : '1px solid rgba(255, 255, 255, 0.1)',
+                    borderRadius: 8,
+                    padding: '4px 10px',
+                    color: locale === lng ? '#00d4ff' : '#94a3b8',
+                    fontFamily: "'Inter', sans-serif",
+                    fontSize: 10,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {LOCALE_LABELS[lng]}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       )}
@@ -1987,7 +2063,7 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
           <AddressSearchBar
             autoFocus
             compact
-            placeholder="Tapez une adresse, une rue ou un monument (ex: 10 rue de la Paix)..."
+            placeholder={t('hud_search_placeholder')}
             onSelectAddress={(dest) => {
               handleTravelTo(dest)
               setSearchBarOpen(false)
@@ -2023,7 +2099,7 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
           }}
         >
           <span style={{ fontSize: isMobileLandscape ? 11 : 13, animation: 'spin 1s linear infinite' }}>⚡</span>
-          <span>GÉNÉRATION DU MONDE EN DIRECT (OSM)…</span>
+          <span>{t('hud_generating')}</span>
         </div>
       )}
 
@@ -2096,9 +2172,9 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
             alignItems: 'center',
           }}
         >
-          {trophyToasts.map((t) => (
+          {trophyToasts.map((toast) => (
             <div
-              key={t.key}
+              key={toast.key}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -2113,13 +2189,13 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
               }}
             >
               <span style={{ fontSize: 18 }}>🏆</span>
-              <span style={{ fontSize: 18 }}>{t.icon}</span>
+              <span style={{ fontSize: 18 }}>{toast.icon}</span>
               <span style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
                 <span style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 11, fontWeight: 900, color: '#fde68a', letterSpacing: 1 }}>
-                  {t.name.toUpperCase()}
+                  {trophyName(t, toast.trophyId ?? '', toast.name).toUpperCase()}
                 </span>
                 <span style={{ fontFamily: "'Inter', sans-serif", fontSize: 9, color: 'rgba(255,255,255,0.75)' }}>
-                  Trophée débloqué !
+                  {t('trophy_unlocked')}
                 </span>
               </span>
             </div>
@@ -2155,7 +2231,7 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
               textShadow: '0 0 20px rgba(56, 189, 248, 0.8)',
             }}
           >
-            TÉLÉPORTATION VERS {currentDest.city.toUpperCase()}…
+            {t('hud_warp_title', { city: currentDest.city.toUpperCase() })}
           </div>
           <div
             style={{
@@ -2166,7 +2242,7 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
               letterSpacing: 1,
             }}
           >
-            {currentDest.name}
+            {destName(currentDest, t)}
           </div>
         </div>
       )}

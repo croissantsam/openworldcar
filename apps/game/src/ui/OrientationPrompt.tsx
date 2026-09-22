@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react'
+import { useLocale } from '../i18n/index.js'
 
 export const OrientationPrompt: React.FC = () => {
+  const { t } = useLocale()
   const [isPortrait, setIsPortrait] = useState(false)
   const [isTouchDevice, setIsTouchDevice] = useState(false)
   const [dismissed, setDismissed] = useState(false)
@@ -144,7 +146,7 @@ export const OrientationPrompt: React.FC = () => {
           margin: 0,
         }}
       >
-        PIVOTEZ VOTRE ÉCRAN
+        {t('orient_title')}
       </h2>
 
       {/* Subtitle */}
@@ -159,7 +161,7 @@ export const OrientationPrompt: React.FC = () => {
           letterSpacing: 0.3,
         }}
       >
-        Pour une expérience de pilotage optimale avec les commandes à deux pouces, veuillez tourner votre appareil en mode <strong>horizontal (paysage)</strong>.
+        {t('orient_sub_before')} <strong>{t('orient_mode')}</strong>.
       </p>
 
       {/* Action buttons */}
@@ -186,7 +188,7 @@ export const OrientationPrompt: React.FC = () => {
             }}
           >
             <span>⛶</span>
-            <span>PLEIN ÉCRAN</span>
+            <span>{t('orient_fullscreen')}</span>
           </button>
         )}
 
@@ -203,7 +205,7 @@ export const OrientationPrompt: React.FC = () => {
             textDecoration: 'underline',
           }}
         >
-          Continuer quand même
+          {t('orient_continue')}
         </button>
       </div>
 

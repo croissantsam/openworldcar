@@ -7,6 +7,7 @@ import {
   type TrialDef,
 } from '../../lib/trials.js'
 import { WORLD_DESTINATIONS } from '../../world/destinations.js'
+import { useLocale, type TranslateFn } from '../../i18n/index.js'
 import {
   getMyTrialBests,
   getMyTrialHistory,
@@ -22,8 +23,8 @@ function rankIcon(rank: number): string {
   return `${rank}`
 }
 
-function destCity(destinationId: string): string {
-  return WORLD_DESTINATIONS.find((d) => d.id === destinationId)?.city ?? 'Zone perso'
+function destCity(destinationId: string, t: TranslateFn): string {
+  return WORLD_DESTINATIONS.find((d) => d.id === destinationId)?.city ?? t('trial_custom_zone')
 }
 
 function histKey(h: Pick<TrialHistoryRow, 'trialId' | 'destinationId'>): string {
@@ -31,6 +32,7 @@ function histKey(h: Pick<TrialHistoryRow, 'trialId' | 'destinationId'>): string 
 }
 
 function LeaderboardRows({ rows }: { rows: TrialLeaderboardRow[] }) {
+  const { t } = useLocale()
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
       {rows.map((r) => (
@@ -61,7 +63,7 @@ function LeaderboardRows({ rows }: { rows: TrialLeaderboardRow[] }) {
             }}
           >
             {r.label}
-            {r.you ? ' (vous)' : ''}
+            {r.you ? t('trial_you_suffix') : ''}
           </span>
           <span style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 11, fontWeight: 800, color: '#fff', flexShrink: 0 }}>
             {formatTrialTime(r.timeMs)}
@@ -73,6 +75,7 @@ function LeaderboardRows({ rows }: { rows: TrialLeaderboardRow[] }) {
 }
 
 export function TrialBoardModal({ engine, onClose }: { engine: GameEngine; onClose: () => void }) {
+  const { t } = useLocale()
   const [tab, setTab] = useState<'near' | 'mine'>('near')
   const [trials, setTrials] = useState<TrialDef[]>([])
   const [radarDone, setRadarDone] = useState(false)
@@ -246,7 +249,7 @@ export function TrialBoardModal({ engine, onClose }: { engine: GameEngine; onClo
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 12, fontWeight: 900, color: '#34d399', letterSpacing: 2 }}>
-            CONTRE-LA-MONTRE
+            {t('trial_title')}
           </span>
           <button
             onClick={onClose}
@@ -272,8 +275,8 @@ export function TrialBoardModal({ engine, onClose }: { engine: GameEngine; onClo
         <div style={{ display: 'flex', gap: 6 }}>
           {(
             [
-              { id: 'near', label: 'À PROXIMITÉ' },
-              { id: 'mine', label: 'MES CHRONOS' },
+              { id: 'near', label: t('trial_tab_near') },
+              { id: 'mine', label: t('trial_tab_mine') },
             ] as const
           ).map((t) => (
             <button
@@ -301,27 +304,25 @@ export function TrialBoardModal({ engine, onClose }: { engine: GameEngine; onClo
         {tab === 'near' ? (
           <>
             <div style={{ fontSize: 11, color: '#94a3b8', lineHeight: 1.5 }}>
-              Roulez jusqu'au <strong style={{ color: '#34d399' }}>départ vert</strong> puis appuyez sur{' '}
-              <strong style={{ color: '#fff' }}>ENTRÉE</strong> pour lancer le chrono jusqu'au{' '}
-              <strong style={{ color: '#ef4444' }}>drapeau rouge</strong>.
+              {t('trial_board_hint_a')} <strong style={{ color: '#34d399' }}>{t('trial_board_hint_start')}</strong>{' '}
+              {t('trial_board_hint_b')} <strong style={{ color: '#fff' }}>ENTRÉE</strong> {t('trial_board_hint_c')}{' '}
+              <strong style={{ color: '#ef4444' }}>{t('trial_board_hint_flag')}</strong>.
             </div>
 
             {trials.length === 0 ? (
               <div style={{ color: '#94a3b8', fontSize: 12, textAlign: 'center', padding: '12px 0' }}>
-                {!radarDone
-                  ? 'Recherche des monuments alentour…'
-                  : 'Aucun monument chronométrable dans la zone — roulez vers un quartier avec des monuments.'}
+                {!radarDone ? t('trial_radar_searching') : t('trial_no_monuments')}
               </div>
             ) : (
               <>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {trials.map((t) => {
-                    const best = bests[t.id]
-                    const active = selected?.id === t.id
+                  {trials.map((trial) => {
+                    const best = bests[trial.id]
+                    const active = selected?.id === trial.id
                     return (
                       <button
-                        key={t.id}
-                        onClick={() => setSelectedId(t.id)}
+                        key={trial.id}
+                        onClick={() => setSelectedId(trial.id)}
                         style={{
                           display: 'flex',
                           alignItems: 'center',
@@ -347,11 +348,11 @@ export function TrialBoardModal({ engine, onClose }: { engine: GameEngine; onClo
                               textOverflow: 'ellipsis',
                             }}
                           >
-                            {t.from.name} → {t.to.name}
+                            {trial.from.name} → {trial.to.name}
                           </span>
                           <span style={{ fontSize: 10, color: '#94a3b8' }}>
-                            {formatTrialDist(t.distanceM)}
-                            {best !== undefined ? ` · record : ${formatTrialTime(best)}` : ' · jamais couru'}
+                            {formatTrialDist(trial.distanceM)}
+                            {best !== undefined ? t('trial_best_sub', { time: formatTrialTime(best) }) : t('trial_never_run')}
                           </span>
                         </span>
                       </button>
@@ -376,11 +377,11 @@ export function TrialBoardModal({ engine, onClose }: { engine: GameEngine; onClo
                       letterSpacing: 1.5,
                     }}
                   >
-                    CLASSEMENT{selected ? ` — ${selected.from.name.toUpperCase()} → ${selected.to.name.toUpperCase()}` : ''}
+                    {t('trial_board_heading')}{selected ? ` — ${selected.from.name.toUpperCase()} → ${selected.to.name.toUpperCase()}` : ''}
                   </div>
                   <button
                     onClick={() => setRefreshTick((t) => t + 1)}
-                    title="Rafraîchir le classement"
+                    title={t('trial_refresh_title')}
                     style={{
                       background: 'rgba(0, 212, 255, 0.1)',
                       border: '1px solid rgba(0, 212, 255, 0.4)',
@@ -400,12 +401,12 @@ export function TrialBoardModal({ engine, onClose }: { engine: GameEngine; onClo
                   </button>
                 </div>
                 {boardError ? (
-                  <div style={{ color: '#fca5a5', fontSize: 12, textAlign: 'center' }}>Classement indisponible hors-ligne.</div>
+                  <div style={{ color: '#fca5a5', fontSize: 12, textAlign: 'center' }}>{t('trial_board_offline')}</div>
                 ) : !rows ? (
-                  <div style={{ color: '#94a3b8', fontSize: 12, textAlign: 'center', padding: '8px 0' }}>Chargement…</div>
+                  <div style={{ color: '#94a3b8', fontSize: 12, textAlign: 'center', padding: '8px 0' }}>{t('trial_loading')}</div>
                 ) : rows.length === 0 ? (
                   <div style={{ color: '#94a3b8', fontSize: 12, textAlign: 'center', padding: '8px 0' }}>
-                    Personne n'a couru ce chrono — soyez le premier !
+                    {t('trial_board_empty')}
                   </div>
                 ) : (
                   <LeaderboardRows rows={rows} />
@@ -415,13 +416,13 @@ export function TrialBoardModal({ engine, onClose }: { engine: GameEngine; onClo
           </>
         ) : histError ? (
           <div style={{ color: '#fca5a5', fontSize: 12, textAlign: 'center', padding: '12px 0' }}>
-            Historique indisponible hors-ligne.
+            {t('trial_hist_offline')}
           </div>
         ) : hist === null ? (
-          <div style={{ color: '#94a3b8', fontSize: 12, textAlign: 'center', padding: '12px 0' }}>Chargement…</div>
+          <div style={{ color: '#94a3b8', fontSize: 12, textAlign: 'center', padding: '12px 0' }}>{t('trial_loading')}</div>
         ) : hist.length === 0 ? (
           <div style={{ color: '#94a3b8', fontSize: 12, textAlign: 'center', padding: '12px 0' }}>
-            Aucun chrono couru pour l'instant — finissez une course pour l'épingler ici.
+            {t('trial_hist_empty')}
           </div>
         ) : (
           <>
@@ -460,8 +461,8 @@ export function TrialBoardModal({ engine, onClose }: { engine: GameEngine; onClo
                         {h.fromName} → {h.toName}
                       </span>
                       <span style={{ fontSize: 10, color: '#94a3b8' }}>
-                        {destCity(h.destinationId)} · {formatTrialDist(h.distanceM)} · record{' '}
-                        {formatTrialTime(h.bestMs)} · {h.runs} {h.runs > 1 ? 'courses' : 'course'}
+                        {destCity(h.destinationId, t)} · {formatTrialDist(h.distanceM)} · {t('trial_record_word')}{' '}
+                        {formatTrialTime(h.bestMs)} · {t('trial_hist_runs', undefined, h.runs)}
                       </span>
                     </span>
                   </button>
@@ -476,7 +477,7 @@ export function TrialBoardModal({ engine, onClose }: { engine: GameEngine; onClo
                     onClick={() => {
                       if (engine.gotoTrialStart(histSelected)) onClose()
                     }}
-                    title="Se téléporter au départ pour refaire ce chrono"
+                    title={t('trial_teleport_title')}
                     style={{
                       background: 'rgba(52, 211, 153, 0.18)',
                       border: '1px solid rgba(52, 211, 153, 0.6)',
@@ -491,7 +492,7 @@ export function TrialBoardModal({ engine, onClose }: { engine: GameEngine; onClo
                       width: '100%',
                     }}
                   >
-                    📍 S'Y TÉLÉPORTER POUR REFAIRE
+                    {t('trial_teleport_btn')}
                   </button>
                 )}
                 <div
@@ -503,15 +504,15 @@ export function TrialBoardModal({ engine, onClose }: { engine: GameEngine; onClo
                     letterSpacing: 1.5,
                   }}
                 >
-                  CLASSEMENT — {histSelected.fromName.toUpperCase()} → {histSelected.toName.toUpperCase()}
+                  {t('trial_board_heading')} — {histSelected.fromName.toUpperCase()} → {histSelected.toName.toUpperCase()}
                 </div>
                 {histBoardError ? (
-                  <div style={{ color: '#fca5a5', fontSize: 12, textAlign: 'center' }}>Classement indisponible hors-ligne.</div>
+                  <div style={{ color: '#fca5a5', fontSize: 12, textAlign: 'center' }}>{t('trial_board_offline')}</div>
                 ) : !histRows ? (
-                  <div style={{ color: '#94a3b8', fontSize: 12, textAlign: 'center', padding: '8px 0' }}>Chargement…</div>
+                  <div style={{ color: '#94a3b8', fontSize: 12, textAlign: 'center', padding: '8px 0' }}>{t('trial_loading')}</div>
                 ) : histRows.length === 0 ? (
                   <div style={{ color: '#94a3b8', fontSize: 12, textAlign: 'center', padding: '8px 0' }}>
-                    Aucun temps sur ce chrono.
+                    {t('trial_no_times')}
                   </div>
                 ) : (
                   <LeaderboardRows rows={histRows} />

@@ -5,6 +5,7 @@ import {
   type GeocodingResult,
 } from '../services/geocoding.js'
 import type { WorldDestination } from '../world/destinations.js'
+import { useLocale } from '../i18n/index.js'
 
 interface AddressSearchBarProps {
   onSelectAddress: (destination: WorldDestination) => void
@@ -26,11 +27,13 @@ const QUICK_SUGGESTIONS = [
 
 export const AddressSearchBar: React.FC<AddressSearchBarProps> = ({
   onSelectAddress,
-  placeholder = 'Rechercher une adresse, une rue ou un monument...',
+  placeholder,
   autoFocus = false,
   compact = false,
   onClose,
 }) => {
+  const { t } = useLocale()
+  const effectivePlaceholder = placeholder ?? t('search_placeholder_default')
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<GeocodingResult[]>([])
   const [isLoading, setIsLoading] = useState(false)
@@ -84,16 +87,16 @@ export const AddressSearchBar: React.FC<AddressSearchBarProps> = ({
       setIsOpen(true)
       setSelectedIndex(-1)
       if (items.length === 0) {
-        setErrorMessage('Aucun lieu trouvé. Essayez avec un nom de rue, de monument ou de ville.')
+        setErrorMessage(t('search_empty'))
       }
     } catch (err: any) {
       if (err.name !== 'AbortError') {
-        setErrorMessage('Erreur de recherche. Vérifiez votre connexion.')
+        setErrorMessage(t('search_error'))
       }
     } finally {
       setIsLoading(false)
     }
-  }, [])
+  }, [t])
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value
@@ -188,7 +191,7 @@ export const AddressSearchBar: React.FC<AddressSearchBarProps> = ({
           onFocus={() => {
             if (results.length > 0) setIsOpen(true)
           }}
-          placeholder={placeholder}
+          placeholder={effectivePlaceholder}
           style={{
             flex: 1,
             background: 'transparent',
@@ -257,7 +260,7 @@ export const AddressSearchBar: React.FC<AddressSearchBarProps> = ({
           }}
         >
           <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 600, textTransform: 'uppercase' }}>
-            Suggestions rapides :
+            {t('search_quick_title')}
           </span>
           {QUICK_SUGGESTIONS.map((sug) => (
             <button
@@ -395,7 +398,7 @@ export const AddressSearchBar: React.FC<AddressSearchBarProps> = ({
                     flexShrink: 0,
                   }}
                 >
-                  WARP ⚡
+                  {t('search_warp_tag')}
                 </div>
               </div>
             )

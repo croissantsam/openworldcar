@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import type { GameEngine } from '../game/GameEngine.js'
 import type { Road, Building, Waterway, Park } from '@world-drive/shared'
 import type { WorldPosition } from '@world-drive/math'
+import { useLocale } from '../i18n/index.js'
 
 type Props = {
   engine: GameEngine
@@ -40,6 +41,7 @@ export function Minimap({
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [internalExpanded, setInternalExpanded] = useState(false)
   const expanded = externalExpanded !== undefined ? externalExpanded : internalExpanded
+  const { t } = useLocale()
 
   const [radarZoom, setRadarZoom] = useState(1.0)
   const [expandedZoom, setExpandedZoom] = useState(1.0)
@@ -61,7 +63,7 @@ export function Minimap({
 
   const [autoIsMobile, setAutoIsMobile] = useState(false)
   // City shown in the headers: HUD state first (reactive), engine as fallback.
-  const displayCity = destinationCity ?? engine.currentDestination?.city ?? 'MONDE'
+  const displayCity = destinationCity ?? engine.currentDestination?.city ?? t('map_world')
   const displayFlag = destinationFlag ?? engine.currentDestination?.flag ?? '🌍'
   useEffect(() => {
     const check = () => {
@@ -106,7 +108,7 @@ export function Minimap({
           const distM = Math.round(Math.sqrt(d2))
           ranked.push({
             name,
-            desc: `${p.kind ?? p.category} · à ${distM} m`,
+            desc: t('map_poi_desc', { kind: p.kind ?? p.category, dist: distM }),
             x: p.position.x,
             z: p.position.z,
             d2,
@@ -134,7 +136,7 @@ export function Minimap({
     refresh()
     const id = setInterval(refresh, 2000)
     return () => clearInterval(id)
-  }, [engine, expanded])
+  }, [engine, expanded, t])
 
   // Toggle expanded map with 'M' key
   useEffect(() => {
@@ -875,7 +877,7 @@ export function Minimap({
                   letterSpacing: 1.5,
                 }}
               >
-                CARTE GPS — {displayCity.toUpperCase()}
+                {t('map_header_gps', { city: displayCity.toUpperCase() })}
               </span>
             </div>
             <button
@@ -953,7 +955,7 @@ export function Minimap({
                   marginBottom: 2,
                 }}
               >
-                DESTINATIONS 1-CLIC :
+                {t('map_oneclick_title')}
               </div>
               {nearbyPois.length > 0 ? (
                 nearbyPois.map((poi) => (
@@ -982,7 +984,7 @@ export function Minimap({
                 ))
               ) : (
                 <div style={{ fontSize: 9, color: '#94a3b8', lineHeight: 1.5 }}>
-                  Chargement des lieux autour de vous… ou touche T pour voyager.
+                  {t('map_pois_loading', { key: 'T' })}
                 </div>
               )}
             </div>
@@ -1037,7 +1039,7 @@ export function Minimap({
             }}
           >
             <span style={{ fontSize: isMobileLandscape ? 10 : 13 }}>🧭</span>
-            <span>GPS: {remainingDist}m</span>
+            <span>{t('map_gps_label', { m: remainingDist })}</span>
             <button
               onClick={(e) => {
                 e.stopPropagation()
@@ -1052,7 +1054,7 @@ export function Minimap({
                 fontSize: 10,
                 fontWeight: 700,
               }}
-              title="Annuler GPS"
+              title={t('map_cancel_gps_title')}
             >
               ✕
             </button>
@@ -1088,8 +1090,8 @@ export function Minimap({
           }}
           title={
             expanded
-              ? 'Cliquez pour définir une destination GPS (molette pour zoomer)'
-              : 'Agrandir la carte [M] (molette pour zoomer)'
+              ? t('map_title_expanded')
+              : t('map_title_radar')
           }
         >
           <canvas
@@ -1122,7 +1124,7 @@ export function Minimap({
                 zIndex: 15,
               }}
             >
-              {expanded ? '✕' : 'CARTE [M]'}
+              {expanded ? '✕' : t('map_btn_map')}
             </button>
           )}
 
@@ -1161,7 +1163,7 @@ export function Minimap({
                 lineHeight: 1,
                 padding: 0,
               }}
-              title="Zoom avant (+)"
+              title={t('map_zoom_in_title')}
             >
               +
             </button>
@@ -1187,7 +1189,7 @@ export function Minimap({
                 lineHeight: 1,
                 padding: 0,
               }}
-              title="Zoom arrière (−)"
+              title={t('map_zoom_out_title')}
             >
               −
             </button>
@@ -1243,8 +1245,8 @@ export function Minimap({
                 justifyContent: 'space-between',
               }}
             >
-              <span>{displayFlag} DESTINATIONS RAPIDES — {displayCity.toUpperCase()}</span>
-              <span style={{ color: '#38bdf8' }}>[T] Voyager vers une autre ville</span>
+              <span>{t('map_quick_dests', { flag: displayFlag, city: displayCity.toUpperCase() })}</span>
+              <span style={{ color: '#38bdf8' }}>{t('map_travel_other')}</span>
             </div>
 
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
@@ -1290,7 +1292,7 @@ export function Minimap({
                 ))
               ) : (
                 <div style={{ fontSize: 10, color: '#94a3b8' }}>
-                  Chargement des lieux autour de vous… ou touche T pour voyager.
+                  {t('map_pois_loading', { key: 'T' })}
                 </div>
               )}
             </div>

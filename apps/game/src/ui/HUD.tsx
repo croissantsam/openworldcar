@@ -23,6 +23,15 @@ import {
   TRIAL_START_RADIUS_M,
   type TrialStatus,
 } from '../lib/trials.js'
+import {
+  getOfflineTrialRuns,
+  isOnlineMode,
+  queueOfflineTrialRun,
+  recordLocalTrialBest,
+  setOfflineTrialRuns,
+  subscribeOnlineMode,
+  type OfflineTrialMeta,
+} from '../lib/connectivity.js'
 
 interface HUDProps {
   engine: GameEngine
@@ -112,7 +121,11 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
   const [trophyOpen, setTrophyOpen] = useState(false)
   const [trialBoardOpen, setTrialBoardOpen] = useState(false)
   const [trialStatus, setTrialStatus] = useState<TrialStatus>(() => engine.getTrialStatus())
-  const [trialSubmit, setTrialSubmit] = useState<{ timeMs: number; bestMs: number; isRecord: boolean } | null>(null)
+  const [trialSubmit, setTrialSubmit] = useState<{ timeMs: number; bestMs: number; isRecord: boolean; offline?: boolean } | null>(null)
+  // Explicit online/offline mode (default online). Offline: socket closed,
+  // trial runs recorded locally and synced on return to online.
+  const [onlineMode, setOnlineModeState] = useState<boolean>(() => isOnlineMode())
+  const flushingRef = useRef(false)
   const trophyToasts = useTrophyToast((s) => s.items)
   const { data: authSession } = authClient.useSession()
   const authUser = authSession?.user as { name?: string; email?: string; isAnonymous?: boolean | null } | undefined
@@ -197,25 +210,41 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
     }
 
     // ── Time-trial finish: submit the run, banner shows record or best ─────
+    // Offline mode (or connection lost mid-submit): the run is recorded
+    // locally and synced when back online — never lost.
     engine.onTrialFinished = (trial, timeMs) => {
-      submitTrialTime({
-        data: {
-          trial: {
-            id: trial.id,
-            destinationId: trial.destinationId,
-            label: `${trial.from.name} → ${trial.to.name}`,
-            fromName: trial.from.name,
-            toName: trial.to.name,
-            distanceM: trial.distanceM,
+      const meta: OfflineTrialMeta = {
+        id: trial.id,
+        destinationId: trial.destinationId,
+        label: `${trial.from.name} → ${trial.to.name}`,
+        fromName: trial.from.name,
+        toName: trial.to.name,
+        distanceM: trial.distanceM,
+      }
+      recordLocalTrialBest(trial.id, timeMs)
+      if (isOnlineMode() && navigator.onLine) {
+        submitTrialTime({
+          data: {
+            trial: meta,
+            timeMs,
           },
-          timeMs,
-        },
-      })
-        .then((res) => {
-          setTrialSubmit({ timeMs, bestMs: res.bestMs, isRecord: res.isRecord })
-          notifyTrialTimesChanged()
         })
-        .catch(() => setTrialSubmit({ timeMs, bestMs: timeMs, isRecord: false }))
+          .then((res) => {
+            setTrialSubmit({ timeMs, bestMs: res.bestMs, isRecord: res.isRecord })
+            notifyTrialTimesChanged()
+          })
+          .catch(() => {
+            if (!navigator.onLine) {
+              queueOfflineTrialRun(meta, timeMs)
+              setTrialSubmit({ timeMs, bestMs: timeMs, isRecord: false, offline: true })
+            } else {
+              setTrialSubmit({ timeMs, bestMs: timeMs, isRecord: false })
+            }
+          })
+      } else {
+        queueOfflineTrialRun(meta, timeMs)
+        setTrialSubmit({ timeMs, bestMs: timeMs, isRecord: false, offline: true })
+      }
     }
 
     // ── Combat feedback ───────────────────────────────────────────────────
@@ -380,6 +409,42 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
       engine.onTrialFinished = undefined
     }
   }, [engine, travelOpen])
+
+  // Explicit online/offline mode (menu toggle, other tab).
+  useEffect(() => subscribeOnlineMode(setOnlineModeState), [])
+
+  // Flush offline-recorded trial runs when (back) online — in order, then
+  // refresh leaderboards. Also runs once on boot, syncing runs queued in a
+  // previous session. Failures that aren't validation errors are re-queued.
+  useEffect(() => {
+    if (!onlineMode) return
+    if (flushingRef.current) return
+    if (getOfflineTrialRuns().length === 0) return
+    flushingRef.current = true
+    ;(async () => {
+      const pending = getOfflineTrialRuns()
+      // Clear first: a second flight (StrictMode) then sees an empty queue.
+      setOfflineTrialRuns([])
+      let synced = 0
+      const failed: typeof pending = []
+      for (const run of pending) {
+        try {
+          await submitTrialTime({ data: { trial: run.trial, timeMs: run.timeMs } })
+          recordLocalTrialBest(run.trial.id, run.timeMs)
+          synced++
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : ''
+          if (!msg.includes('INVALID') && !msg.includes('IMPOSSIBLE')) failed.push(run)
+        }
+      }
+      if (failed.length > 0) setOfflineTrialRuns([...failed, ...getOfflineTrialRuns()])
+      if (synced > 0) notifyTrialTimesChanged()
+    })()
+      .catch(() => {})
+      .finally(() => {
+        flushingRef.current = false
+      })
+  }, [onlineMode])
 
   const handleTravelTo = (dest: WorldDestination) => {
     setIsWarping(true)
@@ -1176,8 +1241,14 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
         </div>
       )}
 
-      {/* Sleek Top-Left Connected Players Badge */}
-      <div
+      {/* Sleek Top-Left Connected Players Badge — doubles as the online/offline toggle */}
+      <button
+        onClick={(e) => {
+          e.currentTarget.blur()
+          engine.setOnlineMode(!onlineMode)
+        }}
+        onMouseDown={(e) => e.preventDefault()}
+        tabIndex={-1}
         style={{
           position: 'absolute',
           top: isMobileLandscape ? 'max(8px, env(safe-area-inset-top, 8px))' : 16,
@@ -1202,13 +1273,18 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
             ? '0 4px 16px rgba(0, 0, 0, 0.4), 0 0 12px rgba(0, 212, 255, 0.15)'
             : '0 4px 16px rgba(0, 0, 0, 0.4), 0 0 10px rgba(239, 68, 68, 0.2)',
           transition: 'border-color 0.3s ease, box-shadow 0.3s ease',
+          cursor: 'pointer',
         }}
         title={
-          isNetworkConnected
-            ? `${playerCount} ${playerCount > 1 ? 'joueurs connectés' : 'joueur connecté'} au serveur${
-                networkPing >= 0 ? ` (${networkPing}ms)` : ''
-              }`
-            : 'Déconnecté du serveur multijoueur'
+          onlineMode
+            ? isNetworkConnected
+              ? `${playerCount} ${playerCount > 1 ? 'joueurs connectés' : 'joueur connecté'} au serveur${
+                  networkPing >= 0 ? ` (${networkPing}ms)` : ''
+                } — cliquer pour passer hors-ligne`
+              : 'Déconnecté du serveur multijoueur — cliquer pour passer en mode hors-ligne'
+            : `Mode hors-ligne${
+                getOfflineTrialRuns().length > 0 ? ` — ${getOfflineTrialRuns().length} temps en attente` : ''
+              } — cliquer pour repasser en ligne`
         }
       >
         {/* Animated Live Status Dot */}
@@ -1337,7 +1413,7 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
             </span>
           </div>
         )}
-      </div>
+      </button>
 
       {/* Account session badge (guest or pilot) — opens the account modal */}
       <button

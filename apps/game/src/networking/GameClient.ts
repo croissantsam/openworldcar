@@ -70,6 +70,8 @@ export class GameClient {
   private reconnectDelay = MIN_RECONNECT_MS
   private disposed = false
   private connected = false
+  /** Explicit offline mode: socket stays closed, no reconnect attempts. */
+  private socketsEnabled = true
 
   /** Callback when server broadcasts player snapshots */
   onSnapshot?: (players: PlayerSnapshot[], localPlayerId: string) => void
@@ -86,8 +88,36 @@ export class GameClient {
   /** Our vehicle was destroyed by `by` (the server already reset us). */
   onDestroyed?: (by: string) => void
 
-  constructor() {
-    this._connect()
+  constructor(autoConnect = true) {
+    this.socketsEnabled = autoConnect
+    if (autoConnect) this._connect()
+  }
+
+  /**
+   * Toggle the multiplayer socket (explicit online/offline mode).
+   * Disabling closes the socket and stops reconnect attempts; re-enabling
+   * reconnects immediately. Solo play (driving, NPCs, chunks) is unaffected.
+   */
+  setSocketsEnabled(enabled: boolean): void {
+    this.socketsEnabled = enabled
+    if (enabled) {
+      if (this.disposed || this.connected) return
+      if (this.ws?.readyState === WebSocket.OPEN) return
+      this.reconnectDelay = MIN_RECONNECT_MS
+      this._connect()
+      return
+    }
+    this.connected = false
+    this._playerCount = 0
+    this._nearbyPlayers = 0
+    if (this.pingTimer) { clearInterval(this.pingTimer); this.pingTimer = null }
+    if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null }
+    try {
+      this.ws?.close()
+    } catch {
+      // already closed — ignore
+    }
+    this.ws = null
   }
 
   get localPlayerId(): string {
@@ -95,7 +125,7 @@ export class GameClient {
   }
 
   private _connect(): void {
-    if (this.disposed) return
+    if (this.disposed || !this.socketsEnabled) return
     try {
       this.ws = new WebSocket(this.wsUrl)
       this.ws.onopen = this._onOpen
@@ -178,7 +208,7 @@ export class GameClient {
   }
 
   private _scheduleReconnect(): void {
-    if (this.disposed) return
+    if (this.disposed || !this.socketsEnabled) return
     this.reconnectTimer = setTimeout(() => this._connect(), this.reconnectDelay)
     // Exponential backoff
     this.reconnectDelay = Math.min(this.reconnectDelay * 2, MAX_RECONNECT_MS)

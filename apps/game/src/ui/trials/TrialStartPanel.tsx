@@ -6,6 +6,7 @@ import {
   TRIAL_START_RADIUS_M,
   type TrialDef,
 } from '../../lib/trials.js'
+import { getLocalTrialBests, isOnlineMode, subscribeOnlineMode } from '../../lib/connectivity.js'
 import { getTrialLeaderboard, type TrialLeaderboardRow } from '../../server/trials.js'
 
 interface TrialStartPanelProps {
@@ -37,6 +38,9 @@ export function TrialStartPanel({ engine, proposal, distToStartM, touchMode }: T
   const [selectedId, setSelectedId] = useState<string | null>(proposal.id)
   // Manual retry counter — the only refetch trigger besides beacon change.
   const [retryTick, setRetryTick] = useState(0)
+  // Bumped when the online/offline mode flips while the panel is open, so
+  // the display switches between server times and local records.
+  const [modeTick, setModeTick] = useState(0)
   const fromId = proposal.from.id
 
   // Race list for this beacon — computed ONCE when the panel appears (mount
@@ -67,10 +71,21 @@ export function TrialStartPanel({ engine, proposal, distToStartM, touchMode }: T
   }, [engine, fromId])
 
   // Top-3 per race — ONE plain HTTP flight when the panel appears (or on
-  // manual retry). No polling, no focus refetch, no socket: background
-  // retries merge over the current display without wiping it.
+  // manual retry). No polling, no focus refetch, no socket. Offline: local
+  // records only, zero network.
   useEffect(() => {
     if (trials.length === 0) return
+    if (!isOnlineMode()) {
+      const bests = getLocalTrialBests()
+      const map: Record<string, TrialLeaderboardRow[]> = {}
+      for (const t of trials) {
+        const b = bests[t.id]
+        map[t.id] = b !== undefined ? [{ rank: 1, label: 'Record local', timeMs: b, you: true }] : []
+      }
+      setTops(map)
+      setTopsErr({})
+      return
+    }
     let cancelled = false
     const list = trials
     const ids = list.map((t) => t.id)
@@ -136,7 +151,9 @@ export function TrialStartPanel({ engine, proposal, distToStartM, touchMode }: T
     return () => {
       cancelled = true
     }
-  }, [trials, retryTick])
+  }, [trials, retryTick, modeTick])
+
+  useEffect(() => subscribeOnlineMode(() => setModeTick((t) => t + 1)), [])
 
   const select = (trial: TrialDef) => {
     setSelectedId(trial.id)

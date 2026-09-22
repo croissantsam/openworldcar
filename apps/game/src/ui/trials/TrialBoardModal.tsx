@@ -11,6 +11,7 @@ import {
   getTrialLeaderboard,
   type TrialLeaderboardRow,
 } from '../../server/trials.js'
+import { getLocalTrialBests } from '../../lib/connectivity.js'
 
 function rankIcon(rank: number): string {
   if (rank === 1) return '🥇'
@@ -68,7 +69,18 @@ export function TrialBoardModal({ engine, onClose }: { engine: GameEngine; onClo
       .then((b) => {
         if (!cancelled) setBests(b)
       })
-      .catch(() => {})
+      .catch(() => {
+        // Offline (or server unreachable): fall back to locally recorded bests.
+        if (!cancelled) {
+          const local = getLocalTrialBests()
+          const fb: Record<string, number> = {}
+          for (const t of trials) {
+            const b = local[t.id]
+            if (b !== undefined) fb[t.id] = b
+          }
+          setBests(fb)
+        }
+      })
     return () => {
       cancelled = true
     }

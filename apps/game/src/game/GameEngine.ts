@@ -46,6 +46,7 @@ import {
   type TrialPhase,
   type TrialStatus,
 } from '../lib/trials.js'
+import { isOnlineMode, setOnlineModeSetting } from '../lib/connectivity.js'
 import {
   fetchCorridorRoads,
   fetchRadarMonuments,
@@ -373,7 +374,7 @@ export class GameEngine {
     )
     this.npcManager = new NPCManager(this.renderer.scene)
     this.remotePlayers = new RemotePlayerManager(this.renderer.scene, this.world)
-    this.gameClient = new GameClient()
+    this.gameClient = new GameClient(isOnlineMode())
     this.gameClient.localDisplayName = this.pendingDisplayName
 
     // OSM streaming manager — continuously fetches real map data as the player drives.
@@ -1684,6 +1685,17 @@ export class GameEngine {
 
   isNetworkConnected(): boolean {
     return this.gameClient?.isConnected ?? false
+  }
+
+  /**
+   * Explicit online/offline mode (default online). Offline closes the
+   * multiplayer socket with no reconnect attempts; time-trial runs are
+   * recorded locally and synced on return to online (see the HUD flush).
+   * Solo play (driving, NPC traffic, chunks) is unaffected.
+   */
+  setOnlineMode(online: boolean): void {
+    setOnlineModeSetting(online)
+    this.gameClient?.setSocketsEnabled(online)
   }
 
   getNetworkLatency(): number {

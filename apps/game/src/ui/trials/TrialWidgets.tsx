@@ -2,7 +2,7 @@ import { formatTrialTime, TRIAL_START_RADIUS_M, type TrialStatus } from '../../l
 
 interface TrialWidgetsProps {
   status: TrialStatus
-  submit: { timeMs: number; bestMs: number; isRecord: boolean } | null
+  submit: { timeMs: number; bestMs: number; isRecord: boolean; offline?: boolean } | null
   touchMode: boolean
   onAbort: () => void
 }
@@ -175,6 +175,18 @@ export function TrialWidgets({ status, submit, touchMode, onAbort }: TrialWidget
         >
           {submit ? (submit.isRecord ? 'NOUVEAU RECORD !' : `RECORD : ${formatTrialTime(submit.bestMs)}`) : 'ENVOI DU TEMPS…'}
         </span>
+        {submit?.offline && (
+          <span
+            style={{
+              fontFamily: "'Inter', sans-serif",
+              fontSize: touchMode ? 9 : 11,
+              fontWeight: 700,
+              color: '#fbbf24',
+            }}
+          >
+            📴 ENREGISTRÉ HORS-LIGNE — ENVOI AU RETOUR EN LIGNE
+          </span>
+        )}
         <span style={{ fontFamily: "'Inter', sans-serif", fontSize: touchMode ? 9 : 11, color: 'rgba(255,255,255,0.7)' }}>
           {status.lastResult.trial.from.name} → {status.lastResult.trial.to.name} · ENTRÉE pour continuer
         </span>

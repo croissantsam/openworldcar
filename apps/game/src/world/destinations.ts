@@ -255,6 +255,36 @@ export function createCustomDestination(
 }
 
 /**
+ * Communes de Petite Couronne collées à Paris. Sans elles, Levallois,
+ * Neuilly, Boulogne… tombent dans le bbox francilien et héritent à tort
+ * du fallback « Paris Intra-Muros ».
+ */
+const PARIS_SUBURBS: Array<{ lat: number; lon: number; r: number; label: string }> = [
+  { lat: 48.8932, lon: 2.2875, r: 0.012, label: 'Levallois-Perret' },
+  { lat: 48.8847, lon: 2.2695, r: 0.01, label: 'Neuilly-sur-Seine' },
+  { lat: 48.9111, lon: 2.2864, r: 0.012, label: 'Asnières-sur-Seine' },
+  { lat: 48.9043, lon: 2.3059, r: 0.011, label: 'Clichy' },
+  { lat: 48.9116, lon: 2.3332, r: 0.012, label: 'Saint-Ouen-sur-Seine' },
+  { lat: 48.9356, lon: 2.3539, r: 0.014, label: 'Saint-Denis' },
+  { lat: 48.9133, lon: 2.3798, r: 0.012, label: 'Aubervilliers' },
+  { lat: 48.8964, lon: 2.4012, r: 0.012, label: 'Pantin' },
+  { lat: 48.8614, lon: 2.4434, r: 0.013, label: 'Montreuil' },
+  { lat: 48.8474, lon: 2.4392, r: 0.01, label: 'Vincennes' },
+  { lat: 48.8468, lon: 2.4193, r: 0.009, label: 'Saint-Mandé' },
+  { lat: 48.8132, lon: 2.3844, r: 0.012, label: 'Ivry-sur-Seine' },
+  { lat: 48.8117, lon: 2.3622, r: 0.01, label: 'Le Kremlin-Bicêtre' },
+  { lat: 48.8156, lon: 2.3434, r: 0.009, label: 'Gentilly' },
+  { lat: 48.8176, lon: 2.3179, r: 0.01, label: 'Montrouge' },
+  { lat: 48.8138, lon: 2.2989, r: 0.009, label: 'Malakoff' },
+  { lat: 48.8219, lon: 2.2892, r: 0.009, label: 'Vanves' },
+  { lat: 48.8246, lon: 2.2748, r: 0.012, label: 'Issy-les-Moulineaux' },
+  { lat: 48.835, lon: 2.2419, r: 0.014, label: 'Boulogne-Billancourt' },
+  { lat: 48.8926, lon: 2.2364, r: 0.013, label: 'Courbevoie — La Défense' },
+  { lat: 48.8703, lon: 2.2226, r: 0.011, label: 'Suresnes' },
+  { lat: 48.9188, lon: 2.2546, r: 0.012, label: 'Colombes' },
+]
+
+/**
  * Returns authentic real-time district, arrondissement, and neighborhood
  * from GPS coordinates for Paris and worldwide cities.
  */
@@ -272,6 +302,24 @@ export function getDistrictLabel(geo: GeoPosition, dest?: WorldDestination): str
     if (Math.hypot(geo.latitude - 48.8500, geo.longitude - 2.3320) < 0.011) return 'Paris (6e) — Saint-Germain-des-Prés'
     if (Math.hypot(geo.latitude - 48.8450, geo.longitude - 2.3500) < 0.011) return 'Paris (5e) — Quartier Latin & Panthéon'
     if (Math.hypot(geo.latitude - 48.8590, geo.longitude - 2.3780) < 0.013) return 'Paris (11e) — Bastille & Oberkampf'
+    // Petite Couronne : testée après les arrondissements (prioritaires sur
+    // les zones frontalières) mais avant le fallback générique.
+    for (const s of PARIS_SUBURBS) {
+      if (Math.hypot(geo.latitude - s.lat, geo.longitude - s.lon) < s.r) return s.label
+    }
+    // Destination non-parisienne (recherche, GPS libre) : ne jamais
+    // l'écraser avec « Paris Intra-Muros ».
+    const destCity = dest?.city?.trim() ?? ''
+    if (destCity && destCity !== 'Paris' && !destCity.startsWith('Paris ')) {
+      const destName = dest?.name?.trim() ?? ''
+      if (destName && destName !== destCity) return `${destCity} — ${destName}`
+      return destCity
+    }
+    // Hors périphérique (bbox approximatif) sans match précis : banlieue,
+    // pas Intra-Muros.
+    if (geo.latitude > 48.9022 || geo.latitude < 48.8155 || geo.longitude < 2.2241 || geo.longitude > 2.4699) {
+      return 'Banlieue Parisienne'
+    }
     return 'Paris Intra-Muros'
   }
 

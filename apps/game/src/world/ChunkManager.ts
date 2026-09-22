@@ -758,6 +758,79 @@ export class ChunkManager {
     }
   }
 
+  /**
+   * Nearest drivable road surface point to the given XZ (crash/flip
+   * recovery: put the car back on the road "à l'endroit"). Returns the
+   * projected point, its interpolated height and the normalized segment
+   * direction, or null when no road data is loaded nearby.
+   */
+  getNearestRoadPoint(
+    x: number,
+    z: number,
+    maxDistance = 150,
+  ): { x: number; y: number; z: number; dirX: number; dirZ: number } | null {
+    let bestX = 0
+    let bestY = 0
+    let bestZ = 0
+    let bestDirX = 0
+    let bestDirZ = 1
+    let bestScore = Infinity
+    let found = false
+    const maxSq = maxDistance * maxDistance
+
+    for (const [, chunk] of this.chunks) {
+      if (!chunk.data || chunk.state.status === 'UNLOADED') continue
+
+      for (const road of chunk.data.roads) {
+        const pts = road.points
+        if (pts.length < 2) continue
+
+        // Prefer real carriageways over footpaths (same bias as spawn search)
+        let penalty = 0
+        if (road.highway === 'service') penalty = 25 * 25
+        else if (road.highway === 'pedestrian') penalty = 50 * 50
+        else if (
+          road.highway === 'footway' ||
+          road.highway === 'path' ||
+          road.highway === 'steps' ||
+          road.highway === 'cycleway'
+        ) penalty = 100 * 100
+        if (road.elevationMode === 'tunnel' || road.tunnel) penalty += 20 * 20
+
+        for (let i = 0; i < pts.length - 1; i++) {
+          const p1 = pts[i]!
+          const p2 = pts[i + 1]!
+          const dx = p2.x - p1.x
+          const dz = p2.z - p1.z
+          const lenSq = dx * dx + dz * dz
+          if (lenSq < 1e-4) continue
+          let t = ((x - p1.x) * dx + (z - p1.z) * dz) / lenSq
+          t = Math.max(0, Math.min(1, t))
+          const px = p1.x + t * dx
+          const pz = p1.z + t * dz
+          const ex = x - px
+          const ez = z - pz
+          const distSq = ex * ex + ez * ez
+          if (distSq > maxSq) continue
+          const score = distSq + penalty
+          if (score < bestScore) {
+            bestScore = score
+            bestX = px
+            bestZ = pz
+            bestY = p1.y + t * (p2.y - p1.y)
+            const len = Math.sqrt(lenSq)
+            bestDirX = dx / len
+            bestDirZ = dz / len
+            found = true
+          }
+        }
+      }
+    }
+
+    if (!found) return null
+    return { x: bestX, y: bestY, z: bestZ, dirX: bestDirX, dirZ: bestDirZ }
+  }
+
   private _formatHighway(type: string): string {
     switch (type) {
       case 'motorway': return 'Autoroute'

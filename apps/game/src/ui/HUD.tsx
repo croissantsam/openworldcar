@@ -139,6 +139,7 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
   const [invincibilitySec, setInvincibilitySec] = useState<number>(() =>
     engine.getInvincibilityRemaining()
   )
+  const [flipCountdown, setFlipCountdown] = useState<number>(0)
   const [playerCount, setPlayerCount] = useState<number>(() => engine.getConnectedPlayerCount())
   const [isNetworkConnected, setIsNetworkConnected] = useState<boolean>(() => engine.isNetworkConnected())
   const [networkPing, setNetworkPing] = useState<number>(() => engine.getNetworkLatency())
@@ -192,6 +193,14 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
     engine.onDestinationChanged = (newDest) => {
       setCurrentDest(newDest)
       currentDestRef.current = newDest
+      // A city change reuses local world coords (each city is centered on
+      // its own origin): force the street/district refresh instead of
+      // trusting the moved-distance + hysteresis caches, and drop the old
+      // city's street immediately so the badge shows the new city at once.
+      setStreet(null)
+      lastStreetPosRef.current = null
+      lastStreetAtRef.current = 0
+      lastSeenRef.current = Date.now()
       const pos = engine.getPlayerPosition()
       const currentGeo = worldToGeo(pos)
       setDistrict(getDistrictLabel(currentGeo, newDest))
@@ -372,6 +381,7 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
       setCombatInvincible(cs.invincible)
 
       setInvincibilitySec(engine.getInvincibilityRemaining())
+      setFlipCountdown(engine.getFlipRecoveryCountdown())
       setPlayerCount(engine.getConnectedPlayerCount())
       setIsNetworkConnected(engine.isNetworkConnected())
       setNetworkPing(engine.getNetworkLatency())
@@ -456,6 +466,15 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
     setIsWarping(true)
     setCurrentDest(dest)
     currentDestRef.current = dest
+    // Optimistic HUD refresh: same resets as onDestinationChanged so the
+    // badge/district switch instantly, even before the engine callback.
+    // (The player hasn't teleported yet, so derive the district from the
+    // destination origin — the engine callback recomputes it post-teleport.)
+    setStreet(null)
+    lastStreetPosRef.current = null
+    lastStreetAtRef.current = 0
+    lastSeenRef.current = Date.now()
+    setDistrict(getDistrictLabel(dest.origin, dest))
     engine.travelTo(dest)
     recordCityVisit(dest.id)
     setTimeout(() => {
@@ -1000,6 +1019,38 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
           zIndex: 34,
         }}
       >
+        {/* Flip-over auto recovery countdown — car back on the road shortly */}
+        {flipCountdown > 0 && !isPlane && (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              background: 'rgba(28, 14, 4, 0.92)',
+              border: '1px solid rgba(251, 146, 60, 0.8)',
+              boxShadow: '0 4px 16px rgba(0,0,0,0.4), 0 0 18px rgba(251, 146, 60, 0.45)',
+              backdropFilter: 'blur(10px)',
+              WebkitBackdropFilter: 'blur(10px)',
+              borderRadius: 12,
+              padding: touchMode ? '3px 10px' : '4px 12px',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            <span style={{ fontSize: touchMode ? 12 : 14 }}>🔄</span>
+            <span
+              style={{
+                fontFamily: "'Orbitron', sans-serif",
+                fontSize: touchMode ? 8 : 9,
+                fontWeight: 800,
+                letterSpacing: 1.2,
+                color: '#fdba74',
+                textTransform: 'uppercase',
+              }}
+            >
+              Remise sur roues dans {Math.ceil(flipCountdown)}s
+            </span>
+          </div>
+        )}
         {/* Spawn invincibility (car pass-through) — above the PV bar */}
         {invincibilitySec > 0 && !isPlane && (
           <div
@@ -1532,11 +1583,11 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
               {street.name}
               <span style={{ color: 'rgba(148, 163, 184, 0.9)', fontWeight: 600 }}>
                 {'  ·  '}
-                {currentDest.city}
+                {district}
               </span>
             </>
           ) : (
-            `${currentDest.flag} ${currentDest.city}`
+            `${currentDest.flag} ${district}`
           )}
         </span>
         {street?.maxSpeed && (
@@ -1691,7 +1742,7 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
               >
                 <span style={{ fontSize: 20 }}>🔄</span>
                 <span style={{ fontFamily: "'Orbitron', sans-serif", fontSize: 10, fontWeight: 800, color: '#fbbf24' }}>Débloquer</span>
-                <span style={{ fontSize: 8, color: '#94a3b8' }}>Recentrer voiture</span>
+                <span style={{ fontSize: 8, color: '#94a3b8' }}>Remettre sur route</span>
               </button>
 
               {/* 4. Voiture / Avion */}
@@ -2007,6 +2058,8 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
         isMobileLandscape={isMobileLandscape}
         externalExpanded={mapExpanded}
         onToggleExpanded={() => setMapExpanded((v) => !v)}
+        destinationCity={currentDest.city}
+        destinationFlag={currentDest.flag}
       />
 
       {/* Mobile Touch Controls Overlay (Joystick + Brake) */}

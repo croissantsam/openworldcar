@@ -8,9 +8,14 @@ type Props = {
   isMobileLandscape?: boolean
   externalExpanded?: boolean
   onToggleExpanded?: () => void
+  /** Driven by HUD state so headers follow city changes even between polls. */
+  destinationCity?: string
+  destinationFlag?: string
 }
 
-// Iconic Paris landmarks for 1-click GPS routing
+// Fallback Paris landmarks for 1-click GPS routing (used only while live
+// OSM POIs are still loading and only in the Paris area — everywhere else
+// the map offers the nearest named POIs from the loaded chunks).
 const LANDMARKS: Array<{ name: string; pos: WorldPosition; desc: string }> = [
   { name: 'Centre Pompidou', pos: { x: 480, y: 0, z: 420 }, desc: 'Art moderne & architecture' },
   { name: 'Place des Victoires', pos: { x: -350, y: 0, z: 20 }, desc: 'Place circulaire historique' },
@@ -40,6 +45,8 @@ export function Minimap({
   isMobileLandscape: propIsMobileLandscape,
   externalExpanded,
   onToggleExpanded,
+  destinationCity,
+  destinationFlag,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [internalExpanded, setInternalExpanded] = useState(false)
@@ -64,6 +71,11 @@ export function Minimap({
   )
 
   const [autoIsMobile, setAutoIsMobile] = useState(false)
+  // City shown in the headers: HUD state first (reactive), engine as fallback.
+  // LANDMARKS below are Paris-local coords, so they are only offered in Paris.
+  const displayCity = destinationCity ?? engine.currentDestination?.city ?? 'PARIS'
+  const displayFlag = destinationFlag ?? engine.currentDestination?.flag ?? '🌍'
+  const isParisArea = displayCity === 'Paris'
   useEffect(() => {
     const check = () => {
       const isTouch =
@@ -83,6 +95,60 @@ export function Minimap({
 
   const [gpsRouteActive, setGpsRouteActive] = useState(false)
   const [remainingDist, setRemainingDist] = useState<number | null>(null)
+
+  // Worldwide 1-click destinations: nearest NAMED OSM POIs around the player
+  // (works in every city on Earth, not just the curated ones). Refreshed
+  // every 2 s while the map is expanded; the hardcoded Paris list below is
+  // only a fallback while chunks are still loading.
+  const [nearbyPois, setNearbyPois] = useState<
+    Array<{ name: string; desc: string; x: number; z: number }>
+  >([])
+  useEffect(() => {
+    if (!expanded) return
+    const refresh = () => {
+      try {
+        const playerPos = engine.getPlayerPosition()
+        const pois = engine.chunkManager?.getActivePOIs() ?? []
+        const ranked: Array<{ name: string; desc: string; x: number; z: number; d2: number }> = []
+        for (const p of pois) {
+          const name = (p.name ?? p.brand ?? '').trim()
+          if (!name) continue
+          const dx = p.position.x - playerPos.x
+          const dz = p.position.z - playerPos.z
+          const d2 = dx * dx + dz * dz
+          if (d2 > 1500 * 1500) continue
+          const distM = Math.round(Math.sqrt(d2))
+          ranked.push({
+            name,
+            desc: `${p.kind ?? p.category} · à ${distM} m`,
+            x: p.position.x,
+            z: p.position.z,
+            d2,
+          })
+        }
+        ranked.sort((a, b) => a.d2 - b.d2)
+        const seen = new Set<string>()
+        const top: Array<{ name: string; desc: string; x: number; z: number }> = []
+        for (const r of ranked) {
+          const key = r.name.toLowerCase()
+          if (seen.has(key)) continue
+          seen.add(key)
+          top.push({ name: r.name, desc: r.desc, x: r.x, z: r.z })
+          if (top.length >= 5) break
+        }
+        setNearbyPois((prev) =>
+          prev.length === top.length && prev.every((v, i) => v.name === top[i]!.name && v.desc === top[i]!.desc)
+            ? prev
+            : top,
+        )
+      } catch {
+        // chunk data not ready — keep previous list
+      }
+    }
+    refresh()
+    const id = setInterval(refresh, 2000)
+    return () => clearInterval(id)
+  }, [engine, expanded])
 
   // Toggle expanded map with 'M' key
   useEffect(() => {
@@ -823,7 +889,7 @@ export function Minimap({
                   letterSpacing: 1.5,
                 }}
               >
-                CARTE GPS — {(engine.currentDestination?.city ?? 'PARIS').toUpperCase()}
+                CARTE GPS — {displayCity.toUpperCase()}
               </span>
             </div>
             <button
@@ -903,30 +969,61 @@ export function Minimap({
               >
                 DESTINATIONS 1-CLIC :
               </div>
-              {LANDMARKS.map((lm) => (
-                <button
-                  key={lm.name}
-                  onClick={() => {
-                    engine.setGpsDestination(lm.pos)
-                    setExpanded(false)
-                  }}
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'flex-start',
-                    background: 'rgba(255, 255, 255, 0.05)',
-                    border: '1px solid rgba(255, 255, 255, 0.1)',
-                    borderRadius: 8,
-                    padding: '5px 8px',
-                    cursor: 'pointer',
-                    color: '#ffffff',
-                    textAlign: 'left',
-                  }}
-                >
-                  <span style={{ fontSize: 10, fontWeight: 700 }}>📍 {lm.name}</span>
-                  <span style={{ fontSize: 8, color: '#94a3b8' }}>{lm.desc}</span>
-                </button>
-              ))}
+              {nearbyPois.length > 0 ? (
+                nearbyPois.map((poi) => (
+                  <button
+                    key={poi.name}
+                    onClick={() => {
+                      engine.setGpsDestination({ x: poi.x, y: 0, z: poi.z })
+                      setExpanded(false)
+                    }}
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'flex-start',
+                      background: 'rgba(255, 255, 255, 0.05)',
+                      border: '1px solid rgba(255, 255, 255, 0.1)',
+                      borderRadius: 8,
+                      padding: '5px 8px',
+                      cursor: 'pointer',
+                      color: '#ffffff',
+                      textAlign: 'left',
+                    }}
+                  >
+                    <span style={{ fontSize: 10, fontWeight: 700 }}>📍 {poi.name}</span>
+                    <span style={{ fontSize: 8, color: '#94a3b8' }}>{poi.desc}</span>
+                  </button>
+                ))
+              ) : isParisArea ? (
+                LANDMARKS.map((lm) => (
+                  <button
+                    key={lm.name}
+                    onClick={() => {
+                      engine.setGpsDestination(lm.pos)
+                      setExpanded(false)
+                    }}
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'flex-start',
+                      background: 'rgba(255, 255, 255, 0.05)',
+                      border: '1px solid rgba(255, 255, 255, 0.1)',
+                      borderRadius: 8,
+                      padding: '5px 8px',
+                      cursor: 'pointer',
+                      color: '#ffffff',
+                      textAlign: 'left',
+                    }}
+                  >
+                    <span style={{ fontSize: 10, fontWeight: 700 }}>📍 {lm.name}</span>
+                    <span style={{ fontSize: 8, color: '#94a3b8' }}>{lm.desc}</span>
+                  </button>
+                ))
+              ) : (
+                <div style={{ fontSize: 9, color: '#94a3b8', lineHeight: 1.5 }}>
+                  Chargement des lieux autour de vous… ou touche T pour voyager.
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -1185,50 +1282,96 @@ export function Minimap({
                 justifyContent: 'space-between',
               }}
             >
-              <span>{engine.currentDestination?.flag ?? '🌍'} DESTINATIONS RAPIDES — {(engine.currentDestination?.city ?? 'PARIS').toUpperCase()}</span>
+              <span>{displayFlag} DESTINATIONS RAPIDES — {displayCity.toUpperCase()}</span>
               <span style={{ color: '#38bdf8' }}>[T] Voyager vers une autre ville</span>
             </div>
 
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              {LANDMARKS.map((lm) => (
-                <button
-                  key={lm.name}
-                  onClick={() => {
-                    engine.setGpsDestination(lm.pos)
-                  }}
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'flex-start',
-                    background: 'rgba(255, 255, 255, 0.05)',
-                    border: '1px solid rgba(255, 255, 255, 0.1)',
-                    borderRadius: 6,
-                    padding: '6px 10px',
-                    cursor: 'pointer',
-                    color: '#ffffff',
-                    transition: 'all 0.15s ease',
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = 'rgba(0, 212, 255, 0.15)'
-                    e.currentTarget.style.borderColor = 'rgba(0, 212, 255, 0.6)'
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)'
-                    e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)'
-                  }}
-                >
-                  <span
+              {nearbyPois.length > 0 ? (
+                nearbyPois.map((poi) => (
+                  <button
+                    key={poi.name}
+                    onClick={() => {
+                      engine.setGpsDestination({ x: poi.x, y: 0, z: poi.z })
+                    }}
                     style={{
-                      fontFamily: "'Inter', sans-serif",
-                      fontSize: 11,
-                      fontWeight: 700,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'flex-start',
+                      background: 'rgba(255, 255, 255, 0.05)',
+                      border: '1px solid rgba(255, 255, 255, 0.1)',
+                      borderRadius: 6,
+                      padding: '6px 10px',
+                      cursor: 'pointer',
+                      color: '#ffffff',
+                      transition: 'all 0.15s ease',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = 'rgba(0, 212, 255, 0.15)'
+                      e.currentTarget.style.borderColor = 'rgba(0, 212, 255, 0.6)'
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)'
+                      e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)'
                     }}
                   >
-                    📍 {lm.name}
-                  </span>
-                  <span style={{ fontSize: 9, color: '#888', marginTop: 1 }}>{lm.desc}</span>
-                </button>
-              ))}
+                    <span
+                      style={{
+                        fontFamily: "'Inter', sans-serif",
+                        fontSize: 11,
+                        fontWeight: 700,
+                      }}
+                    >
+                      📍 {poi.name}
+                    </span>
+                    <span style={{ fontSize: 9, color: '#888', marginTop: 1 }}>{poi.desc}</span>
+                  </button>
+                ))
+              ) : isParisArea ? (
+                LANDMARKS.map((lm) => (
+                  <button
+                    key={lm.name}
+                    onClick={() => {
+                      engine.setGpsDestination(lm.pos)
+                    }}
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'flex-start',
+                      background: 'rgba(255, 255, 255, 0.05)',
+                      border: '1px solid rgba(255, 255, 255, 0.1)',
+                      borderRadius: 6,
+                      padding: '6px 10px',
+                      cursor: 'pointer',
+                      color: '#ffffff',
+                      transition: 'all 0.15s ease',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = 'rgba(0, 212, 255, 0.15)'
+                      e.currentTarget.style.borderColor = 'rgba(0, 212, 255, 0.6)'
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)'
+                      e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)'
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontFamily: "'Inter', sans-serif",
+                        fontSize: 11,
+                        fontWeight: 700,
+                      }}
+                    >
+                      📍 {lm.name}
+                    </span>
+                    <span style={{ fontSize: 9, color: '#888', marginTop: 1 }}>{lm.desc}</span>
+                  </button>
+                ))
+              ) : (
+                <div style={{ fontSize: 10, color: '#94a3b8' }}>
+                  Chargement des lieux autour de vous… ou touche T pour voyager.
+                </div>
+              )}
             </div>
           </div>
         )}

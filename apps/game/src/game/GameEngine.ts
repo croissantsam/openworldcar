@@ -70,6 +70,12 @@ const FIXED_DT = 1 / 60
 const DAMAGE_PER_ROUND = 7
 /** How long the 'DÉTRUIT' state lasts after the player is shot down (ms). */
 const DESTROYED_MS = 1500
+/** Upside-down seconds before the car is auto-recovered onto the road. */
+const FLIP_RECOVER_AFTER_S = 2.5
+/** Car up-vector Y below this counts as flipped (tilted past ~70°). */
+const FLIP_UP_Y = 0.35
+/** Falling below this altitude means through-the-ground (tunnels excluded by callers). */
+const FALL_THROUGH_Y = -15.0
 /** Hits on the world only spark this often (the guns fire 11 rounds/s). */
 const WORLD_IMPACT_FX_INTERVAL = 0.2
 
@@ -190,6 +196,8 @@ export class GameEngine {
 
   private lastSafePos: WorldPosition = { x: 3.7, y: 0.48, z: 158.3 }
   private lastSafeYaw = 0
+  /** Seconds spent upside-down (auto road-recovery at FLIP_RECOVER_AFTER_S). */
+  private flipTimer = 0
   private netTimer = 0
   private driftFxTimer = 0
 
@@ -456,7 +464,9 @@ export class GameEngine {
           // doesn't immediately re-fetch the same zone
           this.osmStreaming.markCovered(this.currentDestination.origin)
           if (realOsm.streetName) {
-            this.currentDestination.name = realOsm.streetName
+            // New object (not an in-place mutation): HUD state compares by
+            // reference, so the same ref would bail out and never re-render.
+            this.currentDestination = { ...this.currentDestination, name: realOsm.streetName }
           }
           this.onDestinationChanged?.(this.currentDestination)
         } else if (!this.disposed) {
@@ -582,16 +592,34 @@ export class GameEngine {
 
       const inWater = !inTunnel && this._isCarInWater(pos)
 
-      if (inWater || pos.y < -15.0) {
-        // Car plunged into water (Seine, canal, basin) or fell off the world — respawn!
+      if (inWater || pos.y < FALL_THROUGH_Y) {
+        // Plunged into water (Seine, canal, basin) or fell through the world:
+        // back on the road, at the spot — not miles behind at lastSafePos.
         this.impactFX?.triggerWaterSplash(pos)
         this.camera.addTrauma(0.65)
-        this.playerCar.teleport(this.lastSafePos, this.lastSafeYaw)
-        this.gameClient.sendRespawn()
+        this._recoverCarOnRoad('fall')
       } else if (pos.y >= -7.0) {
         // Car is safely on road (surface or inside subterranean tunnel) — update safe respawn position
         this.lastSafePos = { x: pos.x, y: pos.y, z: pos.z }
         this.lastSafeYaw = this.playerCar.getYaw()
+      }
+
+      // ── Flip-over auto recovery (car on roof/side) ──────────────────────
+      // 2.5 s upside-down → upright on the nearest road, same XZ area.
+      // Brief mid-air tilts (jumps, stunts) never reach the threshold.
+      let upY = 1
+      try {
+        upY = new THREE.Vector3(0, 1, 0).applyQuaternion(this.playerCar.getQuaternion()).y
+      } catch {
+        upY = 1
+      }
+      if (upY < FLIP_UP_Y) {
+        this.flipTimer += delta
+        if (this.flipTimer >= FLIP_RECOVER_AFTER_S) {
+          this._recoverCarOnRoad('flip')
+        }
+      } else {
+        this.flipTimer = 0
       }
     }
 
@@ -1721,9 +1749,145 @@ export class GameEngine {
       this.playerCar.grantSpawnInvincibility()
       return
     }
-    this.playerCar.teleport(this.lastSafePos, this.lastSafeYaw)
-    this.playerCar.grantSpawnInvincibility()
+    this._recoverCarOnRoad('manual')
+  }
+
+  /**
+   * Puts the car back upright, preferably right where it is when there is
+   * solid ground underneath (street, bridge — or a rooftop, which is fully
+   * drivable): flip-over and manual "Débloquer" keep you at the spot.
+   * Falls through the world and water land on the nearest road instead.
+   * Final fallback is the last safe position.
+   */
+  private _recoverCarOnRoad(reason: 'fall' | 'flip' | 'manual'): void {
+    const car = this.playerCar
+    if (!car) return
+    this.flipTimer = 0
+    let pos: WorldPosition
+    try {
+      pos = car.getPosition()
+    } catch {
+      car.teleport(this.lastSafePos, this.lastSafeYaw)
+      this.gameClient?.sendRespawn()
+      return
+    }
+    if (!isFiniteVec(pos)) {
+      car.teleport(this.lastSafePos, this.lastSafeYaw)
+      car.grantSpawnInvincibility()
+      this.gameClient?.sendRespawn()
+      return
+    }
+    // Face along current travel direction when known (avoids respawning
+    // nose-to-traffic); reused by both the in-place and road recoveries.
+    const heading = this._levelHeading()
+    if (reason !== 'fall') {
+      // Solid surface close underneath? Re-level in place (rooftops stay
+      // rooftops — driving up there is a feature, not a bug).
+      const ground = this._solidGroundBelow(pos.x, pos.y, pos.z, 8)
+      if (ground !== null && pos.y - ground <= 8) {
+        const y = ground + 0.5
+        car.teleport({ x: pos.x, y, z: pos.z }, heading)
+        car.grantSpawnInvincibility()
+        this.gameClient?.sendRespawn()
+        this.lastSafePos = { x: pos.x, y, z: pos.z }
+        this.lastSafeYaw = heading
+        return
+      }
+    }
+    const spot = this.chunkManager?.getNearestRoadPoint(pos.x, pos.z, 150) ?? null
+    if (!spot) {
+      // No road data (chunks still loading): stay at the spot, safe height.
+      const y = Number.isFinite(pos.y) ? Math.max(pos.y, 0.5) : 0.5
+      car.teleport({ x: pos.x, y, z: pos.z }, this.lastSafeYaw)
+      car.grantSpawnInvincibility()
+      this.gameClient?.sendRespawn()
+      this.lastSafePos = { x: pos.x, y, z: pos.z }
+      return
+    }
+    // Face along the road, keeping the car's current direction when it
+    // disagrees with the segment orientation.
+    let sx = spot.dirX
+    let sz = spot.dirZ
+    {
+      const cur = this._levelForward()
+      if (cur && cur.hx * spot.dirX + cur.hz * spot.dirZ < 0) {
+        sx = -spot.dirX
+        sz = -spot.dirZ
+      }
+    }
+    const roadHeading = Math.atan2(sx, sz)
+    const y = spot.y + 0.5
+    car.teleport({ x: spot.x, y, z: spot.z }, roadHeading)
+    car.grantSpawnInvincibility()
     this.gameClient?.sendRespawn()
+    this.lastSafePos = { x: spot.x, y, z: spot.z }
+    this.lastSafeYaw = roadHeading
+  }
+
+  /** Horizontal forward of the car (null when unusable, e.g. nose straight down). */
+  private _levelForward(): { hx: number; hz: number } | null {
+    try {
+      const f = this.playerCar.getHeadingVector()
+      const hl = Math.hypot(f.x, f.z)
+      if (hl > 0.2) return { hx: f.x / hl, hz: f.z / hl }
+    } catch {
+      // fall through to the yaw fallback below
+    }
+    const yaw = this.lastSafeYaw
+    if (Number.isFinite(yaw)) return { hx: Math.sin(yaw), hz: Math.cos(yaw) }
+    return null
+  }
+
+  /** Yaw keeping the current travel direction when known. */
+  private _levelHeading(): number {
+    const cur = this._levelForward()
+    if (!cur) return this.lastSafeYaw
+    return Math.atan2(cur.hx, cur.hz)
+  }
+
+  /** Reusable downward ray for the recovery ground check (see PlayerPlane). */
+  private recoverRay: RAPIER.Ray | null = null
+
+  /** Height of the first solid surface below (x, y, z), car excluded. */
+  private _solidGroundBelow(x: number, y: number, z: number, maxDist: number): number | null {
+    try {
+      if (!this.recoverRay) {
+        this.recoverRay = new RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: -1, z: 0 })
+      }
+      const r = this.recoverRay
+      r.origin.x = x
+      r.origin.y = y + 0.5
+      r.origin.z = z
+      r.dir.x = 0
+      r.dir.y = -1
+      r.dir.z = 0
+      let exclude: RAPIER.RigidBody | undefined
+      try {
+        exclude = this.playerCar?.getRigidBody() ?? undefined
+      } catch {
+        exclude = undefined
+      }
+      const hit = this.world.castRay(
+        r,
+        maxDist,
+        true,
+        RAPIER.QueryFilterFlags.EXCLUDE_SENSORS,
+        undefined,
+        undefined,
+        exclude,
+        undefined,
+      )
+      return hit ? r.origin.y - hit.toi : null
+    } catch {
+      return null
+    }
+  }
+
+  /** Seconds left before auto flip-recovery (0 when upright): HUD countdown. */
+  getFlipRecoveryCountdown(): number {
+    if (this._vehicleMode !== 'car' || !this.playerCar) return 0
+    if (this.flipTimer <= 0.05) return 0
+    return Math.max(0, FLIP_RECOVER_AFTER_S - this.flipTimer)
   }
 
   recalculateGpsRoute(): void {
@@ -1820,7 +1984,9 @@ export class GameEngine {
           // Mark the new destination as covered so streaming doesn't re-fetch immediately
           this.osmStreaming.markCovered(destination.origin)
           if (realOsm.streetName) {
-            this.currentDestination.name = realOsm.streetName
+            // New object (not an in-place mutation): HUD state compares by
+            // reference, so the same ref would bail out and never re-render.
+            this.currentDestination = { ...this.currentDestination, name: realOsm.streetName }
           }
           this.onDestinationChanged?.(this.currentDestination)
         } else if (this.currentDestination.id === destination.id && !this.disposed) {

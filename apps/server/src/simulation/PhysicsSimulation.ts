@@ -61,10 +61,14 @@ export class PhysicsSimulation {
       get z() { return this[2]! } get w() { return this[3]! }
     })(4)
     // Simple forward force along body Z
-    const fz = Math.cos(2 * Math.asin(rot.y)) * input.throttle * 120
-    const fx = Math.sin(2 * Math.asin(rot.y)) * input.throttle * 120
+    const yaw = 2 * Math.asin(rot.y)
+    const fz = Math.cos(yaw) * input.throttle * 120
+    const fx = Math.sin(yaw) * input.throttle * 120
     if (speed < 60) p.body.applyImpulse({ x: fx, y: 0, z: fz }, true)
-    p.body.applyTorqueImpulse({ x: 0, y: input.steering * 60 * (speed / 60 + 0.15), z: 0 }, true)
+    // Reverse flips the yaw response (rear follows the wheel), like the client.
+    const forwardSpeed = vel.x * Math.sin(yaw) + vel.z * Math.cos(yaw)
+    const travelDir = forwardSpeed >= 0 ? 1 : -1
+    p.body.applyTorqueImpulse({ x: 0, y: input.steering * 60 * (speed / 60 + 0.15) * travelDir, z: 0 }, true)
   }
 
   updatePlayerState(

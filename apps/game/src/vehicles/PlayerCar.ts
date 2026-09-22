@@ -341,7 +341,11 @@ export class PlayerCar {
       const highSpeedDamp = 1.0 - Math.min(0.4, (speed / MAX_SPEED) * 0.4)
       // Handbrake flick: extra rotation to throw the tail out at speed.
       const flick = input.handbrake && speed > 10 ? 1.45 : 1.0
-      const steerTorque = -input.steering * STEER_RATE * speedFactor * highSpeedDamp * CAR_MASS * 2.2 * flick
+      // Real-car reverse: the rear follows the steering wheel, so the yaw
+      // response flips with travel direction. `speedFactor` already fades
+      // the torque to zero at standstill, so the sign flip can't snap.
+      const travelDir = forwardSpeed >= 0 ? 1 : -1
+      const steerTorque = -input.steering * STEER_RATE * speedFactor * highSpeedDamp * CAR_MASS * 2.2 * flick * travelDir
       this.body.applyTorqueImpulse({ x: 0, y: steerTorque * dt, z: 0 }, true)
     }
 
@@ -546,8 +550,10 @@ export class PlayerCar {
     const targetPitch = (this._lastThrottle * -0.028) + (this._lastBrake * 0.038)
     this.chassisPitch = THREE.MathUtils.lerp(this.chassisPitch, targetPitch, 0.16)
 
-    // Roll: Lean outward from cornering and drifts
-    const steerRoll = (this._lastSteer * 0.040) * Math.min(1.0, speed / 12.0)
+    // Roll: Lean outward from cornering and drifts (mirrored in reverse,
+    // like the yaw response above).
+    const travelDir = forwardSpeed >= 0 ? 1 : -1
+    const steerRoll = (this._lastSteer * 0.040) * Math.min(1.0, speed / 12.0) * travelDir
     const driftRoll = (this._lastLateralSpeed / 16.0) * 0.045
     const targetRoll = -(steerRoll + driftRoll)
     this.chassisRoll = THREE.MathUtils.lerp(this.chassisRoll, targetRoll, 0.16)

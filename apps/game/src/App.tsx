@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLocale } from './i18n/index.js'
 import { GameEngine } from './game/GameEngine.js'
-import { HUD } from './ui/HUD.js'
+import { HUD } from './ui/hud/index.js'
 import { DebugOverlay } from './renderer/DebugOverlay.js'
 import { authClient } from './lib/auth-client.js'
 import type { WorldDestination } from './world/destinations.js'

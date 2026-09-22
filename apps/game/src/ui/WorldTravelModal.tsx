@@ -421,14 +421,32 @@ export const WorldTravelModal: React.FC<WorldTravelModalProps> = ({
             gridTemplateColumns: isCompact ? 'repeat(auto-fill, minmax(210px, 1fr))' : 'repeat(auto-fill, minmax(280px, 1fr))',
             gap: isCompact ? '8px' : '16px',
             overflowY: 'auto',
+            // Body-level `touch-action: none` disables touch scrolling: re-enable
+            // vertical panning here so the card list scrolls on mobile.
+            touchAction: 'pan-y',
+            overscrollBehavior: 'contain',
             maxHeight: isCompact ? 'calc(96vh - 150px)' : 'calc(92vh - 220px)',
           }}
         >
           {filtered.map((dest) => {
             const isCurrent = dest.id === currentDestinationId
+            const goThere = () => {
+              if (isCurrent) return
+              onSelectDestination(dest)
+              onClose()
+            }
             return (
               <div
                 key={dest.id}
+                role={isCurrent ? undefined : 'button'}
+                tabIndex={isCurrent ? undefined : 0}
+                onClick={goThere}
+                onKeyDown={(e) => {
+                  if (!isCurrent && (e.key === 'Enter' || e.key === ' ')) {
+                    e.preventDefault()
+                    goThere()
+                  }
+                }}
                 style={{
                   background: isCurrent
                     ? 'linear-gradient(145deg, rgba(30, 58, 138, 0.4) 0%, rgba(15, 23, 42, 0.7) 100%)'
@@ -445,6 +463,7 @@ export const WorldTravelModal: React.FC<WorldTravelModalProps> = ({
                   transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
                   position: 'relative',
                   overflow: 'hidden',
+                  cursor: isCurrent ? 'default' : 'pointer',
                 }}
                 onMouseEnter={(e) => {
                   if (!isCurrent) {
@@ -583,10 +602,11 @@ export const WorldTravelModal: React.FC<WorldTravelModalProps> = ({
                   </div>
                 </div>
 
-                {/* Travel Action Button */}
+                {/* Travel Action Button (card itself is clickable too) */}
                 <button
                   disabled={isCurrent}
-                  onClick={() => {
+                  onClick={(e) => {
+                    e.stopPropagation()
                     onSelectDestination(dest)
                     onClose()
                   }}

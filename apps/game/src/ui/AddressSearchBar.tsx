@@ -64,39 +64,57 @@ export const AddressSearchBar: React.FC<AddressSearchBarProps> = ({
     return () => window.removeEventListener('pointerdown', handlePointerDown)
   }, [])
 
-  const executeSearch = useCallback(async (text: string) => {
-    if (text.trim().length < 2) {
-      setResults([])
+  const handleSelectResult = useCallback(
+    (item: GeocodingResult) => {
+      const dest = geocodingResultToDestination(item)
       setIsOpen(false)
-      setIsLoading(false)
-      return
-    }
+      setQuery(item.name)
+      onSelectAddress(dest)
+    },
+    [onSelectAddress],
+  )
 
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort()
-    }
-    const controller = new AbortController()
-    abortControllerRef.current = controller
-
-    setIsLoading(true)
-    setErrorMessage(null)
-
-    try {
-      const items = await searchAddress(text, controller.signal)
-      setResults(items)
-      setIsOpen(true)
-      setSelectedIndex(-1)
-      if (items.length === 0) {
-        setErrorMessage(t('search_empty'))
+  const executeSearch = useCallback(
+    async (text: string, opts?: { selectFirst?: boolean }) => {
+      if (text.trim().length < 2) {
+        setResults([])
+        setIsOpen(false)
+        setIsLoading(false)
+        return
       }
-    } catch (err: any) {
-      if (err.name !== 'AbortError') {
-        setErrorMessage(t('search_error'))
+
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort()
       }
-    } finally {
-      setIsLoading(false)
-    }
-  }, [t])
+      const controller = new AbortController()
+      abortControllerRef.current = controller
+
+      setIsLoading(true)
+      setErrorMessage(null)
+
+      try {
+        const items = await searchAddress(text, controller.signal)
+        // Click-and-go (quick suggestions): travel immediately on the top hit.
+        if (opts?.selectFirst && items.length > 0) {
+          handleSelectResult(items[0]!)
+          return
+        }
+        setResults(items)
+        setIsOpen(true)
+        setSelectedIndex(-1)
+        if (items.length === 0) {
+          setErrorMessage(t('search_empty'))
+        }
+      } catch (err: any) {
+        if (err.name !== 'AbortError') {
+          setErrorMessage(t('search_error'))
+        }
+      } finally {
+        setIsLoading(false)
+      }
+    },
+    [t, handleSelectResult],
+  )
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value
@@ -109,13 +127,6 @@ export const AddressSearchBar: React.FC<AddressSearchBarProps> = ({
     debounceTimerRef.current = setTimeout(() => {
       executeSearch(val)
     }, 350)
-  }
-
-  const handleSelectResult = (item: GeocodingResult) => {
-    const dest = geocodingResultToDestination(item)
-    setIsOpen(false)
-    setQuery(item.name)
-    onSelectAddress(dest)
   }
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -267,7 +278,7 @@ export const AddressSearchBar: React.FC<AddressSearchBarProps> = ({
               key={sug.query}
               onClick={() => {
                 setQuery(sug.query)
-                executeSearch(sug.query)
+                executeSearch(sug.query, { selectFirst: true })
               }}
               style={{
                 background: 'rgba(30, 41, 59, 0.7)',

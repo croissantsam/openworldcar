@@ -83,12 +83,10 @@ export const fr = {
   hud_guest_name: 'INVITÉ',
   hud_pilot_name: 'PILOTE',
   // Burger menu button + panel
-  hud_menu_button_title: 'Menu du jeu (Voyager, Chercher, Débloquer)',
+  hud_menu_button_title: 'Menu du jeu (Voyager, Débloquer)',
   hud_menu_title: 'MENU DU JEU',
   hud_menu_travel: 'Voyager',
   hud_menu_travel_hint: 'Changer de ville',
-  hud_menu_search: 'Rechercher',
-  hud_menu_search_hint: 'Rue ou monument',
   hud_menu_unstuck: 'Débloquer',
   hud_menu_unstuck_hint: 'Remettre sur route',
   hud_menu_car: 'Voiture',
@@ -116,8 +114,6 @@ export const fr = {
   // Touch / keyboard toggle
   hud_touch_on: '🎮 COMMANDES TACTILES ACTIVES',
   hud_touch_off: '⌨️ COMMANDES CLAVIER ACTIVES',
-  // Address search overlay
-  hud_search_placeholder: 'Tapez une adresse, une rue ou un monument (ex: 10 rue de la Paix)...',
   // Live world-generation badge
   hud_generating: 'GÉNÉRATION DU MONDE EN DIRECT (OSM)…',
   // Warp overlay ({city} is data: currentDest.city.toUpperCase())
@@ -187,12 +183,10 @@ export const en: HudDict = {
   hud_account_pilot_title: 'Pilot account',
   hud_guest_name: 'GUEST',
   hud_pilot_name: 'DRIVER',
-  hud_menu_button_title: 'Game menu (Travel, Search, Unstuck)',
+  hud_menu_button_title: 'Game menu (Travel, Unstuck)',
   hud_menu_title: 'GAME MENU',
   hud_menu_travel: 'Travel',
   hud_menu_travel_hint: 'Change city',
-  hud_menu_search: 'Search',
-  hud_menu_search_hint: 'Street or landmark',
   hud_menu_unstuck: 'Unstuck',
   hud_menu_unstuck_hint: 'Back on the road',
   hud_menu_car: 'Car',
@@ -218,7 +212,6 @@ export const en: HudDict = {
     'Changes apply immediately. Higher values improve visuals but may reduce performance.',
   hud_touch_on: '🎮 TOUCH CONTROLS ACTIVE',
   hud_touch_off: '⌨️ KEYBOARD CONTROLS ACTIVE',
-  hud_search_placeholder: 'Type an address, a street or a landmark (e.g. 10 rue de la Paix)...',
   hud_generating: 'LIVE WORLD GENERATION (OSM)…',
   hud_warp_title: 'TELEPORTING TO {city}…',
 }
@@ -284,12 +277,10 @@ export const es: HudDict = {
   hud_account_pilot_title: 'Cuenta de piloto',
   hud_guest_name: 'INVITADO',
   hud_pilot_name: 'PILOTO',
-  hud_menu_button_title: 'Menú del juego (Viajar, Buscar, Desbloquear)',
+  hud_menu_button_title: 'Menú del juego (Viajar, Desbloquear)',
   hud_menu_title: 'MENÚ DEL JUEGO',
   hud_menu_travel: 'Viajar',
   hud_menu_travel_hint: 'Cambiar de ciudad',
-  hud_menu_search: 'Buscar',
-  hud_menu_search_hint: 'Calle o monumento',
   hud_menu_unstuck: 'Desbloquear',
   hud_menu_unstuck_hint: 'Volver a la carretera',
   hud_menu_car: 'Coche',
@@ -315,7 +306,6 @@ export const es: HudDict = {
     'Los cambios se aplican de inmediato. Los valores más altos mejoran la calidad visual pero pueden reducir el rendimiento.',
   hud_touch_on: '🎮 CONTROLES TÁCTILES ACTIVOS',
   hud_touch_off: '⌨️ CONTROLES DE TECLADO ACTIVOS',
-  hud_search_placeholder: 'Escriba una dirección, una calle o un monumento (p. ej., 10 rue de la Paix)...',
   hud_generating: 'GENERACIÓN DEL MUNDO EN DIRECTO (OSM)…',
   hud_warp_title: 'TELETRANSPORTE A {city}…',
 }

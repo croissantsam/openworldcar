@@ -30,5 +30,6 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    allowedHosts: ['localhost', 'openworldgame.croissantlabs.com']
   },
 })

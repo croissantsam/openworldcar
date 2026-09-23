@@ -1,10 +1,23 @@
 /**
  * PlayerSession — state for one connected client.
+ *
+ * Transport-agnostic: the peer is any socket with a minimal
+ * send/close/readyState surface (here: the crossws adapter in
+ * `mp-ws-handler.ts`).
  */
 
 import type { GeoPosition, WorldPosition } from '@world-drive/math'
 import type { PlayerInput } from '@world-drive/protocol'
-import type { WebSocket } from 'ws'
+
+/** Minimal socket surface the multiplayer server needs from a connection. */
+export interface MpPeer {
+  readonly readyState: number
+  send(data: string): void
+  close(code?: number, reason?: string): void
+}
+
+/** `ws` OPEN state — shared by the `ws` lib and the crossws adapter. */
+export const MP_PEER_OPEN = 1
 
 export const MAX_HEALTH = 100
 /** Maximum damage the server accepts for a single reported hit. */
@@ -33,7 +46,7 @@ export type PlayerState = {
 
 export class PlayerSession {
   readonly id: string
-  readonly ws: WebSocket
+  readonly peer: MpPeer
   state: PlayerState
   lastInput: PlayerInput | null = null
   lastProcessedSeq = 0
@@ -55,9 +68,9 @@ export class PlayerSession {
   /** Last accepted hit per target, for the per-target cooldown. */
   private lastHitPerTarget = new Map<string, number>()
 
-  constructor(id: string, ws: WebSocket) {
+  constructor(id: string, peer: MpPeer) {
     this.id = id
-    this.ws = ws
+    this.peer = peer
     this.connectedAt = Date.now()
     this.invincibleUntil = Date.now() + 30_000
     this.combatProtectedUntil = Date.now() + 30_000
@@ -125,8 +138,8 @@ export class PlayerSession {
   }
 
   send(data: string): void {
-    if (this.ws.readyState === 1 /* OPEN */) {
-      this.ws.send(data)
+    if (this.peer.readyState === MP_PEER_OPEN) {
+      this.peer.send(data)
     }
   }
 }

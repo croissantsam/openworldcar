@@ -1,8 +1,9 @@
 /**
  * GameClient — WebSocket client for World Drive.
  *
- * In development, connects directly to ws://localhost:3001.
- * In production, connects to the server that served the page.
+ * Connects to the same-origin multiplayer route (`/api/mp`, served by the
+ * TanStack server: dev Vite plugin in `vite dev`, native Nitro WebSocket
+ * route in production). Override with the VITE_WS_URL env var.
  *
  * Features:
  *   - Exponential backoff reconnection (1s → 30s max)
@@ -22,7 +23,7 @@ import type { WorldPosition } from '@world-drive/math'
 import type { Road, PlayerSnapshot } from '@world-drive/shared'
 import { v4 as uuidv4 } from 'uuid'
 
-const DEFAULT_WS_URL = 'wss://snowboard-regulated-height-estimation.trycloudflare.com '
+const DEFAULT_WS_URL = 'ws://localhost:5173/api/mp'
 
 /**
  * A host with no scheme ("openspeed.onrender.com") is a path to `new WebSocket`,
@@ -43,11 +44,15 @@ function normalizeWsUrl(raw: string): string {
   return `${local ? 'ws' : 'wss'}://${host}`
 }
 
-/** Resolve WS server URL. Override with the VITE_WS_URL env var (local server / tests). */
+/** Resolve WS server URL. Same-origin /api/mp by default; override with VITE_WS_URL (tests, tunnels). */
 function resolveWsUrl(): string {
   const env = (import.meta as unknown as { env?: Record<string, string | undefined> }).env
   const override = env?.['VITE_WS_URL']
   if (typeof override === 'string' && override.length > 0) return normalizeWsUrl(override)
+  if (typeof location !== 'undefined' && location.host.length > 0) {
+    const protocol = location.protocol === 'https:' ? 'wss' : 'ws'
+    return `${protocol}://${location.host}/api/mp`
+  }
   return DEFAULT_WS_URL
 }
 

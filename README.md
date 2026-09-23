@@ -22,7 +22,7 @@ pnpm install
 # Build all packages
 pnpm build
 
-# Run both client and server in parallel
+# Run the fullstack app (web + multiplayer WS on /api/mp, same origin)
 pnpm dev
 ```
 
@@ -35,8 +35,7 @@ The game will be available at `http://localhost:5173` (Vite default).
 ```
 world-drive/
 ├── apps/
-│   ├── game/          # Frontend: React + Three.js + Vite
-│   └── server/        # Backend: Node.js + WebSocket + Rapier
+│   └── game/          # Fullstack (TanStack Start): web client + colocated multiplayer WS server (`src/multiplayer/`)
 ├── packages/
 │   ├── math/          # Geo projections, chunk math, vector utilities
 │   ├── protocol/      # Shared network message types (client ↔ server)
@@ -65,11 +64,8 @@ world-drive/
 ### Individual App Commands
 
 ```bash
-# Client only
+# Fullstack (web + multiplayer WS on /api/mp, same server)
 cd apps/game && pnpm dev
-
-# Server only
-cd apps/server && pnpm dev
 
 # World builder (process OSM data)
 cd scripts/world-builder && pnpm start
@@ -124,10 +120,10 @@ cd scripts/world-builder && pnpm start
 - Rapier3D (physics)
 - TanStack Router
 
-### Backend (apps/server)
+### Multiplayer server (apps/game/src/multiplayer, route `/api/mp`)
 - Node.js
 - TypeScript
-- `ws` (WebSocket)
+- Nitro WebSocket (crossws, same origin — no separate port)
 - Rapier3D (authoritative physics)
 
 ### Shared Packages

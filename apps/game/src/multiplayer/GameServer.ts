@@ -1,11 +1,13 @@
 /**
- * GameServer — manages WebSocket connections, physics, and game tick.
+ * GameServer — authoritative multiplayer simulation (tick loop, physics, broadcast).
+ *
+ * Transport-agnostic: connections arrive via `connect()` from the `/api/mp`
+ * Nitro WebSocket route (`mp-ws-handler.ts`, crossws).
  */
 
-import { WebSocketServer, WebSocket } from 'ws'
 import { v4 as uuidv4 } from 'uuid'
 import { serializeMessage, type ServerMessage, type PlayerStateUpdate } from '@world-drive/protocol'
-import { PlayerSession } from './players/PlayerSession.js'
+import { PlayerSession, type MpPeer } from './players/PlayerSession.js'
 import { PhysicsSimulation } from './simulation/PhysicsSimulation.js'
 import { NpcSimulation } from './simulation/NpcSimulation.js'
 import { InterestManager } from './interest/InterestManager.js'
@@ -16,7 +18,6 @@ const TICK_RATE = 20 // Hz
 const TICK_DT = 1 / TICK_RATE
 
 export class GameServer {
-  private wss: WebSocketServer
   private sessions = new Map<string, PlayerSession>()
   private physics = new PhysicsSimulation()
   private npcSim = new NpcSimulation()
@@ -25,12 +26,11 @@ export class GameServer {
   private region = new WorldRegion('world', { minX: -1000, maxX: 1000, minZ: -1000, maxZ: 1000 })
   private tick = 0
   private tickTimer: ReturnType<typeof setInterval> | null = null
-
-  constructor(private readonly port: number) {
-    this.wss = new WebSocketServer({ port })
-  }
+  private started = false
 
   async start(): Promise<void> {
+    if (this.started) return
+    this.started = true
     await this.physics.init()
 
     // Spawn some initial NPCs
@@ -38,25 +38,30 @@ export class GameServer {
       this.npcSim.spawn({ x: 0, y: 0, z: 0 })
     }
 
-    this.wss.on('connection', (ws: WebSocket) => {
-      const session = new PlayerSession(uuidv4(), ws)
-      this.sessions.set(session.id, session)
-      this.physics.addPlayer(session.id, session.state.position)
-      this.region.addPlayer(session)
-
-      ws.on('message', (data: Buffer) => {
-        this.handler.handle(session, data.toString())
-      })
-
-      ws.on('close', () => {
-        this.removePlayer(session.id)
-      })
-    })
-
     // Game tick loop
     this.tickTimer = setInterval(() => this._tick(), 1000 / TICK_RATE)
 
-    console.log(`🎮 GameServer listening on ws://localhost:${this.port}`)
+    console.log(`🎮 GameServer ticking at ${TICK_RATE}Hz`)
+  }
+
+  /**
+   * Attach a newly-established connection. The adapter owns the socket:
+   * it forwards inbound text via `receive()` and calls `removePlayer()`
+   * when the socket closes.
+   */
+  connect(peer: MpPeer): PlayerSession {
+    const session = new PlayerSession(uuidv4(), peer)
+    this.sessions.set(session.id, session)
+    this.physics.addPlayer(session.id, session.state.position)
+    this.region.addPlayer(session)
+    return session
+  }
+
+  /** Dispatch one inbound text message from `sessionId`. */
+  receive(sessionId: string, raw: string): void {
+    const session = this.sessions.get(sessionId)
+    if (!session) return
+    this.handler.handle(session, raw)
   }
 
   private _tick(): void {
@@ -159,6 +164,7 @@ export class GameServer {
 
   stop(): void {
     if (this.tickTimer) clearInterval(this.tickTimer)
-    this.wss.close()
+    this.tickTimer = null
+    this.started = false
   }
 }

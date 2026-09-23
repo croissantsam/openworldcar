@@ -17,8 +17,7 @@ This document provides essential context for AI agents working on the **World Dr
 ```
 world-drive/
 ├── apps/
-│   ├── game/          # Frontend: React + Three.js + Vite
-│   └── server/        # Backend: Node.js + WebSocket + Rapier
+│   └── game/          # Fullstack: TanStack Start (web) + colocated multiplayer WS server (`src/multiplayer/`)
 ├── packages/
 │   ├── math/          # Geo projections, chunk math, vector utilities
 │   ├── protocol/      # Shared network message types (client ↔ server)
@@ -109,9 +108,9 @@ OSM PBF → Parser → Filter → Normalize → Chunk Generator → Serialized G
   - `Trial radar` — monuments lointains (~2,5km) + corridors routiers via Overpass (`/api/overpass` POST, cache disque par hash, `src/lib/trialRadar.ts`) ; les fetchs `/map` restent à 300m (budget 50k nœuds OSM)
   - UI: `HUD`, `Minimap`, `TouchControls`, `AddressSearchBar`, `WorldTravelModal`, `DebugOverlay`
 
-### `@world-drive/server` (Server)
-- **Stack**: Node.js, TypeScript, `ws` (WebSocket), Rapier3D
-- **Entry**: `src/index.ts` → `GameServer`
+### `@world-drive/game` — multiplayer server (colocated, `src/multiplayer/`)
+- **Stack**: Node.js, TypeScript, Nitro WebSocket (crossws), Rapier3D
+- **Entry**: `src/multiplayer/mp-ws-handler.ts` → `GameServer` (Nitro WebSocket route `/api/mp`, same origin — no separate port/process; singleton via `get-server.ts`)
 - **Core Systems**:
   - `GameServer` — connection handling, tick loop, broadcast
   - `WorldRegion` — spatial partitioning for future sharding
@@ -184,7 +183,7 @@ cd scripts/world-builder && pnpm start
 1. Add type to `packages/protocol/src/messages.ts`
 2. Export from `packages/protocol/src/index.ts`
 3. Run `pnpm build` in protocol package
-4. Use in `apps/game/src/networking/GameClient.ts` and `apps/server/src/networking/MessageHandler.ts`
+4. Use in `apps/game/src/networking/GameClient.ts` and `apps/game/src/multiplayer/networking/MessageHandler.ts`
 
 ### Adding a New Chunk Data Type
 1. Define in `packages/shared/src/types/world.ts`
@@ -193,7 +192,7 @@ cd scripts/world-builder && pnpm start
 
 ### Modifying Vehicle Physics
 - Client: `apps/game/src/vehicles/PlayerCar.ts` (Rapier vehicle config)
-- Server: `apps/server/src/simulation/PhysicsSimulation.ts` (authoritative step)
+- Server: `apps/game/src/multiplayer/simulation/PhysicsSimulation.ts` (authoritative step)
 
 ### Adding OSM Tag Support
 1. Update filter in `packages/world-data/src/osm/filter.ts`
@@ -225,6 +224,6 @@ cd scripts/world-builder && pnpm start
 1. Read `instruction.md` completely
 2. Run `pnpm install && pnpm dev` to verify setup
 3. Explore `apps/game/src/game/GameEngine.ts` — main loop entry point
-4. Explore `apps/server/src/GameServer.ts` — server entry point
+4. Explore `apps/game/src/multiplayer/GameServer.ts` — multiplayer server entry point
 5. Check `packages/math/src/geo.ts` — coordinate conversions
 6. Check `packages/protocol/src/messages.ts` — network contract

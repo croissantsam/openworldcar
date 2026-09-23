@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite dev --port 5173",
+    "prebuild": "pnpm --filter '@world-drive/game^...' build",
     "build": "vite build",
     "start": "node --env-file=.env .output/server/index.mjs",
     "db:generate": "drizzle-kit generate",
@@ -26,6 +27,7 @@
     "@world-drive/world-data": "workspace:*",
     "better-auth": "^1.7.5",
     "drizzle-orm": "^0.45.2",
+    "h3": "^2.0.1-rc.31",
     "nitro": "3.0.260903-beta",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",

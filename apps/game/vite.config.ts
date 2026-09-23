@@ -7,7 +7,12 @@ import { fileURLToPath } from 'url'
 export default defineConfig({
   plugins: [
     tanstackStart(),
-    nitro(),
+    // Multiplayer WebSocket route (/api/mp, see src/multiplayer/mp-ws-handler.ts).
+    // Served by Nitro in both `vite dev` and production — no separate process/port.
+    nitro({
+      features: { websocket: true },
+      handlers: [{ route: '/api/mp', handler: './src/multiplayer/mp-ws-handler.ts' }],
+    }),
     // react's vite plugin must come after start's vite plugin
     react(),
   ],

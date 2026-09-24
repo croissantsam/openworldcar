@@ -94,6 +94,64 @@ export class PlayerCar {
   private readonly wheelSpinSign = -1
   private nitroFlames: THREE.Mesh[] = []
 
+  // ── Headlights (real spotlights so the road ahead is lit at night) ───────
+  // Children of the synced mesh: they follow the body automatically.
+  // Game frame forward is +Z; no shadows (perf) — the sun/moon keeps those.
+  private headlights: THREE.SpotLight[] = []
+  private static readonly HEADLIGHT_MAX = 320
+
+  private _buildHeadlights(parent: THREE.Group): void {
+    for (const x of [-0.68, 0.68]) {
+      const spot = new THREE.SpotLight(0xd6e9ff, 0, 90, 0.55, 0.5, 1.6)
+      spot.position.set(x, 0.62, 2.2)
+      spot.target.position.set(x, 0.1, 20)
+      spot.castShadow = false
+      parent.add(spot)
+      parent.add(spot.target)
+      this.headlights.push(spot)
+    }
+  }
+
+  /** Headlight level 0 (day) → 1 (full night). */
+  setHeadlightLevel(level: number): void {
+    const t = Math.min(1, Math.max(0, level))
+    this.headLevel = t
+    for (const spot of this.headlights) {
+      spot.intensity = t * PlayerCar.HEADLIGHT_MAX
+    }
+    this._refreshTailLights()
+  }
+
+  // ── Brake lights (real rear lamps brighten under braking) ────────────────
+  private tailMat: THREE.MeshStandardMaterial | null = null
+  private brakeLevel = 0
+  private headLevel = 0
+
+  /** Dedicated tail material so braking doesn't recolor the whole car. */
+  private _buildTailLights(parent: THREE.Group): void {
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0xff1735,
+      emissive: 0xff0620,
+      emissiveIntensity: 0.8,
+      roughness: 0.35,
+    })
+    let found = false
+    parent.traverse((child) => {
+      const mesh = child as THREE.Mesh
+      if (mesh.isMesh && mesh.name.toLowerCase().includes('rear lamp')) {
+        mesh.material = mat
+        found = true
+      }
+    })
+    if (found) this.tailMat = mat
+  }
+
+  private _refreshTailLights(): void {
+    if (!this.tailMat) return
+    // Dim red glow at night, bright flare under braking — like a real car.
+    this.tailMat.emissiveIntensity = 0.8 + this.headLevel * 1.4 + this.brakeLevel * 4.5
+  }
+
   // Dynamic visual suspension state
   private chassisPitch = 0
   private chassisRoll = 0
@@ -174,6 +232,8 @@ export class PlayerCar {
 
     // ── Visual mesh ─────────────────────────────────────────────────────────
     this.mesh = this._buildMesh()
+    this._buildHeadlights(this.mesh)
+    this._buildTailLights(this.mesh)
     scene.add(this.mesh)
   }
 
@@ -460,6 +520,9 @@ export class PlayerCar {
     this._lastBrake = input.brake
     this._lastSteer = input.steering
     this._lastLateralSpeed = lateralSpeed
+    // Brake pedal → rear lamps flare, like a real car.
+    this.brakeLevel = Math.min(1, Math.max(0, input.brake))
+    this._refreshTailLights()
 
     // Refresh the UI-facing velocity cache (post-impulse state).
     this._refreshVelocityCache()
@@ -498,6 +561,8 @@ export class PlayerCar {
     this.cachedVel.z = 0
     this.cachedSpeed = 0
     this.cachedForwardSpeed = 0
+    this.brakeLevel = 0
+    this._refreshTailLights()
     this.nitroBoosting = false
     this.drifting = false
     this.driftAngle = 0
@@ -724,6 +789,8 @@ export class PlayerCar {
       this.prevLinVel = { x: 0, y: 0, z: 0 }
     }
     this.triggerInvincibility(30_000)
+    this.brakeLevel = 0
+    this._refreshTailLights()
     this.syncMesh()
   }
 }

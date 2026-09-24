@@ -82,6 +82,8 @@ export function DebugOverlay({ engine }: Props) {
       <Row label="World Z" value={z.toFixed(1)} />
       <Row label="GPS Lat" value={stats.gpsPosition.lat.toFixed(5)} />
       <Row label="GPS Lon" value={stats.gpsPosition.lon.toFixed(5)} />
+      <Row label="Local time" value={stats.solarTime} />
+      <Row label="Sun elev" value={`${stats.sunElev.toFixed(1)}°${stats.sunElev < -6 ? ' ☾' : stats.sunElev < 0 ? ' twilight' : ' ☀'}`} />
 
       <div style={{ borderTop: '1px solid rgba(0,255,136,0.1)', margin: '6px 0' }} />
 

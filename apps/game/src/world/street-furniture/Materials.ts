@@ -17,9 +17,18 @@ export const CROWN_MAT = new THREE.MeshStandardMaterial({
 export const LAMP_HEAD_MAT = new THREE.MeshStandardMaterial({
   color: 0xfff4d6,
   emissive: 0xffe2a0,
-  emissiveIntensity: 1.4,
+  emissiveIntensity: 0.25,
   roughness: 0.4,
 })
+
+/**
+ * Street-lamp glow from day (0.25, barely on) to night (3.0).
+ * The material is shared by every lamp head, so one assignment lights them all.
+ */
+export function setLampNightGlow(nightAmount: number): void {
+  const t = Math.min(1, Math.max(0, nightAmount))
+  LAMP_HEAD_MAT.emissiveIntensity = 0.25 + t * 2.75
+}
 
 export const WHITE = new THREE.Color(0xffffff)
 

@@ -97,6 +97,7 @@ OSM PBF → Parser → Filter → Normalize → Chunk Generator → Serialized G
   - `GameEngine` — main loop, fixed timestep (1/60s)
   - `ChunkManager` — streaming, LOD, load/unload
   - `Renderer` — Three.js scene, instancing, materials
+  - `DayNight` — real solar position per GPS (`packages/math/solar.ts`) driving sun/moon, sky, fog, exposure (`renderer/daynight.ts`, applied in `Renderer.applySolarState` ~5 s)
   - `PlayerCar` — Rapier vehicle physics, input handling
   - `ThirdPersonCamera` — smooth follow, orbital control, speed-adaptive distance
   - `NPCManager` / `NPCCar` — road-graph-following traffic

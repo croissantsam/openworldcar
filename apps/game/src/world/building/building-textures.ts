@@ -11,6 +11,8 @@ import { ROOF_MATERIAL_COLORS } from './building-palettes'
 interface FacadeTextures {
   map: THREE.CanvasTexture
   normalMap: THREE.CanvasTexture
+  /** Lit windows only (black elsewhere) — multiplied by material.emissive at night. */
+  emissiveMap: THREE.CanvasTexture
 }
 
 const textureCache = new Map<string, FacadeTextures>()
@@ -31,6 +33,8 @@ const H_GLASS = H_FLAT - 10
 
 const matCache = new Map<string, THREE.MeshStandardMaterial>()
 const roofMatCache = new Map<string, THREE.MeshStandardMaterial>()
+/** Last night-glow level, applied to materials created between solar ticks. */
+let currentGlow = 0
 
 export function makeWindowTexture(palette: Palette, cacheKey: string, rows: number): FacadeTextures {
   const cached = textureCache.get(cacheKey)
@@ -63,6 +67,19 @@ export function makeWindowTexture(palette: Palette, cacheKey: string, rows: numb
     g.addColorStop(1, `rgba(0,0,0,${fadeDown ? 0 : alpha})`)
     ctx.fillStyle = g
     ctx.fillRect(0, y, W, h)
+  }
+
+  // Night windows: same lit rects as the colour canvas, warm on black.
+  // The material's emissiveIntensity (0 by day) fades them in after dusk.
+  const ecanvas = document.createElement('canvas')
+  ecanvas.width = W
+  ecanvas.height = H
+  const ectx = ecanvas.getContext('2d')!
+  ectx.fillStyle = '#000000'
+  ectx.fillRect(0, 0, W, H)
+  const elit = (x: number, y: number, w: number, h: number) => {
+    ectx.fillStyle = '#ffc978'
+    ectx.fillRect(x, y, w, h)
   }
 
   const style = palette.style
@@ -195,6 +212,7 @@ export function makeWindowTexture(palette: Palette, cacheKey: string, rows: numb
           ctx.fillRect(wx, gwy, ww, gwh)
           ctx.fillStyle = 'rgba(255, 230, 160, 0.85)'
           ctx.fillRect(wx + 4, gwy + 2, ww - 8, 8)
+          elit(wx + 4, gwy + 2, ww - 8, 8)
           ctx.strokeStyle = '#180e08'
           ctx.lineWidth = 2
           ctx.strokeRect(wx + 3, gwy + 12, ww / 2 - 4, gwh - 14)
@@ -207,6 +225,7 @@ export function makeWindowTexture(palette: Palette, cacheKey: string, rows: numb
           const lit = ((c * 5 + floors) % 3) !== 0
           ctx.fillStyle = lit ? 'rgba(240, 220, 160, 0.75)' : 'rgba(40, 52, 68, 0.85)'
           ctx.fillRect(wx, gwy, ww, gwh)
+          if (lit) elit(wx, gwy, ww, gwh)
           if (style === 'residential_house' || style === 'haussmann') {
             ctx.fillStyle = '#222'
             for (let gx = wx + 4; gx < wx + ww; gx += 6) ctx.fillRect(gx, gwy, 1.5, gwh)
@@ -230,6 +249,8 @@ export function makeWindowTexture(palette: Palette, cacheKey: string, rows: numb
           ctx.fillStyle = 'rgba(255, 245, 205, 0.35)'
           ctx.fillRect(wx + 2, wy + 2, ww - 4, 3)
           ctx.fillRect(wx + 2, wy + 8, ww - 4, 3)
+          elit(wx + 2, wy + 2, ww - 4, 3)
+          elit(wx + 2, wy + 8, ww - 4, 3)
         }
         ctx.strokeStyle = '#141e28'
         ctx.lineWidth = 2
@@ -246,6 +267,7 @@ export function makeWindowTexture(palette: Palette, cacheKey: string, rows: numb
         const lit = ((c * 3 + f * 7) % 3) !== 0
         ctx.fillStyle = lit ? 'rgba(255, 200, 100, 0.85)' : 'rgba(180, 60, 40, 0.70)'
         ctx.fillRect(wx + 2, wy + 4, ww - 4, wh - 6)
+        if (lit) elit(wx + 2, wy + 4, ww - 4, wh - 6)
         ctx.fillStyle = '#3a3832'
         ctx.fillRect(wx + ww / 2 - 1, wy, 2, wh)
 
@@ -256,6 +278,7 @@ export function makeWindowTexture(palette: Palette, cacheKey: string, rows: numb
         const isWindowLit = ((c * 7 + f * 13) % 5) > 1
         ctx.fillStyle = isWindowLit ? 'rgba(255, 230, 155, 0.92)' : 'rgba(38, 52, 70, 0.88)'
         ctx.fillRect(wx, wy, ww, wh)
+        if (isWindowLit) elit(wx, wy, ww, wh)
         ctx.fillStyle = 'rgba(28, 24, 20, 0.50)'
         ctx.fillRect(wx + ww / 2 - 1, wy, 2, wh)
         ctx.fillRect(wx, wy + wh * 0.45 - 1, ww, 2)
@@ -286,7 +309,10 @@ export function makeWindowTexture(palette: Palette, cacheKey: string, rows: numb
   tex.wrapT = THREE.RepeatWrapping
   tex.anisotropy = 4
   const normalMap = heightToNormalTexture(hcanvas, style === 'glass_curtain' ? 1.4 : 2.0)
-  const result: FacadeTextures = { map: tex, normalMap }
+  const emissiveMap = new THREE.CanvasTexture(ecanvas)
+  emissiveMap.wrapS = THREE.RepeatWrapping
+  emissiveMap.wrapT = THREE.RepeatWrapping
+  const result: FacadeTextures = { map: tex, normalMap, emissiveMap }
   textureCache.set(cacheKey, result)
   return result
 }
@@ -301,16 +327,31 @@ export function getFacadeMat(pal: Palette, key: string, rows: number, colourOver
     const hex = new THREE.Color(colourOverride).getHex()
     effective = { ...pal, facade: hex, frame: (hex >> 1) & 0x7f7f7f }
   }
-  const { map, normalMap } = makeWindowTexture(effective, cacheKey, rows)
+  const { map, normalMap, emissiveMap } = makeWindowTexture(effective, cacheKey, rows)
   const mat = new THREE.MeshStandardMaterial({
     map,
     normalMap,
     normalScale: new THREE.Vector2(0.7, 0.7),
+    emissiveMap,
+    emissive: 0xffffff,
+    emissiveIntensity: 0,
     roughness: pal.isGlass ? 0.35 : 0.84,
     metalness: pal.isGlass ? 0.65 : 0.08,
   })
+  mat.emissiveIntensity = currentGlow
   matCache.set(cacheKey, mat)
   return mat
+}
+
+/**
+ * Night window glow for every cached facade material (0 by day).
+ * Materials are shared across all buildings, so one pass lights the city.
+ */
+export function setFacadeNightGlow(intensity: number): void {
+  currentGlow = intensity
+  for (const mat of matCache.values()) {
+    mat.emissiveIntensity = intensity
+  }
 }
 
 export function getRoofMat(pal: Palette, key: string, colourOverride?: string, materialOverride?: string): THREE.MeshStandardMaterial {

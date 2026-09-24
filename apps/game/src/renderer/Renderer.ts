@@ -5,6 +5,9 @@
 
 import * as THREE from 'three'
 import { useSettingsStore, type ViewDistanceSettings } from '../settings/SettingsStore.js'
+import { dayNightPalette, nightFactor } from './daynight.js'
+import { setLampNightGlow } from '../world/street-furniture/Materials.js'
+import { setFacadeNightGlow } from '../world/building/building-textures.js'
 
 let onViewDistanceChangeCallback: ((settings: ViewDistanceSettings) => void) | null = null
 
@@ -57,6 +60,9 @@ export class Renderer {
     // Lighting
     this._setupLighting()
 
+    // Moon + stars (visible at night only)
+    this._setupNightSky()
+
     // Ground plane (visual)
     this._createGroundMesh()
 
@@ -86,11 +92,25 @@ export class Renderer {
   }
 
   private sun!: THREE.DirectionalLight
+  private ambient!: THREE.AmbientLight
+  private hemi!: THREE.HemisphereLight
+  /**
+   * Unit vector pointing TOWARD the sun (or moon at night). Defaults to the
+   * legacy fixed afternoon offset so the scene looks identical before the
+   * first real solar update.
+   */
+  private sunDir = new THREE.Vector3(120, 180, 80).normalize()
+  /** Player position from the last shadow-box update — anchors moon + stars. */
+  private lastFocus = new THREE.Vector3()
+  private moon!: THREE.Sprite
+  private moonMat!: THREE.SpriteMaterial
+  private stars!: THREE.Points
+  private starsMat!: THREE.PointsMaterial
 
   private _setupLighting(): void {
     // Ambient
-    const ambient = new THREE.AmbientLight(0xfff1e0, 0.65)
-    this.scene.add(ambient)
+    this.ambient = new THREE.AmbientLight(0xfff1e0, 0.65)
+    this.scene.add(this.ambient)
 
     // Sun — warm angled directional sunlight with crisp shadows & asphalt specular sheen
     this.sun = new THREE.DirectionalLight(0xfff6e4, 2.8)
@@ -109,20 +129,153 @@ export class Renderer {
     this.scene.add(this.sun.target)
 
     // Hemisphere — sky / warm ground reflection
-    const hemi = new THREE.HemisphereLight(0x72b9f8, 0x3d4a36, 0.85)
-    this.scene.add(hemi)
+    this.hemi = new THREE.HemisphereLight(0x72b9f8, 0x3d4a36, 0.85)
+    this.scene.add(this.hemi)
+  }
+
+  /**
+   * Drive all lighting from the real solar position.
+   * World axes: +x east, −z north, +y up; azimuth is clockwise from north.
+   * Below −6° the directional light becomes moonlight (opposite azimuth,
+   * fixed 35° elevation) so nights stay readable with working shadows.
+   */
+  applySolarState(elevationDeg: number, azimuthDeg: number): void {
+    const p = dayNightPalette(elevationDeg)
+    const toRad = Math.PI / 180
+    let az = azimuthDeg * toRad
+    let el = elevationDeg * toRad
+    if (p.moon) {
+      az += Math.PI
+      el = 35 * toRad
+    }
+    const cosEl = Math.cos(el)
+    this.sunDir
+      .set(Math.sin(az) * cosEl, Math.sin(el), -Math.cos(az) * cosEl)
+      .normalize()
+
+    this.sun.color.setHex(p.sunColor)
+    this.sun.intensity = p.sunIntensity
+    this.ambient.color.setHex(p.ambientColor)
+    this.ambient.intensity = p.ambientIntensity
+    this.hemi.color.setHex(p.hemiSky)
+    this.hemi.groundColor.setHex(p.hemiGround)
+    this.hemi.intensity = p.hemiIntensity
+    if (this.scene.background instanceof THREE.Color) {
+      this.scene.background.setHex(p.background)
+    }
+    if (this.scene.fog instanceof THREE.FogExp2) {
+      this.scene.fog.color.setHex(p.fog)
+    }
+    this.renderer.toneMappingExposure = p.exposure
+
+    // Night glow: street-lamp heads + lit building windows (shared materials,
+    // so the whole loaded city follows in one pass — no per-object cost).
+    const nf = nightFactor(elevationDeg)
+    setLampNightGlow(nf)
+    setFacadeNightGlow(nf * 1.6)
+
+    // Moon + stars follow the player and fade in with the night.
+    // sunDir already points at the moon when palette.moon is set.
+    const MOON_DIST = 1200
+    this.stars.position.copy(this.lastFocus)
+    this.starsMat.opacity = nf
+    this.moonMat.opacity = nf > 0.02 ? Math.min(1, nf * 1.5) : 0
+    this.moon.visible = this.moonMat.opacity > 0
+    if (this.moon.visible) {
+      this.moon.position.set(
+        this.lastFocus.x + this.sunDir.x * MOON_DIST,
+        this.lastFocus.y + this.sunDir.y * MOON_DIST,
+        this.lastFocus.z + this.sunDir.z * MOON_DIST,
+      )
+    }
+  }
+
+  /**
+   * Moon disc + star dome. Both follow the player (sky-anchored, never
+   * occluded by fog) and fade in with the night amount. One sprite + one
+   * Points draw call, zero cost by day.
+   */
+  private _setupNightSky(): void {
+    // Moon: soft radial disc sprite.
+    const canvas = document.createElement('canvas')
+    canvas.width = 128
+    canvas.height = 128
+    const ctx = canvas.getContext('2d')!
+    const grad = ctx.createRadialGradient(64, 64, 20, 64, 64, 64)
+    grad.addColorStop(0, 'rgba(240, 244, 255, 1)')
+    grad.addColorStop(0.55, 'rgba(214, 224, 248, 1)')
+    grad.addColorStop(0.62, 'rgba(180, 192, 228, 0.55)')
+    grad.addColorStop(1, 'rgba(160, 175, 220, 0)')
+    ctx.fillStyle = grad
+    ctx.fillRect(0, 0, 128, 128)
+    const moonTex = new THREE.CanvasTexture(canvas)
+    this.moonMat = new THREE.SpriteMaterial({
+      map: moonTex,
+      transparent: true,
+      opacity: 0,
+      fog: false,
+      depthWrite: false,
+    })
+    this.moon = new THREE.Sprite(this.moonMat)
+    this.moon.scale.set(140, 140, 1)
+    this.moon.visible = false
+    this.scene.add(this.moon)
+
+    // Stars: deterministic dome (seeded so the sky is stable frame to frame).
+    const COUNT = 900
+    const RADIUS = 1300
+    const positions = new Float32Array(COUNT * 3)
+    const colors = new Float32Array(COUNT * 3)
+    let seed = 0x2f6e2b1
+    const rand = (): number => {
+      seed = (seed + 0x6d2b79f5) | 0
+      let t = Math.imul(seed ^ (seed >>> 15), 1 | seed)
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+    }
+    for (let i = 0; i < COUNT; i++) {
+      const theta = rand() * Math.PI * 2
+      const y = 0.05 + rand() * 0.95
+      const r = Math.sqrt(Math.max(0, 1 - y * y))
+      positions[i * 3] = Math.cos(theta) * r * RADIUS
+      positions[i * 3 + 1] = y * RADIUS
+      positions[i * 3 + 2] = Math.sin(theta) * r * RADIUS
+      const b = 0.35 + 0.65 * rand() * rand()
+      const warm = rand() < 0.2
+      colors[i * 3] = b * (warm ? 1 : 0.85)
+      colors[i * 3 + 1] = b * 0.9
+      colors[i * 3 + 2] = b
+    }
+    const geo = new THREE.BufferGeometry()
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3))
+    this.starsMat = new THREE.PointsMaterial({
+      size: 1.8,
+      sizeAttenuation: false,
+      vertexColors: true,
+      transparent: true,
+      opacity: 0,
+      fog: false,
+      depthWrite: false,
+    })
+    this.stars = new THREE.Points(geo, this.starsMat)
+    this.scene.add(this.stars)
   }
 
   /**
    * Keep directional light and shadow camera centered on the player.
    * This provides crisp shadows everywhere the player drives without rendering distant objects.
+   * The light sits along the current sun/moon direction (see applySolarState).
    */
   updateSunPosition(pos: { x: number; y: number; z: number }): void {
     if (!this.sun) return
-    const offsetX = 120
-    const offsetY = 180
-    const offsetZ = 80
-    this.sun.position.set(pos.x + offsetX, pos.y + offsetY, pos.z + offsetZ)
+    this.lastFocus.set(pos.x, pos.y, pos.z)
+    const DIST = 250
+    this.sun.position.set(
+      pos.x + this.sunDir.x * DIST,
+      pos.y + this.sunDir.y * DIST,
+      pos.z + this.sunDir.z * DIST,
+    )
     this.sun.target.position.set(pos.x, pos.y, pos.z)
     this.sun.target.updateMatrixWorld()
   }

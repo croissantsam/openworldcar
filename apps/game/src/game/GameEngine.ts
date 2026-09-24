@@ -36,7 +36,10 @@ import {
   worldToGeo,
   geoToWorld,
   geoDistanceMeters,
+  solarPosition,
+  solarTimeString,
 } from '@world-drive/math'
+import { nightFactor } from '../renderer/daynight.js'
 import type { WorldPosition, GeoPosition } from '@world-drive/math'
 import {
   generateTrials,
@@ -155,6 +158,9 @@ export type DebugStats = {
   serverTickMs?: number
   serverTickP95?: number
   serverPlayers?: number
+  /** Local solar time "HH:MM" at the player's GPS + Sun elevation (deg). */
+  solarTime: string
+  sunElev: number
   streetName?: string
   destinationName?: string
   destinationFlag?: string
@@ -282,6 +288,10 @@ export class GameEngine {
   /** Last authoritative server metrics from /api/mp-stats (polled ~5 s). */
   private serverMetrics: { tickMsAvg: number; tickMsP95: number; players: number } | null = null
   private lastServerMetricsAt = 0
+  /** Real-world day/night state (refreshed ~5 s from player GPS + UTC). */
+  private lastSolarAt = 0
+  private solarTime = '--:--'
+  private sunElev = 0
 
   // ─── Stats ──────────────────────────────────────────────────────────────────
   private frameCount = 0
@@ -315,6 +325,8 @@ export class GameEngine {
     networkLatency: 0,
     nearbyPlayers: 0,
     npcCount: 0,
+    solarTime: '--:--',
+    sunElev: 0,
     destinationName: WORLD_DESTINATIONS[0]!.name,
     destinationFlag: WORLD_DESTINATIONS[0]!.flag,
   }
@@ -2209,6 +2221,18 @@ export class GameEngine {
     } else {
       gpsPosition = this.playerCar.getGeoPosition()
     }
+    // Real-world day/night: Sun follows the true solar time of the player's
+    // GPS position (same UTC instant = different light in Paris vs Tokyo).
+    // Throttled — the Sun barely moves within 5 s.
+    if (now - this.lastSolarAt > 5000) {
+      this.lastSolarAt = now
+      const at = new Date()
+      const solar = solarPosition(gpsPosition.lat, gpsPosition.lon, at)
+      this.renderer.applySolarState(solar.elevationDeg, solar.azimuthDeg)
+      this.playerCar.setHeadlightLevel(nightFactor(solar.elevationDeg))
+      this.solarTime = solarTimeString(gpsPosition.lon, at)
+      this.sunElev = solar.elevationDeg
+    }
 
     this.stats = {
       fps: this.currentFps,
@@ -2226,6 +2250,8 @@ export class GameEngine {
       networkLatency: this.gameClient.latency,
       nearbyPlayers: this.gameClient.nearbyPlayerCount,
       npcCount: this.npcManager.activeCount,
+      solarTime: this.solarTime,
+      sunElev: this.sunElev,
       ...(this.serverMetrics
         ? {
             serverTickMs: this.serverMetrics.tickMsAvg,

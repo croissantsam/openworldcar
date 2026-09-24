@@ -31,9 +31,11 @@ import { RemotePlayerManager } from '../vehicles/RemotePlayerManager.js'
 import { GameClient } from '../networking/GameClient.js'
 import {
   setWorldOrigin,
+  getWorldOrigin,
   worldToChunk,
   worldToGeo,
   geoToWorld,
+  geoDistanceMeters,
 } from '@world-drive/math'
 import type { WorldPosition, GeoPosition } from '@world-drive/math'
 import {
@@ -116,6 +118,13 @@ export type TripStats = {
 
 /** A per-frame position jump bigger than this is a teleport, not driving. */
 const TRIP_MAX_FRAME_DELTA_M = 100
+/**
+ * Distance from the world origin beyond which the origin is re-centred on
+ * the player (seamless, velocity-preserving). Keeps float32 rendering and
+ * origin-relative chunk keys precise on long drives — planetary continuity
+ * without a planetary-coordinate overhaul (ratified chunk model).
+ */
+const REBASE_DISTANCE_M = 8000
 /** Upward speed (m/s) that opens a jump segment. */
 const JUMP_START_VY = 2.0
 /** |vy| below this (after the minimum air time) closes it (landed). */
@@ -132,11 +141,20 @@ export type DebugStats = {
   triangles: number
   currentChunk: string
   loadedChunks: number
+  /** Cumulative chunk-streaming counters (§30). */
+  chunkLoadsStarted: number
+  chunkLoadsCompleted: number
+  chunkUnloads: number
+  chunkBuildQueue: number
   playerPosition: WorldPosition
   gpsPosition: { lat: number; lon: number }
   networkLatency: number
   nearbyPlayers: number
   npcCount: number
+  /** Authoritative server tick stats from /api/mp-stats (absent = unreachable). */
+  serverTickMs?: number
+  serverTickP95?: number
+  serverPlayers?: number
   streetName?: string
   destinationName?: string
   destinationFlag?: string
@@ -261,6 +279,9 @@ export class GameEngine {
   private lastStatStreetPos: WorldPosition | null = null
   private lastStatStreetAt = 0
   private lastStatStreetName: string | undefined = undefined
+  /** Last authoritative server metrics from /api/mp-stats (polled ~5 s). */
+  private serverMetrics: { tickMsAvg: number; tickMsP95: number; players: number } | null = null
+  private lastServerMetricsAt = 0
 
   // ─── Stats ──────────────────────────────────────────────────────────────────
   private frameCount = 0
@@ -285,6 +306,10 @@ export class GameEngine {
     triangles: 0,
     currentChunk: '0:0:0',
     loadedChunks: 0,
+    chunkLoadsStarted: 0,
+    chunkLoadsCompleted: 0,
+    chunkUnloads: 0,
+    chunkBuildQueue: 0,
     playerPosition: { x: 0, y: 0, z: 0 },
     gpsPosition: { lat: 0, lon: 0 },
     networkLatency: 0,
@@ -378,7 +403,6 @@ export class GameEngine {
     // chunks would load (and stay cached) under a foreign origin.
     this.chunkManager.resetToOrigin(
       this.currentDestination.origin,
-      this.currentDestination.chunkDir,
     )
     this.npcManager = new NPCManager(this.renderer.scene)
     this.remotePlayers = new RemotePlayerManager(this.renderer.scene, this.world)
@@ -442,6 +466,9 @@ export class GameEngine {
 
     // Also stream real OpenStreetMap area for the starting location
     // (parsed in the worker so the first paint and drive stay smooth).
+    // The destination id is captured now: if the player travels before the
+    // fetch completes, the stale initial-area delivery is dropped.
+    const initDestId = this.currentDestination.id
     this._fetchInitialOsm(
       this.currentDestination.origin,
       300,
@@ -450,29 +477,10 @@ export class GameEngine {
       this.currentDestination.spawnHeading,
     )
       .then((realOsm) => {
-        if (realOsm && realOsm.chunks.size > 0 && !this.disposed) {
-          this.chunkManager.setRealOsmChunks(realOsm.chunks)
-          this.chunkManager.clearAllChunks()
-          // The world is rebuilt from scratch: the player restarts in the car
-          const wasFlying = this._vehicleMode === 'plane'
-          this._leavePlane()
-          this.playerCar.teleport(realOsm.spawnPoint, realOsm.spawnHeading)
-          if (wasFlying) this._snapCarCamera()
-          else this.camera.update(0.016)
-          this.chunkManager.update(realOsm.spawnPoint)
-          // Mark the initial area as covered so the streaming manager
-          // doesn't immediately re-fetch the same zone
-          this.osmStreaming.markCovered(this.currentDestination.origin)
-          if (realOsm.streetName) {
-            // New object (not an in-place mutation): HUD state compares by
-            // reference, so the same ref would bail out and never re-render.
-            this.currentDestination = { ...this.currentDestination, name: realOsm.streetName }
-          }
-          this.onDestinationChanged?.(this.currentDestination)
-        } else if (!this.disposed) {
-          // Nothing arrived: let the streaming manager fetch the area again
-          this.osmStreaming.reset()
-        }
+        this._applyStreamedArea(realOsm, {
+          destId: initDestId,
+          wasFlying: this._vehicleMode === 'plane',
+        })
       })
       .catch((err) => {
         console.warn('[GameEngine] Initial OSM fetch error:', err)
@@ -503,6 +511,44 @@ export class GameEngine {
       }
     }
     return fetchRealOsmArea(origin, radius, signal, preferredSpawn, preferredHeading)
+  }
+
+  /**
+   * Shared far-transition pipeline (ratified chunk model): swap freshly
+   * streamed OSM data into the world after init() or travelTo(). The player
+   * always continues in the car, re-seated on the real road centreline —
+   * unless `landAt` pins a trial-start redo spot.
+   */
+  private _applyStreamedArea(
+    realOsm: RealOsmAreaResult | null,
+    opts: { destId: string; landAt?: { x: number; z: number; heading?: number }; wasFlying: boolean },
+  ): void {
+    const { destId, landAt, wasFlying } = opts
+    if (realOsm && realOsm.chunks.size > 0 && this.currentDestination.id === destId && !this.disposed) {
+      this.chunkManager.setRealOsmChunks(realOsm.chunks)
+      this.chunkManager.clearAllChunks()
+      // The world is rebuilt from scratch: the player restarts in the car.
+      this._leavePlane()
+      if (!landAt) {
+        this.playerCar.teleport(realOsm.spawnPoint, realOsm.spawnHeading)
+      }
+      this.gameClient.sendRespawn()
+      if (wasFlying) this._snapCarCamera()
+      else this.camera.update(0.016)
+      this.chunkManager.update(landAt ? { x: landAt.x, y: 0.5, z: landAt.z } : realOsm.spawnPoint)
+      // Mark the area as covered so the streaming manager doesn't
+      // immediately re-fetch the same zone.
+      this.osmStreaming.markCovered(this.currentDestination.origin)
+      if (realOsm.streetName) {
+        // New object (not an in-place mutation): HUD state compares by
+        // reference, so the same ref would bail out and never re-render.
+        this.currentDestination = { ...this.currentDestination, name: realOsm.streetName }
+      }
+      this.onDestinationChanged?.(this.currentDestination)
+    } else if (this.currentDestination.id === destId && !this.disposed) {
+      // Nothing arrived: let the streaming manager fetch the area again.
+      this.osmStreaming.reset()
+    }
   }
 
   private _createGroundPlane(): void {
@@ -621,6 +667,12 @@ export class GameEngine {
       } else {
         this.flipTimer = 0
       }
+    }
+
+    // ── Origin auto-rebase (long drives stay precise; same session) ──────
+    // Refresh the frame's snapshot when the world frame moved underneath us.
+    if (this._maybeRebaseOrigin()) {
+      pos = this.getPlayerPosition()
     }
 
     // ── Trip stats (distance, jumps, play time) ────────────────────────────
@@ -1901,9 +1953,10 @@ export class GameEngine {
 
   /**
    * Fast travels to another city/region in the world.
-   * Re-centers the Mercator projection, reloads chunks from the destination pack,
-   * and places the player car safely at the spawn point — or at `opts.landAt`
-   * (trial-start redo: lands facing the finish instead of the spawn).
+   * Re-centers the Mercator projection, streams the area through the single
+   * world pipeline, and places the player car safely at the spawn point —
+   * or at `opts.landAt` (trial-start redo: lands facing the finish instead
+   * of the spawn). Identical logic for every place on Earth.
    */
   travelTo(destination: WorldDestination, opts?: { landAt?: { x: number; z: number; heading?: number } }): void {
     // A world jump voids any running time trial (and its GPS guidance).
@@ -1918,8 +1971,8 @@ export class GameEngine {
     this._leavePlane()
     this.currentDestination = destination
 
-    // 1. Reset origin and switch chunk base path
-    this.chunkManager.resetToOrigin(destination.origin, destination.chunkDir)
+    // 1. Reset origin and reload the area through the single streaming pipeline
+    this.chunkManager.resetToOrigin(destination.origin)
 
     // 2. Reset OSM streaming state for the new location (the destination area
     //    is fetched below, so mark it covered to avoid a duplicate fetch)
@@ -1959,45 +2012,104 @@ export class GameEngine {
       destination.spawnHeading,
     )
       .then((realOsm) => {
-        if (
-          realOsm &&
-          realOsm.chunks.size > 0 &&
-          this.currentDestination.id === destination.id &&
-          !this.disposed
-        ) {
-          this.chunkManager.setRealOsmChunks(realOsm.chunks)
-          this.chunkManager.clearAllChunks()
-          // Reposition car directly onto the real OSM road centerline —
-          // unless we landed on a trial start (redo): keep that spot.
-          // (the player may have taken the plane meanwhile: back to the car)
-          const wasFlying = this._vehicleMode === 'plane'
-          this._leavePlane()
-          if (!landAt) {
-            this.playerCar.teleport(realOsm.spawnPoint, realOsm.spawnHeading)
-          }
-          this.gameClient.sendRespawn()
-          if (wasFlying) this._snapCarCamera()
-          else this.camera.update(0.016)
-          this.chunkManager.update(
-            landAt ? { x: landAt.x, y: 0.5, z: landAt.z } : realOsm.spawnPoint,
-          )
-          // Mark the new destination as covered so streaming doesn't re-fetch immediately
-          this.osmStreaming.markCovered(destination.origin)
-          if (realOsm.streetName) {
-            // New object (not an in-place mutation): HUD state compares by
-            // reference, so the same ref would bail out and never re-render.
-            this.currentDestination = { ...this.currentDestination, name: realOsm.streetName }
-          }
-          this.onDestinationChanged?.(this.currentDestination)
-        } else if (this.currentDestination.id === destination.id && !this.disposed) {
-          // Nothing arrived: let the streaming manager fetch the area again
-          this.osmStreaming.reset()
-        }
+        // Shared far-transition pipeline: re-seat on the real road
+        // centreline unless we landed on a trial start (redo).
+        // (the player may have taken the plane meanwhile: back to the car)
+        this._applyStreamedArea(realOsm, {
+          destId: destination.id,
+          ...(landAt ? { landAt } : {}),
+          wasFlying: this._vehicleMode === 'plane',
+        })
       })
       .catch((err) => {
         console.warn('[GameEngine] Live OSM fetch failed, keeping procedural chunks:', err)
         if (this.currentDestination.id === destination.id && !this.disposed) this.osmStreaming.reset()
       })
+  }
+
+  /**
+   * Origin auto-rebase: when the player drives far from the world origin,
+   * re-centre the Mercator frame on the player instead of letting local
+   * coordinates (and chunk keys) grow unbounded.
+   *
+   * Same WS/session throughout; velocity, heading, GPS route and safe-spot
+   * survive via geo round-trips. Trials follow travelTo policy (aborted:
+   * beacons are local-frame). Returns true when a rebase happened and the
+   * caller must refresh its position snapshot.
+   */
+  private _maybeRebaseOrigin(): boolean {
+    if (this.disposed) return false
+    const pos = this.getPlayerPosition()
+    if (!isFiniteVec(pos)) return false
+    const geo = worldToGeo(pos)
+    if (geoDistanceMeters(getWorldOrigin(), geo) < REBASE_DISTANCE_M) return false
+
+    const flying = this._vehicleMode === 'plane' && this.plane !== null
+    const heading = flying && this.plane ? this.plane.getYaw() : this.playerCar.getYaw()
+
+    // Trials are local-frame: same policy as travelTo.
+    this.abortTrial()
+    this.trialRadar = null
+    this.trialCache = null
+    this.beaconTrialCache = null
+    this.trialSelected = null
+    this.trialDataVersion++
+
+    // Snapshot everything worth keeping (old frame → geo).
+    const gpsGeo = this.gpsDestination ? worldToGeo(this.gpsDestination) : null
+    const safeGeo = worldToGeo(this.lastSafePos)
+
+    // Re-centre: new local frame, fresh chunk/streaming state.
+    const newOrigin: GeoPosition = { latitude: geo.latitude, longitude: geo.longitude }
+    this.chunkManager.resetToOrigin(newOrigin)
+    this.osmStreaming.reset()
+    this.osmStreaming.markCovered(newOrigin)
+
+    // Same geo, new local coords (≈ origin): velocity-preserving move.
+    // (car teleport adds ride height itself, so subtract it back.)
+    const local = geoToWorld(newOrigin)
+    if (flying && this.plane) {
+      this.plane.shiftBy(local.x - pos.x, local.z - pos.z)
+      this.flightCamera?.snap()
+    } else {
+      this.playerCar.teleport({ x: local.x, y: pos.y - 0.48, z: local.z }, heading, {
+        preserveVelocity: true,
+      })
+      this._snapCarCamera()
+    }
+    this.gameClient.sendRespawn()
+
+    // Restore keepers in the new frame (geo round-trips preserve altitude).
+    this.lastSafePos = geoToWorld(safeGeo)
+    this.lastSafeYaw = heading
+    if (gpsGeo) {
+      this.gpsDestination = geoToWorld(gpsGeo)
+      this.recalculateGpsRoute()
+    } else {
+      this.gpsRoute = null
+    }
+
+    this.chunkManager.update(this.getPlayerPosition())
+
+    // Backfill real OSM around the new origin without moving the player.
+    this._fetchInitialOsm(newOrigin, 300)
+      .then((realOsm) => {
+        if (this.disposed || !realOsm || realOsm.chunks.size === 0) return
+        // The player may have driven on (or hit another rebase) since.
+        if (geoDistanceMeters(getWorldOrigin(), newOrigin) > 1) return
+        this.chunkManager.setRealOsmChunks(realOsm.chunks)
+        this.chunkManager.clearAllChunks()
+        this.chunkManager.update(this.getPlayerPosition())
+        this.osmStreaming.markCovered(newOrigin)
+      })
+      .catch((err) => {
+        console.warn('[GameEngine] Rebase OSM backfill failed, keeping procedural chunks:', err)
+      })
+
+    console.log(
+      `[GameEngine] Origin rebased → lat ${newOrigin.latitude.toFixed(5)}, lon ${newOrigin.longitude.toFixed(5)}`,
+    )
+    return true
   }
 
   /**
@@ -2074,6 +2186,22 @@ export class GameEngine {
       this.lastStatStreetName = street ? street.name : undefined
     }
     const streetName = this.lastStatStreetName
+    // Poll authoritative server metrics at low frequency (fire-and-forget).
+    if (now - this.lastServerMetricsAt > 5000) {
+      this.lastServerMetricsAt = now
+      fetch('/api/mp-stats')
+        .then((r) => (r.ok ? r.json() : null))
+        .then((j: unknown) => {
+          if (j && typeof j === 'object' && typeof (j as { tickMsAvg?: unknown }).tickMsAvg === 'number') {
+            const m = j as { tickMsAvg: number; tickMsP95: number; players: number }
+            this.serverMetrics = { tickMsAvg: m.tickMsAvg, tickMsP95: m.tickMsP95, players: m.players }
+          }
+        })
+        .catch(() => {
+          // Server metrics unavailable (offline / not yet serving): overlay shows '—'.
+        })
+    }
+    const stream = this.chunkManager.streamStats
     let gpsPosition: { lat: number; lon: number }
     if (this._vehicleMode === 'plane') {
       const g = worldToGeo(pos)
@@ -2089,11 +2217,22 @@ export class GameEngine {
       triangles: info.render.triangles,
       currentChunk: `${chunkId.x}:${chunkId.z}:${chunkId.level}`,
       loadedChunks: this.chunkManager.loadedCount,
+      chunkLoadsStarted: stream.loadsStarted,
+      chunkLoadsCompleted: stream.loadsCompleted,
+      chunkUnloads: stream.unloads,
+      chunkBuildQueue: stream.buildQueue + stream.readyQueue,
       playerPosition: pos,
       gpsPosition,
       networkLatency: this.gameClient.latency,
       nearbyPlayers: this.gameClient.nearbyPlayerCount,
       npcCount: this.npcManager.activeCount,
+      ...(this.serverMetrics
+        ? {
+            serverTickMs: this.serverMetrics.tickMsAvg,
+            serverTickP95: this.serverMetrics.tickMsP95,
+            serverPlayers: this.serverMetrics.players,
+          }
+        : {}),
       ...(streetName ? { streetName } : {}),
       destinationName: this.currentDestination.name,
       destinationFlag: this.currentDestination.flag,

@@ -73,6 +73,7 @@ export function DebugOverlay({ engine }: Props) {
       <Row label="Street" value={stats.streetName ?? 'En exploration'} />
       <Row label="Chunk" value={stats.currentChunk} />
       <Row label="Loaded Chunks" value={stats.loadedChunks} />
+      <Row label="Chunk Q" value={`${stats.chunkBuildQueue} (${stats.chunkLoadsCompleted}/${stats.chunkLoadsStarted})`} />
 
       <div style={{ borderTop: '1px solid rgba(0,255,136,0.1)', margin: '6px 0' }} />
 
@@ -87,6 +88,9 @@ export function DebugOverlay({ engine }: Props) {
       <Row label="Latency" value={stats.networkLatency < 0 ? 'OFFLINE' : `${stats.networkLatency} ms`} />
       <Row label="Players" value={stats.nearbyPlayers} />
       <Row label="NPCs" value={stats.npcCount} />
+      <Row label="Srv tick" value={stats.serverTickMs === undefined ? '—' : `${stats.serverTickMs.toFixed(2)} ms`} />
+      <Row label="Srv p95" value={stats.serverTickP95 === undefined ? '—' : `${stats.serverTickP95.toFixed(2)} ms`} />
+      <Row label="Srv players" value={stats.serverPlayers ?? '—'} />
 
       <div
         style={{

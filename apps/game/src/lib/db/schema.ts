@@ -20,7 +20,7 @@ export const playerProfile = sqliteTable('player_profile', {
   displayName: text('display_name'),
   /** Destination id from world/destinations.ts or `osm_loc_…` for searches. */
   destinationId: text('destination_id'),
-  /** JSON snapshot { id, name, city, country, flag, description, chunkDir } for full restore. */
+  /** JSON snapshot { id, name, city, country, flag, description } for full restore. */
   destination: text('destination'),
   /** World origin (GPS) of the saved spawn. */
   spawnOriginLat: real('spawn_origin_lat'),

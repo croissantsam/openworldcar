@@ -18,7 +18,18 @@ type GlobalWithServer = typeof globalThis & {
 export function getMultiplayerServer(): Promise<GameServer> {
   const g = globalThis as GlobalWithServer
   const existing = g[GLOBAL_KEY]
-  if (existing) return existing.starting
+  if (existing) {
+    // Dev HMR keeps globalThis alive across restarts: a singleton built from
+    // an older GameServer class (e.g. before getMetrics existed) would serve
+    // a stale API forever. Retire it instead.
+    const candidate = existing.server as GameServer & { getMetrics?: unknown }
+    if (typeof candidate.getMetrics === 'function') return existing.starting
+    try {
+      existing.server.stop()
+    } catch {
+      // already dead — ignore
+    }
+  }
   const server = new GameServer()
   const entry = { server, starting: server.start().then(() => server) }
   g[GLOBAL_KEY] = entry

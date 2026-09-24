@@ -160,19 +160,12 @@ const URBAN_SLAB_MATERIAL = new THREE.MeshStandardMaterial({
 
 export class ChunkLoader {
   private cache = new ChunkCache()
-  /** Base URL where chunk JSON files are served. */
-  private baseUrl: string
   private currentOrigin: GeoPosition = DEFAULT_ORIGIN
   private realOsmChunks = new Map<string, WorldChunk>()
   onGeneratingChange?: (isGenerating: boolean, chunkId: ChunkId) => void
 
-  constructor(baseUrl = '/chunks', origin: GeoPosition = DEFAULT_ORIGIN) {
-    this.baseUrl = baseUrl
+  constructor(origin: GeoPosition = DEFAULT_ORIGIN) {
     this.currentOrigin = origin
-  }
-
-  setBaseUrl(url: string): void {
-    this.baseUrl = url
   }
 
   setOrigin(origin: GeoPosition): void {
@@ -206,8 +199,10 @@ export class ChunkLoader {
   }
 
   /**
-   * Resolve a chunk's DATA (cache → streamed OSM → static JSON) without
-   * building any meshes. The ChunkManager builds them incrementally.
+   * Resolve a chunk's DATA (cache → streamed OSM) without building any
+   * meshes. The world has a single data source everywhere: live OSM
+   * streaming. Unknown chunks report 'pending' until the streaming manager
+   * delivers them. The ChunkManager builds meshes incrementally.
    */
   async resolveData(id: ChunkId): Promise<ResolvedChunk> {
     const cached = this.cache.get(id)
@@ -220,27 +215,7 @@ export class ChunkLoader {
       return realOsmChunk
     }
 
-    const url = `${this.baseUrl}/chunk_${id.x}_${id.z}.json`
-    try {
-      const resp = await fetch(url)
-      if (resp.status === 404) {
-        return 'pending'
-      }
-      if (!resp.ok) {
-        throw new Error(`HTTP ${resp.status} ${resp.statusText}`)
-      }
-      // Dev servers answer unknown paths with index.html (200): not a chunk.
-      const ctype = resp.headers.get('content-type') ?? ''
-      if (!ctype.includes('json')) {
-        return 'pending'
-      }
-      const data: WorldChunk = await resp.json()
-      this.cache.set(id, data)
-      return data
-    } catch (err) {
-      console.warn(`[ChunkLoader] Failed to load ${key}:`, err)
-      return null
-    }
+    return 'pending'
   }
 
   /**
@@ -322,8 +297,7 @@ export class ChunkLoader {
    * Loads a chunk by ID asynchronously.
    * Priority:
    * 1. In-memory cache
-   * 2. Real-time OSM streamed chunks (from Overpass API)
-   * 3. Static JSON files in /chunks/
+   * 2. Real-time OSM streamed chunks
    */
   async load(id: ChunkId, _scene?: THREE.Scene): Promise<LoadResult> {
     const cached = this.cache.get(id)
@@ -340,23 +314,7 @@ export class ChunkLoader {
       return { id, group, data: realOsmChunk }
     }
 
-    const url = `${this.baseUrl}/chunk_${id.x}_${id.z}.json`
-    try {
-      const resp = await fetch(url)
-      if (resp.status === 404) {
-        return 'pending'
-      }
-      if (!resp.ok) {
-        throw new Error(`HTTP ${resp.status} ${resp.statusText}`)
-      }
-      const data: WorldChunk = await resp.json()
-      this.cache.set(id, data)
-      const group = this._buildGroup(data)
-      return { id, group, data }
-    } catch (err) {
-      console.warn(`[ChunkLoader] Failed to load ${key}:`, err)
-      return null
-    }
+    return 'pending'
   }
 
   integrateStreamedOsm(chunk: WorldChunk): LoadedChunk {

@@ -211,5 +211,7 @@ export class OsmStreamingManager {
     this.fetchedCenters = []
     this.lastUpdatePos = null
     this.lastFetchStartAt = -Infinity
+    // A failure belonged to the old area: the new one must stream immediately.
+    this.lastFailureAt = 0
   }
 }

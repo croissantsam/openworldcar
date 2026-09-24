@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as LocaleRouteImport } from './routes/$locale'
 import { Route as ApiGeocodeRouteImport } from './routes/api/geocode'
+import { Route as ApiMpStatsRouteImport } from './routes/api/mp-stats'
 import { Route as ApiOsmMapRouteImport } from './routes/api/osm-map'
 import { Route as ApiOverpassRouteImport } from './routes/api/overpass'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
@@ -29,6 +30,11 @@ const LocaleRoute = LocaleRouteImport.update({
 const ApiGeocodeRoute = ApiGeocodeRouteImport.update({
   id: '/api/geocode',
   path: '/api/geocode',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiMpStatsRoute = ApiMpStatsRouteImport.update({
+  id: '/api/mp-stats',
+  path: '/api/mp-stats',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiOsmMapRoute = ApiOsmMapRouteImport.update({
@@ -51,6 +57,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/$locale': typeof LocaleRoute
   '/api/geocode': typeof ApiGeocodeRoute
+  '/api/mp-stats': typeof ApiMpStatsRoute
   '/api/osm-map': typeof ApiOsmMapRoute
   '/api/overpass': typeof ApiOverpassRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -59,6 +66,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/$locale': typeof LocaleRoute
   '/api/geocode': typeof ApiGeocodeRoute
+  '/api/mp-stats': typeof ApiMpStatsRoute
   '/api/osm-map': typeof ApiOsmMapRoute
   '/api/overpass': typeof ApiOverpassRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -68,6 +76,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/$locale': typeof LocaleRoute
   '/api/geocode': typeof ApiGeocodeRoute
+  '/api/mp-stats': typeof ApiMpStatsRoute
   '/api/osm-map': typeof ApiOsmMapRoute
   '/api/overpass': typeof ApiOverpassRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -78,6 +87,7 @@ export interface FileRouteTypes {
     | '/'
     | '/$locale'
     | '/api/geocode'
+    | '/api/mp-stats'
     | '/api/osm-map'
     | '/api/overpass'
     | '/api/auth/$'
@@ -86,6 +96,7 @@ export interface FileRouteTypes {
     | '/'
     | '/$locale'
     | '/api/geocode'
+    | '/api/mp-stats'
     | '/api/osm-map'
     | '/api/overpass'
     | '/api/auth/$'
@@ -94,6 +105,7 @@ export interface FileRouteTypes {
     | '/'
     | '/$locale'
     | '/api/geocode'
+    | '/api/mp-stats'
     | '/api/osm-map'
     | '/api/overpass'
     | '/api/auth/$'
@@ -103,6 +115,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   LocaleRoute: typeof LocaleRoute
   ApiGeocodeRoute: typeof ApiGeocodeRoute
+  ApiMpStatsRoute: typeof ApiMpStatsRoute
   ApiOsmMapRoute: typeof ApiOsmMapRoute
   ApiOverpassRoute: typeof ApiOverpassRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
@@ -129,6 +142,13 @@ declare module '@tanstack/react-router' {
       path: '/api/geocode'
       fullPath: '/api/geocode'
       preLoaderRoute: typeof ApiGeocodeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/mp-stats': {
+      id: '/api/mp-stats'
+      path: '/api/mp-stats'
+      fullPath: '/api/mp-stats'
+      preLoaderRoute: typeof ApiMpStatsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/osm-map': {
@@ -159,6 +179,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   LocaleRoute: LocaleRoute,
   ApiGeocodeRoute: ApiGeocodeRoute,
+  ApiMpStatsRoute: ApiMpStatsRoute,
   ApiOsmMapRoute: ApiOsmMapRoute,
   ApiOverpassRoute: ApiOverpassRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,

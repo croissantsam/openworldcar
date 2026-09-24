@@ -136,15 +136,19 @@ cd scripts/world-builder && pnpm start
 
 ## World Data Pipeline
 
-To generate game data from OpenStreetMap:
+One uniform pipeline, identical everywhere on Earth — no pre-generated packs,
+no per-place special cases:
 
-1. Download an OSM PBF file for your region (e.g., from Geofabrik)
-2. Place it in `scripts/world-builder/data/`
-3. Run the world builder:
-   ```bash
-   cd scripts/world-builder && pnpm start
-   ```
-4. Generated chunks will be output to `apps/game/public/chunks/`
+```text
+player position (GPS)
+  → OsmStreamingManager (300 m radius, throttled, velocity lookahead)
+  → GET /api/osm-map (server disk cache `.cache/osm`, then api.openstreetmap.org)
+  → parse in OSM worker → generateChunks → ChunkManager
+```
+
+Trial radar uses `POST /api/overpass` the same way (uniform on-demand fetch).
+`scripts/world-builder` remains a dev-only offline inspection tool, not a
+build step: the game never depends on its output.
 
 ---
 

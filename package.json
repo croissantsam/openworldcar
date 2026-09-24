@@ -8,10 +8,12 @@
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "lint": "pnpm -r lint",
+    "test": "vitest run",
     "clean": "rm -rf packages/*/dist apps/*/dist"
   },
   "devDependencies": {
-    "typescript": "^5.5.4"
+    "typescript": "^5.5.4",
+    "vitest": "^5.0.1"
   },
   "engines": {
     "node": ">=20.0.0",

@@ -8,7 +8,6 @@ export type WorldDestination = {
   flag: string
   description: string
   origin: GeoPosition
-  chunkDir: string
   spawnPosition?: WorldPosition
   spawnHeading?: number // in radians
   landmarks: Array<{
@@ -27,7 +26,6 @@ export const WORLD_DESTINATIONS: WorldDestination[] = [
     flag: '🇫🇷',
     description: 'Le rond-point mythique de l’Arc de Triomphe, au sommet des Champs-Élysées.',
     origin: { latitude: 48.8738, longitude: 2.295 },
-    chunkDir: '/chunks/paris_etoile',
     spawnPosition: { x: 95, y: 0.5, z: 0 },
     spawnHeading: Math.PI,
     landmarks: [
@@ -44,7 +42,6 @@ export const WORLD_DESTINATIONS: WorldDestination[] = [
     flag: '🇫🇷',
     description: 'Le quartier historique de la Bourse, du Sentier et des passages couverts parisiens.',
     origin: { latitude: 48.8648, longitude: 2.349 },
-    chunkDir: '/chunks',
     spawnPosition: { x: 3.7, y: 0.5, z: 158.3 },
     spawnHeading: 1.22,
     landmarks: [
@@ -61,7 +58,6 @@ export const WORLD_DESTINATIONS: WorldDestination[] = [
     flag: '🇫🇷',
     description: "Conduisez au pied de la Dame de Fer, traversez le Pont d'Iéna et longez les quais de Seine.",
     origin: { latitude: 48.8584, longitude: 2.2945 },
-    chunkDir: '/chunks/paris_eiffel',
     spawnPosition: { x: -117.8, y: 0.5, z: -112.4 },
     spawnHeading: -2.83,
     landmarks: [
@@ -79,7 +75,6 @@ export const WORLD_DESTINATIONS: WorldDestination[] = [
     flag: '🇫🇷',
     description: "La plus belle avenue du monde avec le rond-point mythique de l'Arc de Triomphe.",
     origin: { latitude: 48.8738, longitude: 2.295 },
-    chunkDir: '/chunks/paris_champs_elysees',
     spawnPosition: { x: 131.1, y: 0.5, z: 65.3 },
     spawnHeading: 1.13,
     landmarks: [
@@ -96,7 +91,6 @@ export const WORLD_DESTINATIONS: WorldDestination[] = [
     flag: '🇯🇵',
     description: 'Le carrefour le plus célèbre du monde, entouré d’écrans géants néons et des ruelles de Center-Gai.',
     origin: { latitude: 35.6595, longitude: 139.7004 },
-    chunkDir: '/chunks/tokyo_shibuya',
     spawnPosition: { x: 11.9, y: 0.5, z: -1.4 },
     spawnHeading: -2.05,
     landmarks: [
@@ -114,7 +108,6 @@ export const WORLD_DESTINATIONS: WorldDestination[] = [
     flag: '🇺🇸',
     description: 'Le cœur de Manhattan, ses gratte-ciels iconiques, Broadway et la 7ème Avenue.',
     origin: { latitude: 40.758, longitude: -73.9855 },
-    chunkDir: '/chunks/nyc_times_square',
     spawnPosition: { x: 70.8, y: 0.5, z: -306.4 },
     spawnHeading: -0.88,
     landmarks: [
@@ -132,7 +125,6 @@ export const WORLD_DESTINATIONS: WorldDestination[] = [
     flag: '🇬🇧',
     description: 'Le Parlement britannique, Big Ben, Westminster Bridge et les rives de la Tamise.',
     origin: { latitude: 51.5007, longitude: -0.1246 },
-    chunkDir: '/chunks/london_westminster',
     spawnPosition: { x: 69.1, y: 0.5, z: -41.9 },
     spawnHeading: 1.48,
     landmarks: [
@@ -150,7 +142,6 @@ export const WORLD_DESTINATIONS: WorldDestination[] = [
     flag: '🇮🇹',
     description: 'La cité éternelle, le Colisée et les avenues de la Rome impériale générés en temps réel.',
     origin: { latitude: 41.8902, longitude: 12.4922 },
-    chunkDir: '/chunks/rome_colosseum',
     spawnPosition: { x: 62.5, y: 0.5, z: 62.5 },
     spawnHeading: 0,
     landmarks: [
@@ -167,7 +158,6 @@ export const WORLD_DESTINATIONS: WorldDestination[] = [
     flag: '🇺🇸',
     description: 'Les rues pentues californiennes, Market Street et la skyline de la baie.',
     origin: { latitude: 37.7897, longitude: -122.4014 },
-    chunkDir: '/chunks/sf_downtown',
     spawnPosition: { x: 62.5, y: 0.5, z: 62.5 },
     spawnHeading: Math.PI / 3,
     landmarks: [
@@ -184,7 +174,6 @@ export const WORLD_DESTINATIONS: WorldDestination[] = [
     flag: '🇦🇪',
     description: 'La métropole futuriste, le gratte-ciel le plus haut du monde et les boulevards géants.',
     origin: { latitude: 25.1972, longitude: 55.2744 },
-    chunkDir: '/chunks/dubai_burj',
     spawnPosition: { x: 62.5, y: 0.5, z: 62.5 },
     spawnHeading: -Math.PI / 4,
     landmarks: [
@@ -201,7 +190,6 @@ export const WORLD_DESTINATIONS: WorldDestination[] = [
     flag: '🇦🇺',
     description: 'La baie de Sydney, le célèbre opéra aux voiles blanches et Harbour Bridge.',
     origin: { latitude: -33.8568, longitude: 151.2153 },
-    chunkDir: '/chunks/sydney_harbour',
     spawnPosition: { x: 62.5, y: 0.5, z: 62.5 },
     spawnHeading: Math.PI / 2,
     landmarks: [
@@ -218,7 +206,6 @@ export const WORLD_DESTINATIONS: WorldDestination[] = [
     flag: '🇩🇪',
     description: 'Le cœur historique allemand, Unter den Linden et le Tiergarten.',
     origin: { latitude: 52.5163, longitude: 13.3777 },
-    chunkDir: '/chunks/berlin_brandenburg',
     spawnPosition: { x: 62.5, y: 0.5, z: 62.5 },
     spawnHeading: 0,
     landmarks: [
@@ -235,7 +222,6 @@ export function createCustomDestination(
   customName?: string,
 ): WorldDestination {
   const safeName = customName?.trim() || `GPS (${lat.toFixed(4)}°, ${lon.toFixed(4)}°)`
-  const dirKey = `custom_${Math.round(lat * 1000)}_${Math.round(lon * 1000)}`
   return {
     id: `custom_${Date.now()}`,
     name: safeName,
@@ -244,7 +230,6 @@ export function createCustomDestination(
     flag: '🌐',
     description: `Zone explorée et générée en temps réel autour des coordonnées ${lat.toFixed(5)}°, ${lon.toFixed(5)}°.`,
     origin: { latitude: lat, longitude: lon },
-    chunkDir: `/chunks/${dirKey}`,
     spawnPosition: { x: 62.5, y: 0.5, z: 62.5 },
     spawnHeading: 0,
     landmarks: [

@@ -9,7 +9,6 @@ export interface DestinationSnapshot {
   country: string
   flag: string
   description: string
-  chunkDir: string
 }
 
 export interface SpawnSave {

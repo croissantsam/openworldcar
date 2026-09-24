@@ -16,6 +16,31 @@ import { WorldRegion } from './WorldRegion.js'
 
 const TICK_RATE = 20 // Hz
 const TICK_DT = 1 / TICK_RATE
+/** Tick-duration samples kept for observability (§30): 240 @ 20 Hz ≈ 12 s. */
+const METRIC_SAMPLES = 240
+/** Server-side summary log cadence (ms). */
+const METRIC_LOG_INTERVAL_MS = 30_000
+
+function percentile(sorted: number[], p: number): number {
+  if (sorted.length === 0) return 0
+  return sorted[Math.min(sorted.length - 1, Math.floor((p / 100) * sorted.length))]!
+}
+
+export type ServerMetrics = {
+  tickRate: number
+  tick: number
+  players: number
+  npcs: number
+  uptimeS: number
+  messagesIn: number
+  snapshotsOut: number
+  /** Mean tick duration (ms) over the sample window. */
+  tickMsAvg: number
+  /** p95 tick duration (ms) — the tick-budget signal (§30). */
+  tickMsP95: number
+  /** Mean interest-filter time (ms) per tick. */
+  interestMsAvg: number
+}
 
 export class GameServer {
   private sessions = new Map<string, PlayerSession>()
@@ -27,6 +52,12 @@ export class GameServer {
   private tick = 0
   private tickTimer: ReturnType<typeof setInterval> | null = null
   private started = false
+  private startedAt = Date.now()
+  private tickDurations: number[] = []
+  private interestDurations: number[] = []
+  private messagesIn = 0
+  private snapshotsOut = 0
+  private lastMetricLogAt = 0
 
   async start(): Promise<void> {
     if (this.started) return
@@ -61,10 +92,30 @@ export class GameServer {
   receive(sessionId: string, raw: string): void {
     const session = this.sessions.get(sessionId)
     if (!session) return
+    this.messagesIn++
     this.handler.handle(session, raw)
   }
 
+  /** Observability snapshot (§30): tick budget, interest cost, population. */
+  getMetrics(): ServerMetrics {
+    const ticks = [...this.tickDurations].sort((a, b) => a - b)
+    const interests = this.interestDurations
+    return {
+      tickRate: TICK_RATE,
+      tick: this.tick,
+      players: this.sessions.size,
+      npcs: this.npcSim.getSnapshots().length,
+      uptimeS: Math.round((Date.now() - this.startedAt) / 1000),
+      messagesIn: this.messagesIn,
+      snapshotsOut: this.snapshotsOut,
+      tickMsAvg: ticks.length > 0 ? ticks.reduce((a, b) => a + b, 0) / ticks.length : 0,
+      tickMsP95: percentile(ticks, 95),
+      interestMsAvg: interests.length > 0 ? interests.reduce((a, b) => a + b, 0) / interests.length : 0,
+    }
+  }
+
   private _tick(): void {
+    const tickStart = performance.now()
     this.tick++
 
     // Apply inputs and step physics
@@ -96,12 +147,15 @@ export class GameServer {
 
     const npcSnapshots = this.npcSim.getSnapshots()
 
+    let interestMs = 0
     for (const [id, session] of this.sessions) {
+      const filterStart = performance.now()
       const nearbyIds = this.interest.getPlayersInRange(
         { position: session.state.position, geo: session.state.geo },
         playerMap,
         id,
       )
+      interestMs += performance.now() - filterStart
 
       const playerSnapshots = nearbyIds.map((pid) => {
         const s = this.sessions.get(pid)!
@@ -132,6 +186,22 @@ export class GameServer {
       }
 
       session.send(serializeMessage(snapshot))
+      this.snapshotsOut++
+    }
+    this.interestDurations.push(interestMs)
+    if (this.interestDurations.length > METRIC_SAMPLES) this.interestDurations.shift()
+    this.tickDurations.push(performance.now() - tickStart)
+    if (this.tickDurations.length > METRIC_SAMPLES) this.tickDurations.shift()
+
+    const now = Date.now()
+    if (now - this.lastMetricLogAt >= METRIC_LOG_INTERVAL_MS) {
+      this.lastMetricLogAt = now
+      const m = this.getMetrics()
+      console.log(
+        `[Server] tick=${m.tick} players=${m.players} npcs=${m.npcs} ` +
+          `tickAvg=${m.tickMsAvg.toFixed(2)}ms p95=${m.tickMsP95.toFixed(2)}ms ` +
+          `interestAvg=${m.interestMsAvg.toFixed(2)}ms msgIn=${m.messagesIn} snapOut=${m.snapshotsOut}`,
+      )
     }
   }
 

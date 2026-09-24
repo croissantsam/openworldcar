@@ -158,7 +158,6 @@ export function geocodingResultToDestination(
       latitude: result.latitude,
       longitude: result.longitude,
     },
-    chunkDir: '/chunks',
     // Spawn right on the primary crossroad intersection of chunk (0,0) with safe height
     spawnPosition: { x: 62.5, y: 1.0, z: 62.5 },
     spawnHeading: 0,

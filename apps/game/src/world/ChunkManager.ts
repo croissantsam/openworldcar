@@ -92,6 +92,16 @@ export type StreetInfo = {
   distance: number
 }
 
+/** Cumulative chunk-streaming counters for observability (§30). */
+export type ChunkStreamStats = {
+  loadsStarted: number
+  loadsCompleted: number
+  unloads: number
+  /** Jobs waiting for / finished with geometry (live values). */
+  buildQueue: number
+  readyQueue: number
+}
+
 type BuildMode = 'full' | 'merge'
 type JobState = 'queued' | 'running' | 'done'
 
@@ -148,6 +158,10 @@ export class ChunkManager {
   /** Jobs whose geometry and colliders are complete; swapped in one per frame. */
   private ready: BuildJob[] = []
   private lastUpdateAt = 0
+  /** Cumulative streaming counters (§30 observability). */
+  private loadsStarted = 0
+  private loadsCompleted = 0
+  private unloads = 0
   /** Current in-frame slice while moving (congestion-controlled). */
   private movingBudgetMs = 3
   /** Recent frame intervals, to estimate the display period. */
@@ -160,7 +174,7 @@ export class ChunkManager {
   constructor(scene: THREE.Scene, world?: RAPIER.World) {
     this.scene = scene
     this.world = world
-    this.loader = new ChunkLoader('/chunks')
+    this.loader = new ChunkLoader()
     this.loader.onGeneratingChange = (isGen, id) => {
       const k = chunkKey(id)
       if (isGen) this.generatingChunks.add(k)
@@ -236,6 +250,7 @@ export class ChunkManager {
     }
     this.chunks.set(key, managed)
     managed.state.transition('LOADING')
+    this.loadsStarted++
 
     // Ground slab right away so the world never shows a hole while the
     // real geometry is resolved and built.
@@ -546,6 +561,7 @@ export class ChunkManager {
     if (managed.state.status === 'LOADING') managed.state.transition('ACTIVE')
 
     managed.job = null
+    this.loadsCompleted++
     if (managed.pending) {
       const delta = managed.pending
       managed.pending = null
@@ -558,6 +574,7 @@ export class ChunkManager {
   // ───────────────────────────────────────────────────────────────────────────
 
   private _unload(key: string, chunk: ManagedChunk): void {
+    this.unloads++
     if (chunk.state.status === 'ACTIVE') {
       chunk.state.transition('UNLOADING')
     }
@@ -627,16 +644,17 @@ export class ChunkManager {
   }
 
   /**
-   * Switches to a new geographic origin and chunk directory, clearing current chunks.
+   * Switches to a new geographic origin, clearing current chunks.
+   * Identical logic everywhere on Earth: chunk keys are origin-relative,
+   * data always comes from the same live OSM streaming pipeline.
    */
-  resetToOrigin(newOrigin: GeoPosition, chunkDir = '/chunks'): void {
+  resetToOrigin(newOrigin: GeoPosition): void {
     this.clearAllChunks()
     this.generatingChunks.clear()
     // Chunk keys are relative to the origin: drop the previous area's data so
     // it can never be unioned into the new one.
     this.loader.clearCache()
     this.loader.setOrigin(newOrigin)
-    this.loader.setBaseUrl(chunkDir)
     setWorldOrigin(newOrigin)
     this.lastPlayerChunk = null
   }
@@ -924,6 +942,17 @@ export class ChunkManager {
       if (c.state.status === 'ACTIVE') n++
     }
     return n
+  }
+
+  /** Cumulative streaming counters + live queue depths (§30 observability). */
+  get streamStats(): ChunkStreamStats {
+    return {
+      loadsStarted: this.loadsStarted,
+      loadsCompleted: this.loadsCompleted,
+      unloads: this.unloads,
+      buildQueue: this.queue.length,
+      readyQueue: this.ready.length,
+    }
   }
 
   /**

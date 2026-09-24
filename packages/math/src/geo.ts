@@ -77,6 +77,22 @@ export const DEFAULT_ORIGIN: GeoPosition = {
 }
 
 /**
+ * Great-circle distance in metres between two WGS84 positions (haversine).
+ * Canonical shared helper: interest management and origin-rebase checks must
+ * agree on Earth distance even when local XYZ frames differ.
+ */
+export function geoDistanceMeters(a: GeoPosition, b: GeoPosition): number {
+  const R = 6_371_000
+  const toRad = Math.PI / 180
+  const dLat = (b.latitude - a.latitude) * toRad
+  const dLon = (b.longitude - a.longitude) * toRad
+  const s =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(a.latitude * toRad) * Math.cos(b.latitude * toRad) * Math.sin(dLon / 2) * Math.sin(dLon / 2)
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(s)))
+}
+
+/**
  * Convert a geographic position to a world-space position.
  * Requires setWorldOrigin() to have been called first.
  */

@@ -548,8 +548,7 @@ export class FlightSim {
   }
 
   /** Back to the remembered spawn point (on the ground, stopped — or airborne if spawned so). */
-  respawn(): void {
-    const a = this.spawnArgs
+  respawn(): void {    const a = this.spawnArgs
     const p = this.p
     this.crashed = false
     this.crashTimer = 0
@@ -601,6 +600,23 @@ export class FlightSim {
     this.prevPos.copy(this.pos)
     this.prevQuat.copy(this.quat)
     this.spawnCount++
+  }
+
+  /**
+   * Translate the whole sim frame by (dx, dz) — origin rebase mid-flight.
+   * Position history moves with it (no interpolation jump); velocity,
+   * attitude and spawn memory follow so flight continues seamlessly.
+   */
+  shiftBy(dx: number, dz: number): void {
+    this.pos.x += dx
+    this.pos.z += dz
+    this.prevPos.x += dx
+    this.prevPos.z += dz
+    this.spawnArgs.ground = {
+      x: this.spawnArgs.ground.x + dx,
+      y: this.spawnArgs.ground.y,
+      z: this.spawnArgs.ground.z + dz,
+    }
   }
 
   // ── Fixed step ─────────────────────────────────────────────────────────────
@@ -1337,6 +1353,16 @@ export class PlayerPlane {
   despawn(): void {
     this.isActive = false
     this.root.visible = false
+  }
+
+  /**
+   * Translate the plane frame by (dx, dz) — origin rebase mid-flight.
+   * The render root follows on the next syncMesh.
+   */
+  shiftBy(dx: number, dz: number): void {
+    this.sim.shiftBy(dx, dz)
+    this.root.position.x += dx
+    this.root.position.z += dz
   }
 
   step(input: FlightInput, dt: number): void {

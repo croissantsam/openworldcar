@@ -700,19 +700,29 @@ export class PlayerCar {
 
   /**
    * Teleport the car to a new world position and heading.
+   * `preserveVelocity` (origin rebase) keeps the current linear/angular
+   * velocity instead of stopping: the move stays seamless mid-drive.
    */
-  teleport(pos: WorldPosition, headingRad = 0): void {
+  teleport(pos: WorldPosition, headingRad = 0, opts?: { preserveVelocity?: boolean }): void {
+    const preserve = opts?.preserveVelocity === true
     const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), headingRad)
     this.body.setTranslation({ x: pos.x, y: pos.y + 0.48, z: pos.z }, true)
     this.body.setRotation({ x: q.x, y: q.y, z: q.z, w: q.w }, true)
-    this.body.setLinvel({ x: 0, y: 0, z: 0 }, true)
-    this.body.setAngvel({ x: 0, y: 0, z: 0 }, true)
-    this.cachedVel.x = 0
-    this.cachedVel.y = 0
-    this.cachedVel.z = 0
-    this.cachedSpeed = 0
-    this.cachedForwardSpeed = 0
-    this.prevLinVel = { x: 0, y: 0, z: 0 }
+    if (preserve) {
+      // Velocity untouched (setTranslation preserves it in Rapier): just
+      // re-sync the caches so no phantom impact is detected next tick.
+      this._refreshVelocityCache()
+      this.prevLinVel = { x: this.cachedVel.x, y: this.cachedVel.y, z: this.cachedVel.z }
+    } else {
+      this.body.setLinvel({ x: 0, y: 0, z: 0 }, true)
+      this.body.setAngvel({ x: 0, y: 0, z: 0 }, true)
+      this.cachedVel.x = 0
+      this.cachedVel.y = 0
+      this.cachedVel.z = 0
+      this.cachedSpeed = 0
+      this.cachedForwardSpeed = 0
+      this.prevLinVel = { x: 0, y: 0, z: 0 }
+    }
     this.triggerInvincibility(30_000)
     this.syncMesh()
   }

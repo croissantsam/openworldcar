@@ -187,7 +187,7 @@ export class Renderer {
     // so the whole loaded city follows in one pass — no per-object cost).
     const nf = nightFactor(elevationDeg)
     setLampNightGlow(nf)
-    setFacadeNightGlow(nf * 1.6)
+    setFacadeNightGlow(nf * 0.4)
     setAsphaltWetness(nf)
 
     // Post-processing: adapt bloom + color grade to time of day.

@@ -78,7 +78,7 @@ export function makeWindowTexture(palette: Palette, cacheKey: string, rows: numb
   ectx.fillStyle = '#000000'
   ectx.fillRect(0, 0, W, H)
   const elit = (x: number, y: number, w: number, h: number) => {
-    ectx.fillStyle = '#ffc978'
+    ectx.fillStyle = '#d4aa6e'
     ectx.fillRect(x, y, w, h)
   }
 
@@ -222,7 +222,7 @@ export function makeWindowTexture(palette: Palette, cacheKey: string, rows: numb
         } else {
           ctx.fillStyle = 'rgba(0,0,0,0.3)'
           ctx.fillRect(wx - 2, gwy - 2, ww + 4, gwh + 4)
-          const lit = ((c * 5 + floors) % 3) !== 0
+          const lit = ((c * 5 + floors) % 3) === 0
           ctx.fillStyle = lit ? 'rgba(240, 220, 160, 0.75)' : 'rgba(40, 52, 68, 0.85)'
           ctx.fillRect(wx, gwy, ww, gwh)
           if (lit) elit(wx, gwy, ww, gwh)
@@ -244,7 +244,7 @@ export function makeWindowTexture(palette: Palette, cacheKey: string, rows: numb
         ctx.fillRect(wx, wy, ww, wh)
         ctx.fillStyle = 'rgba(255, 255, 255, 0.18)'
         ctx.fillRect(wx, wy, ww * 0.35, wh)
-        const isOfficeLit = ((c * 5 + f * 11) % 4) !== 0
+        const isOfficeLit = ((c * 5 + f * 11) % 4) === 0
         if (isOfficeLit) {
           ctx.fillStyle = 'rgba(255, 245, 205, 0.35)'
           ctx.fillRect(wx + 2, wy + 2, ww - 4, 3)
@@ -264,7 +264,7 @@ export function makeWindowTexture(palette: Palette, cacheKey: string, rows: numb
         ctx.fillRect(wx, wy, ww, wh)
         hfill(wx, wy, ww, wh, H_RECESS)
         hfill(wx - 2, wy + wh, ww + 4, 3, H_SILL)
-        const lit = ((c * 3 + f * 7) % 3) !== 0
+        const lit = ((c * 3 + f * 7) % 3) === 0
         ctx.fillStyle = lit ? 'rgba(255, 200, 100, 0.85)' : 'rgba(180, 60, 40, 0.70)'
         ctx.fillRect(wx + 2, wy + 4, ww - 4, wh - 6)
         if (lit) elit(wx + 2, wy + 4, ww - 4, wh - 6)
@@ -275,7 +275,7 @@ export function makeWindowTexture(palette: Palette, cacheKey: string, rows: numb
         // ── Classic window with lintel, sill, and frame ──────────────────────
         ctx.fillStyle = 'rgba(0,0,0,0.32)'
         ctx.fillRect(wx - 2, wy - 2, ww + 4, wh + 4)
-        const isWindowLit = ((c * 7 + f * 13) % 5) > 1
+        const isWindowLit = ((c * 7 + f * 13) % 4) === 0
         ctx.fillStyle = isWindowLit ? 'rgba(255, 230, 155, 0.92)' : 'rgba(38, 52, 70, 0.88)'
         ctx.fillRect(wx, wy, ww, wh)
         if (isWindowLit) elit(wx, wy, ww, wh)

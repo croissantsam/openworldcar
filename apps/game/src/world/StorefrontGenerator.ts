@@ -47,14 +47,14 @@ const STREET_PLAQUE_H = 0.25
 
 // Atlas layout (canvas pixels)
 const ATLAS_W = 1024
-const ATLAS_MAX_H = 1024
+const ATLAS_MAX_H = 2048
 const CELL_SIGN_W = 320
 const CELL_SIGN_H = 80
 const CELL_NUM_W = 64
 const CELL_NUM_H = 48
 
-const SHOP_KINDS = new Set(['shop', 'amenity', 'office', 'craft', 'tourism'])
-const AWNING_CATS = new Set(['cafe', 'restaurant', 'bakery', 'bar', 'ice_cream', 'fast_food', 'pub'])
+const SHOP_KINDS = new Set(['shop', 'amenity', 'office', 'craft', 'tourism', 'leisure', 'historic'])
+const AWNING_CATS = new Set(['cafe', 'restaurant', 'bakery', 'bar', 'ice_cream', 'fast_food', 'pub', 'hotel', 'theatre', 'cinema', 'arts_centre'])
 const PLAQUE_HIGHWAYS = new Set([
   'motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'residential',
   'living_street', 'pedestrian', 'unclassified',
@@ -98,7 +98,8 @@ type SignStyle = {
 }
 
 type StorefrontItem = {
-  poi: PointOfInterest
+  poi?: PointOfInterest | undefined
+  building?: Building | undefined
   edge: Edge
   t: number // projection along the edge (m)
   label: string
@@ -222,30 +223,115 @@ function categoryWord(cat: string): string {
 
 function styleFor(cat: string, label: string): SignStyle {
   switch (cat) {
+    // ── Food & Drink ──
     case 'bakery':
     case 'pastry':
     case 'confectionery':
     case 'chocolate':
-      return { bg: '#6b3f1d', fg: '#f6e7c8', tint: 0x4a3b22, awning: 0x8a4a22 }
+      return { bg: '#6b3f1d', fg: '#f6e7c8', border: '#d4af37', tint: 0x4a3b22, awning: 0x8a4a22 }
     case 'pharmacy':
     case 'chemist':
       return { bg: '#0f8a3c', fg: '#ffffff', cross: true, tint: 0x1f4a2a }
     case 'cafe':
     case 'coffee':
     case 'ice_cream':
-      return { bg: '#7a1f1f', fg: '#f3e6cf', tint: 0x4a2a1a, awning: 0x8c2a2a }
+      return { bg: '#7a1f1f', fg: '#f3e6cf', border: '#e8cfa6', tint: 0x4a2a1a, awning: 0x8c2a2a }
     case 'restaurant':
     case 'bar':
     case 'pub':
     case 'fast_food':
     case 'food_court':
     case 'biergarten':
-      return { bg: '#1f4d33', fg: '#f3e6cf', tint: 0x2a3a24, awning: 0x2f6a45 }
+      return { bg: '#1f4d33', fg: '#f3e6cf', border: '#c8a86b', tint: 0x2a3a24, awning: 0x2f6a45 }
+
+    // ── Healthcare & Medical (cross: true) ──
+    case 'hospital':
+    case 'clinic':
+    case 'doctors':
+    case 'dentist':
+    case 'veterinary':
+      return { bg: '#0284c7', fg: '#ffffff', cross: true, border: '#38bdf8', tint: 0x1e3a4f }
+
+    // ── Emergency Services ──
+    case 'police':
+    case 'gendarmerie':
+      return { bg: '#0a1c36', fg: '#ffffff', border: '#38bdf8', tint: 0x142036 }
+    case 'fire_station':
+      return { bg: '#991b1b', fg: '#ffffff', border: '#fbbf24', tint: 0x3a1a1a }
+
+    // ── Civic & Government ──
+    case 'townhall':
+    case 'courthouse':
+    case 'government':
+    case 'civic':
+    case 'public':
+      return { bg: '#1e293b', fg: '#f8fafc', border: '#cbd5e1', tint: 0x242d38 }
+
+    // ── Education ──
+    case 'school':
+    case 'university':
+    case 'college':
+    case 'kindergarten':
+      return { bg: '#1e3a5f', fg: '#fef3c7', border: '#fbbf24', tint: 0x263345 }
+
+    // ── Hospitality ──
+    case 'hotel':
+    case 'motel':
+    case 'hostel':
+    case 'guest_house':
+      return { bg: '#1e1028', fg: '#fef3c7', border: '#d4af37', tint: 0x32243d, awning: 0x3b1c4a }
+
+    // ── Culture & Entertainment ──
+    case 'theatre':
+    case 'cinema':
+    case 'arts_centre':
+      return { bg: '#4c0519', fg: '#fff1f2', border: '#f43f5e', tint: 0x381822, awning: 0x5c0920 }
+    case 'museum':
+    case 'gallery':
+    case 'library':
+      return { bg: '#3e1a28', fg: '#fff5eb', border: '#f5d0a9', tint: 0x2c1420 }
+
+    // ── Finance & Public Services ──
     case 'bank':
     case 'atm':
     case 'bureau_de_change':
     case 'insurance':
-      return { bg: '#16274d', fg: '#ffffff', tint: 0x1c2a44 }
+      return { bg: '#0f2942', fg: '#ffffff', border: '#d4af37', tint: 0x1c2a44 }
+    case 'post_office':
+      return { bg: '#facc15', fg: '#0f172a', border: '#1e3a8a', tint: 0x3a3520 }
+
+    // ── Transit & Sports ──
+    case 'train_station':
+    case 'subway':
+    case 'subway_entrance':
+    case 'bus_station':
+      return { bg: '#004b87', fg: '#ffffff', border: '#ffffff', tint: 0x18304a }
+    case 'stadium':
+    case 'sports_centre':
+    case 'fitness_centre':
+    case 'sports_hall':
+    case 'gym':
+      return { bg: '#065f46', fg: '#ffffff', border: '#6ee7b7', tint: 0x1a382a }
+
+    // ── Places of Worship ──
+    case 'church':
+    case 'cathedral':
+    case 'chapel':
+    case 'mosque':
+    case 'synagogue':
+    case 'temple':
+      return { bg: '#2d251e', fg: '#fbf9f4', border: '#c5a059', tint: 0x26201b }
+
+    // ── Residential & Corporate ──
+    case 'residential':
+    case 'apartments':
+      return { bg: '#22262d', fg: '#f1f5f9', border: '#64748b', tint: 0x242830 }
+    case 'office':
+    case 'commercial':
+    case 'company':
+      return { bg: '#1f242e', fg: '#f8fafc', border: '#60a5fa', tint: 0x222a36 }
+
+    // ── Retail & Shopping ──
     case 'supermarket':
     case 'convenience':
     case 'greengrocer':
@@ -255,7 +341,7 @@ function styleFor(cat: string, label: string): SignStyle {
     case 'department_store': {
       const hue = (hashStr(label) % 360) / 360
       const bgHex = hslHex(hue, 0.78, 0.42)
-      return { bg: `#${bgHex.toString(16).padStart(6, '0')}`, fg: '#ffffff', tint: hslHex(hue, 0.35, 0.2) }
+      return { bg: `#${bgHex.toString(16).padStart(6, '0')}`, fg: '#ffffff', border: '#ffffff', tint: hslHex(hue, 0.35, 0.2) }
     }
     case 'butcher':
       return { bg: '#8a1a1a', fg: '#ffffff', tint: 0x4a2222 }
@@ -269,7 +355,7 @@ function styleFor(cat: string, label: string): SignStyle {
     case 'cosmetics':
     case 'beauty':
     case 'hairdresser':
-      return { bg: '#1b1b1f', fg: '#f0ece4', tint: 0x2e2e34 }
+      return { bg: '#1b1b1f', fg: '#f0ece4', border: '#d4af37', tint: 0x2e2e34 }
     case 'books':
     case 'stationery':
     case 'newsagent':
@@ -278,10 +364,6 @@ function styleFor(cat: string, label: string): SignStyle {
     case 'florist':
     case 'garden_centre':
       return { bg: '#2f6a3a', fg: '#ffffff', tint: 0x2a4a2a }
-    case 'hotel':
-    case 'guest_house':
-    case 'hostel':
-      return { bg: '#3b2a4d', fg: '#f3e6cf', tint: 0x30283a }
     case 'mobile_phone':
     case 'electronics':
     case 'computer':
@@ -293,6 +375,131 @@ function styleFor(cat: string, label: string): SignStyle {
     default:
       return { bg: '#2b2b2e', fg: '#f4f1ea', tint: 0x2a2c30 }
   }
+}
+
+/** Identify building signage label and styling category based on OSM building data. */
+function getBuildingIdentity(b: Building): { label: string; category: string } | null {
+  const name = b.name?.trim()
+  const brand = b.brand?.trim()
+  const bType = b.buildingType
+
+  if (bType && bType !== 'yes' && bType !== 'roof' && bType !== 'carport' && bType !== 'garage' && bType !== 'garages' && bType !== 'shed' && bType !== 'hut' && bType !== 'cabin') {
+    switch (bType) {
+      case 'hotel':
+        return { label: name ?? brand ?? 'HÔTEL', category: 'hotel' }
+      case 'hospital':
+        return { label: name ?? brand ?? 'CENTRE HOSPITALIER', category: 'hospital' }
+      case 'clinic':
+        return { label: name ?? brand ?? 'CLINIQUE MÉDICALE', category: 'clinic' }
+      case 'police':
+        return { label: name ?? brand ?? 'COMMISSARIAT DE POLICE', category: 'police' }
+      case 'fire_station':
+        return { label: name ?? brand ?? 'SAPEURS-POMPIERS', category: 'fire_station' }
+      case 'townhall':
+        return { label: name ?? brand ?? 'HÔTEL DE VILLE', category: 'townhall' }
+      case 'courthouse':
+        return { label: name ?? brand ?? 'PALAIS DE JUSTICE', category: 'courthouse' }
+      case 'government':
+      case 'civic':
+      case 'public':
+        return { label: name ?? brand ?? 'SERVICES PUBLICS', category: 'civic' }
+      case 'school':
+        return { label: name ?? brand ?? 'ÉCOLE', category: 'school' }
+      case 'university':
+        return { label: name ?? brand ?? 'UNIVERSITÉ', category: 'university' }
+      case 'kindergarten':
+        return { label: name ?? brand ?? 'ÉCOLE MATERNELLE', category: 'kindergarten' }
+      case 'library':
+        return { label: name ?? brand ?? 'BIBLIOTHÈQUE', category: 'library' }
+      case 'museum':
+        return { label: name ?? brand ?? 'MUSÉE', category: 'museum' }
+      case 'theatre':
+        return { label: name ?? brand ?? 'THÉÂTRE', category: 'theatre' }
+      case 'train_station':
+        return { label: name ?? brand ?? 'GARE', category: 'train_station' }
+      case 'bank':
+        return { label: name ?? brand ?? 'BANQUE', category: 'bank' }
+      case 'stadium':
+        return { label: name ?? brand ?? 'STADE', category: 'stadium' }
+      case 'sports_hall':
+        return { label: name ?? brand ?? 'CENTRE SPORTIF', category: 'sports_hall' }
+      case 'church':
+        return { label: name ?? brand ?? 'ÉGLISE', category: 'church' }
+      case 'cathedral':
+        return { label: name ?? brand ?? 'CATHÉDRALE', category: 'cathedral' }
+      case 'mosque':
+        return { label: name ?? brand ?? 'MOSQUÉE', category: 'mosque' }
+      case 'synagogue':
+        return { label: name ?? brand ?? 'SYNAGOGUE', category: 'synagogue' }
+      case 'temple':
+        return { label: name ?? brand ?? 'TEMPLE', category: 'temple' }
+      case 'supermarket':
+        return { label: name ?? brand ?? 'SUPERMARCHÉ', category: 'supermarket' }
+      case 'commercial':
+      case 'retail':
+        return { label: name ?? brand ?? 'ESPACE COMMERCIAL', category: 'commercial' }
+      case 'office':
+        return { label: name ?? brand ?? 'CENTRE D’AFFAIRES', category: 'office' }
+      case 'apartments':
+      case 'house':
+      case 'detached':
+      case 'semidetached_house':
+      case 'terrace':
+        if (name) return { label: name, category: 'residential' }
+        if (brand) return { label: brand, category: 'residential' }
+        return null
+    }
+  }
+
+  if (name) {
+    const n = name.toLowerCase()
+    if (n.includes('hôtel') || n.includes('hotel') || n.includes('hostel')) {
+      return { label: name, category: 'hotel' }
+    }
+    if (n.includes('résidence') || n.includes('residence') || n.includes('immeuble') || n.includes('villa ') || n.includes('domaine')) {
+      return { label: name, category: 'residential' }
+    }
+    if (n.includes('hôpital') || n.includes('hopital') || n.includes('clinique') || n.includes('médical') || n.includes('santé')) {
+      return { label: name, category: 'hospital' }
+    }
+    if (n.includes('police') || n.includes('gendarmerie') || n.includes('commissariat')) {
+      return { label: name, category: 'police' }
+    }
+    if (n.includes('pompier') || n.includes('caserne')) {
+      return { label: name, category: 'fire_station' }
+    }
+    if (n.includes('mairie') || n.includes('ville') || n.includes('préfecture') || n.includes('prefecture')) {
+      return { label: name, category: 'townhall' }
+    }
+    if (n.includes('école') || n.includes('ecole') || n.includes('collège') || n.includes('college') || n.includes('lycée') || n.includes('lycee') || n.includes('université') || n.includes('faculté') || n.includes('campus')) {
+      return { label: name, category: 'school' }
+    }
+    if (n.includes('théâtre') || n.includes('theatre') || n.includes('cinéma') || n.includes('cinema') || n.includes('opéra') || n.includes('opera')) {
+      return { label: name, category: 'theatre' }
+    }
+    if (n.includes('musée') || n.includes('musee') || n.includes('galerie')) {
+      return { label: name, category: 'museum' }
+    }
+    if (n.includes('banque') || n.includes('bank') || n.includes('crédit') || n.includes('credit')) {
+      return { label: name, category: 'bank' }
+    }
+    if (n.includes('poste')) {
+      return { label: name, category: 'post_office' }
+    }
+    if (n.includes('gare') || n.includes('station')) {
+      return { label: name, category: 'train_station' }
+    }
+    if (n.includes('stade') || n.includes('piscine') || n.includes('gymnase') || n.includes('complexe')) {
+      return { label: name, category: 'stadium' }
+    }
+    return { label: name, category: 'office' }
+  }
+
+  if (brand) {
+    return { label: brand, category: 'office' }
+  }
+
+  return null
 }
 
 const HOUSENUMBER_STYLE: SignStyle = { bg: '#f4f2ea', fg: '#1d1d1f', border: '#4a4a4a', tint: 0 }
@@ -398,7 +605,7 @@ function drawAtlas(layout: AtlasLayout, canvasH: number): HTMLCanvasElement | nu
       avail = w - 24 - s - 24
     }
     let txt = e.text
-    if (e.kind === 'sign' && !style.cross && txt.length > 34) txt = txt.slice(0, 33) + '…'
+    if (e.kind === 'sign' && txt.length > (style.cross ? 26 : 34)) txt = txt.slice(0, style.cross ? 25 : 33) + '…'
     if (e.kind === 'number') {
       fitFont(ctx, txt, w - 10, 34, 14)
     } else if (style === STREET_STYLE) {
@@ -672,7 +879,8 @@ export class StorefrontGenerator {
       }
     }
     const namedRoads = roads.filter((r) => !!r.name && PLAQUE_HIGHWAYS.has(r.highway) && r.points.length >= 2)
-    if (shops.length === 0 && numbers.length === 0 && namedRoads.length === 0) return null
+    const hasPersonalizedBuildings = buildings.some((b) => !!getBuildingIdentity(b))
+    if (shops.length === 0 && numbers.length === 0 && namedRoads.length === 0 && !hasPersonalizedBuildings) return null
 
     // ── Building facade edges ───────────────────────────────────────────────
     const recs: BuildingRec[] = []
@@ -829,6 +1037,83 @@ export class StorefrontGenerator {
       if (!list) {
         list = []
         perEdge.set(picked.edge, list)
+      }
+      list.push(item)
+    }
+
+    // ── 1b. Personalize buildings with custom entrances & signage ─────────
+    for (let bi = 0; bi < buildings.length; bi++) {
+      const b = buildings[bi]!
+      const r = recs[bi]
+      if (!r || r.edges.length === 0) continue
+
+      const identity = getBuildingIdentity(b)
+      if (!identity) continue
+
+      // Look for road-facing edges that have sufficient length
+      const roadFacing = r.edges.filter((e) => e.len >= 3.2 && edgeFacesRoad(e))
+      if (roadFacing.length === 0) continue
+
+      // Prefer edges that do not have items yet, then by length descending
+      roadFacing.sort((a, b) => {
+        const countA = perEdge.get(a)?.length ?? 0
+        const countB = perEdge.get(b)?.length ?? 0
+        if (countA !== countB) return countA - countB
+        return b.len - a.len
+      })
+
+      // Find an edge with available space
+      let targetEdge: Edge | null = null
+      let targetT = 0
+      for (const edge of roadFacing) {
+        const existing = perEdge.get(edge)
+        if (!existing || existing.length === 0) {
+          targetEdge = edge
+          targetT = edge.len * 0.5
+          break
+        }
+        // If there are existing items, check if there's room for another entrance (at least 4.0m per item)
+        if (edge.len / (existing.length + 1) >= 4.0) {
+          const duplicate = existing.some((it) => it.label.toLowerCase() === identity.label.toLowerCase())
+          if (duplicate) continue
+          const sortedT = existing.map((it) => it.t).sort((a, b) => a - b)
+          let bestGap = sortedT[0]!
+          let bestGapT = sortedT[0]! * 0.5
+          for (let i = 0; i + 1 < sortedT.length; i++) {
+            const gap = sortedT[i + 1]! - sortedT[i]!
+            if (gap > bestGap) {
+              bestGap = gap
+              bestGapT = sortedT[i]! + gap * 0.5
+            }
+          }
+          const endGap = edge.len - sortedT[sortedT.length - 1]!
+          if (endGap > bestGap) {
+            bestGap = endGap
+            bestGapT = sortedT[sortedT.length - 1]! + endGap * 0.5
+          }
+          if (bestGap >= 3.5) {
+            targetEdge = edge
+            targetT = bestGapT
+            break
+          }
+        }
+      }
+
+      if (!targetEdge) continue
+
+      const style = styleFor(identity.category, identity.label)
+      const item: StorefrontItem = {
+        building: b,
+        edge: targetEdge,
+        t: targetT,
+        label: identity.label,
+        style,
+        category: identity.category,
+      }
+      let list = perEdge.get(targetEdge)
+      if (!list) {
+        list = []
+        perEdge.set(targetEdge, list)
       }
       list.push(item)
     }

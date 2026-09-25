@@ -117,7 +117,11 @@ export const TYPE_PALETTES: Partial<Record<string, Palette>> = {
   // Cultural / Civic additions
   library:            { facade: 0xc0b8a4, frame: 0x9e9682, roof: 0x46423c, style: 'civic_classical', isGlass: false },
   museum:             { facade: 0xb8b09c, frame: 0x98907c, roof: 0x403c36, style: 'civic_classical', isGlass: false },
-  theatre:            { facade: 0x484e5a, frame: 0x383c48, roof: 0x282c38, style: 'industrial', isGlass: false },
+  theatre:            { facade: 0x6e2c38, frame: 0x4e1c26, roof: 0x2e181e, style: 'civic_classical', isGlass: false },
+  cinema:             { facade: 0x3e3240, frame: 0x2a222e, roof: 0x1e1820, style: 'commercial_boutique', isGlass: false },
+  post_office:        { facade: 0xd8d4cc, frame: 0xb0aa9c, roof: 0x3a3c42, style: 'commercial_boutique', isGlass: false },
+  apartments:         { facade: 0xd6cebe, frame: 0xbaa490, roof: 0x48525e, style: 'haussmann', isGlass: false },
+  residential:        { facade: 0xc8bea8, frame: 0xa49c86, roof: 0x4c4842, style: 'haussmann', isGlass: false },
 
   // Fuel / Charging
   fuel:               { facade: 0xffffff, frame: 0xcccccc, roof: 0xff0000, style: 'commercial_boutique', isGlass: false },

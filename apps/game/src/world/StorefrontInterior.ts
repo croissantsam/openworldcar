@@ -50,6 +50,7 @@ export function interiorRowFor(category: string): number {
     case 'fast_food': case 'food_court': case 'biergarten': case 'tea':
       kind = 'cafe'; break
     case 'pharmacy': case 'chemist': case 'medical_supply': case 'optician':
+    case 'hospital': case 'clinic': case 'dentist': case 'doctors': case 'veterinary':
       kind = 'pharmacy'; break
     case 'supermarket': case 'convenience': case 'greengrocer': case 'frozen_food':
     case 'variety_store': case 'department_store': case 'general': case 'wholesale':
@@ -62,12 +63,19 @@ export function interiorRowFor(category: string): number {
     case 'bank': case 'atm': case 'bureau_de_change': case 'insurance': case 'estate_agent':
     case 'travel_agency': case 'hotel': case 'guest_house': case 'hostel': case 'company':
     case 'lawyer': case 'notary': case 'accountant': case 'it': case 'coworking': case 'post_office':
+    case 'townhall': case 'courthouse': case 'government': case 'civic': case 'public':
+    case 'school': case 'university': case 'college': case 'kindergarten':
+    case 'police': case 'fire_station': case 'office': case 'commercial': case 'retail':
+    case 'residential': case 'apartments':
       kind = 'office'; break
     case 'laundry': case 'dry_cleaning':
       kind = 'laundry'; break
     case 'books': case 'stationery': case 'newsagent': case 'kiosk': case 'tobacco':
     case 'lottery': case 'e-cigarette': case 'copyshop':
+    case 'museum': case 'gallery': case 'library':
       kind = 'books'; break
+    case 'theatre': case 'cinema': case 'arts_centre':
+      kind = 'cafe'; break
     case 'florist': case 'garden_centre':
       kind = 'florist'; break
     case 'butcher': case 'deli': case 'cheese': case 'seafood': case 'charcuterie':

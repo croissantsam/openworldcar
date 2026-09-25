@@ -68,6 +68,10 @@ const COMMERCE_AMENITIES = new Set([
   'post_office', 'clinic', 'dentist', 'doctors', 'veterinary', 'cinema', 'theatre', 'library',
   'bureau_de_change', 'car_rental', 'car_wash', 'fuel', 'marketplace', 'nightclub', 'casino',
   'driving_school', 'language_school', 'music_school', 'coworking_space', 'internet_cafe',
+  // Civic, educational, emergency & public amenities
+  'hospital', 'police', 'fire_station', 'townhall', 'courthouse', 'community_centre',
+  'school', 'university', 'college', 'kindergarten', 'arts_centre', 'conference_centre',
+  'place_of_worship',
 ])
 
 /** Classify a tagged node for street-level rendering; null = not interesting. */
@@ -85,6 +89,16 @@ function poiKindOf(tags: Record<string, string>): PoiKind | null {
   if (tags['office']) return 'office'
   if (tags['craft']) return 'craft'
   if (tags['tourism'] && tags['tourism'] !== 'information') return 'tourism'
+  if (tags['leisure']) {
+    const l = tags['leisure']
+    if (l === 'sports_centre' || l === 'fitness_centre' || l === 'stadium' || l === 'sports_hall' || l === 'gym') {
+      return 'amenity'
+    }
+  }
+  if (tags['historic']) {
+    const h = tags['historic']
+    if (h === 'monument' || h === 'memorial' || h === 'castle') return 'tourism'
+  }
   if (tags['natural'] === 'tree') return 'tree'
   const hw = tags['highway']
   if (hw === 'street_lamp') return 'street_lamp'

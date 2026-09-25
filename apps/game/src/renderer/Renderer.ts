@@ -11,6 +11,7 @@ import { setFacadeNightGlow } from '../world/building/building-textures.js'
 import { setAsphaltWetness } from '../world/road/materials.js'
 import { PostProcessing } from './PostProcessing.js'
 import { SkyEnvironment } from './SkyEnvironment.js'
+import { CloudSystem } from './Clouds.js'
 
 let onViewDistanceChangeCallback: ((settings: ViewDistanceSettings) => void) | null = null
 
@@ -30,6 +31,9 @@ export class Renderer {
   postProcessing!: PostProcessing
   /** Procedural HDR sky environment reflections (cars, roads, buildings). */
   private skyEnv: SkyEnvironment
+  /** Procedural slow-drifting atmospheric clouds. */
+  clouds: CloudSystem
+  private lastFrameTime = performance.now()
 
   constructor(mount: HTMLElement) {
     // WebGL renderer
@@ -78,6 +82,9 @@ export class Renderer {
 
     // Procedural HDR sky environment map (ambient reflections for cars & asphalt)
     this.skyEnv = new SkyEnvironment(this.renderer)
+
+    // Procedural slow-drifting atmospheric clouds
+    this.clouds = new CloudSystem(this.scene)
 
     // Listen for view distance changes
     setViewDistanceChangeCallback((newSettings) => this.applyViewDistanceSettings(newSettings))
@@ -197,6 +204,9 @@ export class Renderer {
     // Update HDR sky environment reflection map for car body and asphalt
     this.skyEnv?.update(this.scene, elevationDeg, azimuthDeg, p)
 
+    // Clouds: adapt to sun/moon lighting, sky color, and day/night factor
+    this.clouds?.applySolarState(p, nf, this.sunDir)
+
     // Moon + stars follow the player and fade in with the night.
     // sunDir already points at the moon when palette.moon is set.
     const MOON_DIST = 1200
@@ -242,6 +252,7 @@ export class Renderer {
     this.moon = new THREE.Sprite(this.moonMat)
     this.moon.scale.set(140, 140, 1)
     this.moon.visible = false
+    this.moon.renderOrder = -7
     this.scene.add(this.moon)
 
     // Stars: deterministic dome (seeded so the sky is stable frame to frame).
@@ -282,6 +293,7 @@ export class Renderer {
       depthWrite: false,
     })
     this.stars = new THREE.Points(geo, this.starsMat)
+    this.stars.renderOrder = -8
     this.scene.add(this.stars)
   }
 
@@ -332,6 +344,13 @@ export class Renderer {
   }
 
   render(): void {
+    const now = performance.now()
+    const delta = Math.min((now - this.lastFrameTime) / 1000, 0.1)
+    this.lastFrameTime = now
+
+    // Slow atmospheric cloud drift and camera positioning
+    this.clouds?.update(delta, this.camera.position)
+
     // Use post-processing composer instead of bare renderer.render()
     if (this.postProcessing) {
       this.postProcessing.render()
@@ -342,6 +361,7 @@ export class Renderer {
 
   dispose(): void {
     window.removeEventListener('resize', this._onResize)
+    this.clouds?.dispose()
     this.skyEnv?.dispose()
     this.postProcessing?.dispose()
     this.renderer.dispose()

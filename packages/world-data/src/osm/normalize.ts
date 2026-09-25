@@ -491,7 +491,10 @@ function normalizeBuildingType(raw: string | undefined, tags?: OsmTags): Buildin
       if (a === 'bank') return 'bank'
       if (a === 'parking') return 'parking'
       if (a === 'fuel') return tags['building'] ? 'commercial' : 'roof'
-      if (a === 'theatre' || a === 'cinema' || a === 'arts_centre') return 'civic'
+      if (a === 'theatre') return 'theatre'
+      if (a === 'cinema' || a === 'arts_centre') return 'civic'
+      if (a === 'library') return 'library'
+      if (a === 'post_office') return 'public'
     }
 
     if (tags['shop']) {
@@ -503,7 +506,8 @@ function normalizeBuildingType(raw: string | undefined, tags?: OsmTags): Buildin
     if (tags['tourism']) {
       const t = tags['tourism']
       if (t === 'hotel' || t === 'motel' || t === 'hostel' || t === 'guest_house') return 'hotel'
-      if (t === 'museum' || t === 'gallery') return 'civic'
+      if (t === 'museum') return 'museum'
+      if (t === 'gallery') return 'civic'
     }
 
     if (tags['office']) return 'office'
@@ -526,6 +530,7 @@ function normalizeBuildingType(raw: string | undefined, tags?: OsmTags): Buildin
   }
 
   if (!raw) return undefined
+  if (raw === 'residential') return 'apartments'
   const valid: BuildingType[] = [
     'house', 'detached', 'semidetached_house', 'terrace', 'apartments', 'bungalow',
     'hut', 'cabin', 'shed', 'kiosk', 'garage', 'garages', 'carport', 'warehouse',
@@ -534,7 +539,8 @@ function normalizeBuildingType(raw: string | undefined, tags?: OsmTags): Buildin
     'chapel', 'mosque', 'temple', 'synagogue', 'train_station', 'stadium', 'sports_hall',
     'fire_station', 'police', 'townhall', 'courthouse', 'government', 'civic', 'public',
     'service', 'parking', 'hangar', 'farm', 'farm_auxiliary', 'barn', 'stable',
-    'greenhouse', 'roof', 'monument', 'castle', 'manor', 'ruins', 'restaurant', 'bank', 'yes',
+    'greenhouse', 'roof', 'monument', 'castle', 'manor', 'ruins', 'restaurant', 'bank',
+    'library', 'museum', 'theatre', 'fuel', 'charging_station', 'yes',
   ]
   return valid.includes(raw as BuildingType) ? (raw as BuildingType) : 'yes'
 }

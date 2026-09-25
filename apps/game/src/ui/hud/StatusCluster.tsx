@@ -295,6 +295,7 @@ export const StatusCluster: React.FC<StatusClusterProps> = ({
               <div><strong style={{ color: '#38bdf8' }}>P</strong> — {t('hud_ctl_back_to_car')}</div>
               <div><strong style={{ color: '#38bdf8' }}>{t('hud_key_shift')} + P</strong> — {t('hud_ctl_retakeoff')}</div>
               <div><strong style={{ color: '#00d4ff' }}>M</strong> — {t('hud_ctl_map')}</div>
+              <div><strong style={{ color: '#38bdf8' }}>F11</strong> — {t('hud_menu_fullscreen')}</div>
             </>
           ) : (
             <>
@@ -307,6 +308,7 @@ export const StatusCluster: React.FC<StatusClusterProps> = ({
               <div><strong style={{ color: '#00d4ff' }}>M</strong> — {t('hud_ctl_map')}</div>
               <div><strong style={{ color: '#38bdf8' }}>P</strong> — {t('hud_ctl_take_plane')}</div>
               <div><strong style={{ color: '#38bdf8' }}>T</strong> — {t('hud_ctl_travel')}</div>
+              <div><strong style={{ color: '#38bdf8' }}>F11</strong> — {t('hud_menu_fullscreen')}</div>
             </>
           )}
         </div>

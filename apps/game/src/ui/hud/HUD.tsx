@@ -16,6 +16,7 @@ import { useTrophyToast } from '../trophies/toast.js'
 import { authClient } from '../../lib/auth-client.js'
 import { recordCityVisit } from '../../services/profileSync.js'
 import { submitTrialTime } from '../../server/trials.js'
+import { isFullscreen, toggleFullscreen, subscribeFullscreen } from '../../lib/fullscreen.js'
 import {
   notifyTrialTimesChanged,
   TRIAL_START_RADIUS_M,
@@ -61,6 +62,8 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
   const [health, setHealth] = useState<number>(100)
   const [maxHealth, setMaxHealth] = useState<number>(100)
   const [combatInvincible, setCombatInvincible] = useState(false)
+  const [fullscreenActive, setFullscreenActive] = useState<boolean>(() => isFullscreen())
+  useEffect(() => subscribeFullscreen(setFullscreenActive), [])
   const [showControls, setShowControls] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false
     return localStorage.getItem('world_drive_show_controls') === 'true'
@@ -266,6 +269,9 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
         setTravelOpen((v) => !v)
       } else if (e.key === 'h' || e.key === 'H') {
         toggleControls()
+      } else if (e.key === 'F11') {
+        e.preventDefault()
+        toggleFullscreen()
       } else if (e.key === 'Escape') {
         setTravelOpen(false)
         setShowControls(false)
@@ -487,6 +493,8 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
         street={street}
         district={district}
         currentDest={currentDest}
+        isFullscreen={fullscreenActive}
+        onToggleFullscreen={toggleFullscreen}
         onOpenMenu={() => setMenuOpen(true)}
         onOpenAuth={() => setAuthOpen(true)}
       />
@@ -499,6 +507,8 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
           viewDistanceOpen={viewDistanceOpen}
           showControls={showControls}
           onToggleControls={toggleControls}
+          isFullscreen={fullscreenActive}
+          onToggleFullscreen={toggleFullscreen}
           onClose={() => setMenuOpen(false)}
           onOpenTravel={() => {
             setMenuOpen(false)

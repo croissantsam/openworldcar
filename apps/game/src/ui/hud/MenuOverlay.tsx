@@ -31,6 +31,8 @@ interface MenuOverlayProps {
   onToggleTouchMode: () => void
   showControls?: boolean
   onToggleControls?: () => void
+  isFullscreen?: boolean
+  onToggleFullscreen?: () => void
 }
 
 /** Burger menu: actions, view distance, touch toggle, language switcher. */
@@ -52,6 +54,8 @@ export const MenuOverlay: React.FC<MenuOverlayProps> = ({
   onToggleTouchMode,
   showControls = false,
   onToggleControls,
+  isFullscreen = false,
+  onToggleFullscreen,
 }) => {
   const { locale, t } = useLocale()
   const navigate = useNavigate()
@@ -316,6 +320,25 @@ export const MenuOverlay: React.FC<MenuOverlayProps> = ({
                 {showControls ? t('hud_menu_controls_hide') : t('hud_menu_controls_show')}
               </span>
               <span style={menuButtonHintStyle}>{t('hud_menu_controls_hint')}</span>
+            </span>
+          </button>
+        )}
+
+        {/* Plein écran / Grand écran */}
+        {onToggleFullscreen && (
+          <button
+            onClick={() => {
+              onToggleFullscreen()
+              onClose()
+            }}
+            style={menuButtonStyle}
+          >
+            <span style={menuButtonIconStyle}>⛶</span>
+            <span style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+              <span style={menuButtonTitleStyle}>
+                {isFullscreen ? t('hud_menu_fullscreen_exit') : t('hud_menu_fullscreen')}
+              </span>
+              <span style={menuButtonHintStyle}>{t('hud_menu_fullscreen_hint')}</span>
             </span>
           </button>
         )}

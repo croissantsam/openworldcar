@@ -19,9 +19,11 @@ interface TopBarProps {
   currentDest: WorldDestination
   onOpenMenu: () => void
   onOpenAuth: () => void
+  isFullscreen?: boolean
+  onToggleFullscreen?: () => void
 }
 
-/** Top edge: players badge, account badge, menu button, street badge. */
+/** Top edge: players badge, account badge, fullscreen button, menu button, street badge. */
 export const TopBar: React.FC<TopBarProps> = ({
   engine,
   onlineMode,
@@ -36,6 +38,8 @@ export const TopBar: React.FC<TopBarProps> = ({
   currentDest,
   onOpenMenu,
   onOpenAuth,
+  isFullscreen = false,
+  onToggleFullscreen,
 }) => {
   const { t } = useLocale()
   const isMobileLandscape = touchMode
@@ -243,6 +247,71 @@ export const TopBar: React.FC<TopBarProps> = ({
           {authLabel}
         </span>
       </button>
+
+      {/* Sleek Top-Right Fullscreen Button */}
+      {onToggleFullscreen && (
+        <button
+          onClick={(e) => {
+            e.currentTarget.blur()
+            onToggleFullscreen()
+          }}
+          style={{
+            position: 'absolute',
+            top: isMobileLandscape ? 'max(8px, env(safe-area-inset-top, 8px))' : 16,
+            right: isMobileLandscape
+              ? 'max(52px, calc(env(safe-area-inset-right, 14px) + 38px))'
+              : 66,
+            width: isMobileLandscape ? 34 : 40,
+            height: isMobileLandscape ? 34 : 40,
+            borderRadius: 10,
+            background: 'rgba(10, 16, 28, 0.75)',
+            backdropFilter: 'blur(10px)',
+            WebkitBackdropFilter: 'blur(10px)',
+            border: isFullscreen
+              ? '1px solid rgba(0, 212, 255, 0.65)'
+              : '1px solid rgba(0, 212, 255, 0.35)',
+            color: '#00d4ff',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer',
+            zIndex: 60,
+            boxShadow: isFullscreen
+              ? '0 4px 16px rgba(0, 0, 0, 0.4), 0 0 10px rgba(0, 212, 255, 0.25)'
+              : '0 4px 16px rgba(0, 0, 0, 0.4)',
+            transition: 'border-color 0.2s ease, box-shadow 0.2s ease',
+          }}
+          title={isFullscreen ? t('hud_fullscreen_exit') : t('hud_fullscreen_enter')}
+        >
+          {isFullscreen ? (
+            <svg
+              width={isMobileLandscape ? 13 : 15}
+              height={isMobileLandscape ? 13 : 15}
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3" />
+            </svg>
+          ) : (
+            <svg
+              width={isMobileLandscape ? 13 : 15}
+              height={isMobileLandscape ? 13 : 15}
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M15 3h6v6m0-6-7 7M9 21H3v-6m0 6 7-7M3 9V3h6M21 15v6h-6" />
+            </svg>
+          )}
+        </button>
+      )}
 
       {/* Sleek Top-Right Menu Button */}
       <button

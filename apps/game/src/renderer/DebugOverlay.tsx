@@ -102,7 +102,7 @@ export function DebugOverlay({ engine }: Props) {
           letterSpacing: 1,
         }}
       >
-        [ ` ] TOGGLE DEBUG
+        [ ` ] TOGGLE DEBUG · [T/G] TIME ±1H · [N] REAL TIME
       </div>
     </div>
   )

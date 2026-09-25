@@ -23,7 +23,12 @@ function idBefore(a: string, b: string): boolean {
   return a < b
 }
 
-function outranks(a: Road, b: Road): boolean {
+/**
+ * Strict total order between roads: highway rank, then width, then id.
+ * At a crossing, the outranked road yields (its asphalt is cut) so only the
+ * biggest road shows — no coplanar overlap, no Z-fighting shimmer.
+ */
+export function outranks(a: Road, b: Road): boolean {
   const ra = (HIGHWAY_RANK[a.highway] ?? 0) - (a.isLink ? 0.5 : 0)
   const rb = (HIGHWAY_RANK[b.highway] ?? 0) - (b.isLink ? 0.5 : 0)
   if (ra !== rb) return ra > rb

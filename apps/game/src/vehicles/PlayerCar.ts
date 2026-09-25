@@ -520,8 +520,8 @@ export class PlayerCar {
     this._lastBrake = input.brake
     this._lastSteer = input.steering
     this._lastLateralSpeed = lateralSpeed
-    // Brake pedal → rear lamps flare, like a real car.
-    this.brakeLevel = Math.min(1, Math.max(0, input.brake))
+    // Brake pedal or handbrake (space): rear lamps flare, like a real car.
+    this.brakeLevel = input.handbrake ? 1 : Math.min(1, Math.max(0, input.brake))
     this._refreshTailLights()
 
     // Refresh the UI-facing velocity cache (post-impulse state).

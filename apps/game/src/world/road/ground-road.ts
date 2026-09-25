@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { buildCleanSidewalk } from './sidewalk.js'
 import { buildJunctionCorners, type JunctionCorners, type TrimSeg } from './junction-corners.js'
 import { armAsphaltGeometry } from './arm-asphalt.js'
-import { buildRoadObstacles, analyseJunctions, type JunctionInfo, type RoadObstacleSeg, isPointInRoadAsphalt } from './junction.js'
+import { buildRoadObstacles, analyseJunctions, type JunctionInfo, type RoadObstacleSeg, isPointInRoadAsphalt, outranks } from './junction.js'
 import { computeRoadWidth } from './road-width.js'
 import { getAsphaltMaterial, sidewalkWidthOf, isDrivableWay, elevClass } from './materials.js'
 import { computePolylineNormals, resamplePolyline, type Pt, type PolylineNormal, type EndNormals, type Vec2 } from './geometry.js'
@@ -22,6 +22,64 @@ export interface RoadPortion {
 export interface RoadGenerateOptions {
   cell?: { x: number; z: number }
   syntheticLamps?: boolean
+}
+
+/**
+ * Obstacle segments of the roads that strictly outrank `road`, same
+ * elevation class only. The current road's asphalt is cut where its
+ * centerline enters one of these footprints, so at any crossing only the
+ * biggest road is drawn (butt joint, bisection-precise — no overlap area,
+ * hence no Z-fighting shimmer). Bridges/tunnels are excluded: they live at
+ * a different height and never flicker with ground roads.
+ */
+function superiorCrossObstacles(road: Road, allRoads?: Road[]): RoadObstacleSeg[] {
+  if (!allRoads || allRoads.length < 2) return []
+  const myCls = elevClass(road)
+  let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity
+  for (const p of road.points) {
+    if (p.x < x0) x0 = p.x
+    if (p.x > x1) x1 = p.x
+    if (p.z < z0) z0 = p.z
+    if (p.z > z1) z1 = p.z
+  }
+  const PAD = 25
+  const obs: RoadObstacleSeg[] = []
+  for (const r of allRoads) {
+    if (r.id === road.id || r.points.length < 2) continue
+    if (elevClass(r) !== myCls) continue
+    if (!outranks(r, road)) continue
+    let rx0 = Infinity, rx1 = -Infinity, rz0 = Infinity, rz1 = -Infinity
+    for (const p of r.points) {
+      if (p.x < rx0) rx0 = p.x
+      if (p.x > rx1) rx1 = p.x
+      if (p.z < rz0) rz0 = p.z
+      if (p.z > rz1) rz1 = p.z
+    }
+    if (rx1 < x0 - PAD || rx0 > x1 + PAD || rz1 < z0 - PAD || rz0 > z1 + PAD) continue
+    const halfW = computeRoadWidth(r).halfW
+    const ex0 = x0 - 8, ex1 = x1 + 8, ez0 = z0 - 8, ez1 = z1 + 8
+    for (let i = 0; i < r.points.length - 1; i++) {
+      const p1 = r.points[i]!
+      const p2 = r.points[i + 1]!
+      const dx = p2.x - p1.x
+      const dz = p2.z - p1.z
+      const lenSq = dx * dx + dz * dz
+      if (lenSq < 1e-4) continue
+      const sx0 = Math.min(p1.x, p2.x), sx1 = Math.max(p1.x, p2.x)
+      const sz0 = Math.min(p1.z, p2.z), sz1 = Math.max(p1.z, p2.z)
+      if (sx1 < ex0 || sx0 > ex1 || sz1 < ez0 || sz0 > ez1) continue
+      obs.push({
+        x1: p1.x, z1: p1.z, x2: p2.x, z2: p2.z,
+        dx, dz, lenSq, halfW,
+        minX: sx0, maxX: sx1, minZ: sz0, maxZ: sz1,
+        roadId: r.id,
+        fpPlus: 0, fpMinus: 0, yieldCorner: false,
+        flatStart: false, flatEnd: false,
+        hasClip: false, clipX: 0, clipZ: 0, clipNx: 0, clipNz: 0,
+      })
+    }
+  }
+  return obs
 }
 
 export function generateGroundPortion(
@@ -118,7 +176,11 @@ export function generateGroundPortion(
   const asphaltGeo = junction.others.length > 0 && isDrivableWay(road)
     ? armAsphaltGeometry(smoothPts, junction, halfW, getObstacles(), endNormals)
     : { pts: smoothPts, normals, trapezoid: [false, false] as [boolean, boolean] }
-  const surface = buildStrip(asphaltGeo.pts, asphaltGeo.normals, halfW, 0.028, asphaltMat, hw === 'pedestrian' ? { uvMetres: 2.4, arcOffset } : { arcOffset })
+  // Yield the crossing box to strictly bigger roads: only the biggest road
+  // is drawn there (butt joint, no coplanar overlap → no shimmer).
+  const crossObs = superiorCrossObstacles(road, allRoads)
+  const crossBlocked = crossObs.length > 0 ? (x: number, z: number) => isPointInRoadAsphalt(x, z, crossObs, 0) : null
+  const surface = buildStrip(asphaltGeo.pts, asphaltGeo.normals, halfW, 0.028, asphaltMat, hw === 'pedestrian' ? { uvMetres: 2.4, arcOffset, blocked: crossBlocked } : { arcOffset, blocked: crossBlocked })
   if (surface) {
     if (junction.others.length > 0 && !(asphaltGeo.trapezoid[0] && asphaltGeo.trapezoid[1])) {
       clampArmEndPoke(surface, asphaltGeo.pts, junction, getObstacles(), asphaltGeo.trapezoid)

@@ -292,6 +292,9 @@ export class GameEngine {
   private lastSolarAt = 0
   private solarTime = '--:--'
   private sunElev = 0
+  /** Solar-time scrub offset in minutes (T/G keys, N resets). 0 = real time. */
+  private solarOffsetMin = 0
+  private lastTimeKeyAt = 0
 
   // ─── Stats ──────────────────────────────────────────────────────────────────
   private frameCount = 0
@@ -605,6 +608,25 @@ export class GameEngine {
     // ── Input ──────────────────────────────────────────────────────────────
     const rawInput = this.input.getInput()
     if (this.input.consumeEnterPressed()) this._onEnterPressed()
+    // ── Solar time scrub: T/G ±1 h, N back to real time (250 ms repeat) ──
+    // Lets the player sweep the Sun through sunrise → zenith → sunset.
+    if (now - this.lastTimeKeyAt > 250) {
+      if (this.input.isKeyDown('KeyT')) {
+        this.solarOffsetMin += 60
+        this.lastTimeKeyAt = now
+        this.lastSolarAt = 0
+      } else if (this.input.isKeyDown('KeyG')) {
+        this.solarOffsetMin -= 60
+        this.lastTimeKeyAt = now
+        this.lastSolarAt = 0
+      } else if (this.input.isKeyDown('KeyN')) {
+        if (this.solarOffsetMin !== 0) {
+          this.solarOffsetMin = 0
+          this.lastSolarAt = 0
+        }
+        this.lastTimeKeyAt = now
+      }
+    }
     const plane = this._vehicleMode === 'plane' ? this.plane : null
     // During the start countdown the car is held (handbrake, not brake:
     // brake at standstill means reverse) so nobody jumps GO.
@@ -2226,11 +2248,13 @@ export class GameEngine {
     // Throttled — the Sun barely moves within 5 s.
     if (now - this.lastSolarAt > 5000) {
       this.lastSolarAt = now
-      const at = new Date()
+      const at = new Date(Date.now() + this.solarOffsetMin * 60000)
       const solar = solarPosition(gpsPosition.lat, gpsPosition.lon, at)
       this.renderer.applySolarState(solar.elevationDeg, solar.azimuthDeg)
       this.playerCar.setHeadlightLevel(nightFactor(solar.elevationDeg))
-      this.solarTime = solarTimeString(gpsPosition.lon, at)
+      const off = this.solarOffsetMin / 60
+      this.solarTime =
+        solarTimeString(gpsPosition.lon, at) + (off !== 0 ? ` ${off > 0 ? '+' : '-'}${Math.abs(off)}h` : '')
       this.sunElev = solar.elevationDeg
     }
 

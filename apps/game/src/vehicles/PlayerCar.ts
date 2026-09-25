@@ -8,7 +8,7 @@ import * as THREE from 'three'
 import RAPIER from '@dimforge/rapier3d-compat'
 import { worldToGeo, type WorldPosition, type GeoPosition } from '@world-drive/math'
 import type { RawInput } from '../game/InputManager.js'
-import { createFerrari, FERRARI_WHEEL_RADIUS, type FerrariCar } from './FerrariModel.js'
+import { createFerrari, FERRARI_WHEEL_RADIUS, createFerrariEnvProbe, type FerrariCar, type FerrariEnvProbe } from './FerrariModel.js'
 
 // Car dimensions (metres)
 const CAR_W = 1.95
@@ -90,6 +90,10 @@ export class PlayerCar {
   private wheelFRSteer = new THREE.Group()
   private wheelMeshes: THREE.Group[] = []
   private carModel: FerrariCar | null = null
+  /** Realtime env-probe: CubeCamera that provides reflections on car paint/glass. */
+  private envProbe: FerrariEnvProbe | null = null
+  /** Frame counter for throttling the env probe update (every 6 frames). */
+  private envProbeFrame = 0
   /** Wheels live in a container turned by π about Y: forward travel spins them the other way. */
   private readonly wheelSpinSign = -1
   private nitroFlames: THREE.Mesh[] = []
@@ -759,8 +763,39 @@ export class PlayerCar {
   }
 
   dispose(): void {
+    this.envProbe?.dispose()
     this.scene.remove(this.mesh)
     this.carModel?.dispose()
+  }
+
+  /**
+   * Initialize the real-time environment probe.
+   * Must be called once after the car is created and the renderer is available.
+   * (Called by GameEngine right after `new PlayerCar(...)`.)
+   */
+  initEnvProbe(_renderer: THREE.WebGLRenderer): void {
+    // Handled via setEnvMap with SkyEnvironment PMREM (0 draw calls)
+  }
+
+  updateEnvProbe(_renderer: THREE.WebGLRenderer, _scene: THREE.Scene): void {
+    // No-op: zero extra draw calls per frame
+  }
+
+  private currentEnvMap: THREE.Texture | null = null
+
+  /** Apply sky environment reflections to the car paint and glass. */
+  setEnvMap(envMap: THREE.Texture | null): void {
+    if (!this.carModel || envMap === this.currentEnvMap) return
+    this.currentEnvMap = envMap
+    const model = this.carModel as FerrariCar
+    if (model._paint) {
+      model._paint.envMap = envMap
+      model._paint.envMapIntensity = 0.75
+    }
+    if (model._glass) {
+      model._glass.envMap = envMap
+      model._glass.envMapIntensity = 0.50
+    }
   }
 
   /**

@@ -52,13 +52,28 @@ export function chunkCenter(chunk: ChunkId): WorldPosition {
 export function chunkKey(chunk: ChunkId): string {
   return `${chunk.x}:${chunk.z}:${chunk.level}`
 }
-
 /** Parse a chunk key back to a ChunkId. */
 export function parseChunkKey(key: string): ChunkId {
   const parts = key.split(':')
   if (parts.length !== 3) throw new Error(`Invalid chunk key: ${key}`)
   const [x, z, level] = parts.map(Number) as [number, number, number]
   return { x, z, level }
+}
+
+/**
+ * Gap in metres between a world position and a chunk square (0 when inside).
+ * Used for the hard unload bound: beyond MAX_UNLOAD_METRES nothing is kept,
+ * no matter the direction (Chebyshev chunk rings keep far corners alive).
+ */
+export function distanceToChunkM(world: WorldPosition, chunk: ChunkId): number {
+  const size = CHUNK_SIZE * Math.pow(2, chunk.level)
+  const x0 = chunk.x * size
+  const x1 = x0 + size
+  const z0 = chunk.z * size
+  const z1 = z0 + size
+  const dx = Math.max(x0 - world.x, 0, world.x - x1)
+  const dz = Math.max(z0 - world.z, 0, world.z - z1)
+  return Math.sqrt(dx * dx + dz * dz)
 }
 
 /**

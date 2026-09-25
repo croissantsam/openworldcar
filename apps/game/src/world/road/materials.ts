@@ -46,17 +46,104 @@ function createAsphaltTexture(): THREE.CanvasTexture {
 
 const ASPHALT_TEX = createAsphaltTexture()
 
+/**
+ * Procedural normal map for asphalt grain.
+ * 256×256 is sufficient — the texture tiles at repeat(4, 12) so effective
+ * resolution on a 3.6 m lane at 10 m/px ≈ every 0.9 m, well above human
+ * perception.  Generating at 256 instead of 512 saves 4× CPU and GPU memory.
+ * The height Float32Array is explicitly released after the Sobel pass.
+ */
+function createAsphaltNormalMap(): THREE.CanvasTexture {
+  if (typeof document === 'undefined') return new THREE.CanvasTexture({} as HTMLCanvasElement)
+  const SIZE = 256
+  const canvas = document.createElement('canvas')
+  canvas.width = SIZE
+  canvas.height = SIZE
+  const ctx = canvas.getContext('2d')!
+
+  // 1. Height field (seeded LCG — stable across hot-reloads)
+  let height: Float32Array | null = new Float32Array(SIZE * SIZE)
+  let s = 0xdeadbeef
+  const rnd = () => { s = (Math.imul(s, 1664525) + 1013904223) >>> 0; return s / 0x100000000 }
+  for (let i = 0; i < SIZE * SIZE; i++) {
+    let v = rnd() * 0.55 + rnd() * 0.30 + rnd() * 0.15
+    height[i] = v
+  }
+
+  // 2. Sobel → tangent-space normal → RGB
+  const idata = ctx.createImageData(SIZE, SIZE)
+  const d = idata.data
+  const sample = (x: number, y: number) => {
+    const xi = ((x % SIZE) + SIZE) % SIZE
+    const yi = ((y % SIZE) + SIZE) % SIZE
+    return height![yi * SIZE + xi]!
+  }
+  const SCALE = 5.0
+  for (let y = 0; y < SIZE; y++) {
+    for (let x = 0; x < SIZE; x++) {
+      const dX = (sample(x + 1, y) - sample(x - 1, y)) * SCALE
+      const dY = (sample(x, y + 1) - sample(x, y - 1)) * SCALE
+      const len = Math.sqrt(dX * dX + dY * dY + 1)
+      const nx = (-dX / len) * 0.5 + 0.5
+      const ny = (-dY / len) * 0.5 + 0.5
+      const nz = (1.0  / len) * 0.5 + 0.5
+      const idx = (y * SIZE + x) * 4
+      d[idx]     = (nx * 255) | 0
+      d[idx + 1] = (ny * 255) | 0
+      d[idx + 2] = (nz * 255) | 0
+      d[idx + 3] = 255
+    }
+  }
+  ctx.putImageData(idata, 0, 0)
+  height = null  // release 256 KB heap immediately — no longer needed
+
+  const tex = new THREE.CanvasTexture(canvas)
+  tex.wrapS = THREE.RepeatWrapping
+  tex.wrapT = THREE.RepeatWrapping
+  tex.repeat.set(4, 12)
+  return tex
+}
+
+const ASPHALT_NORMAL_TEX = createAsphaltNormalMap()
+
 const POFF = { polygonOffset: true, polygonOffsetFactor: -2.0, polygonOffsetUnits: -2.0 }
 
+/**
+ * ASPHALT_MATS — PBR materials with normal-map grain and envMap reflections.
+ *
+ * Roughness is intentionally lower on fast roads (motorway/primary) to
+ * reproduce the polished-asphalt specular sheen visible in Burnout Paradise.
+ * EnvMapIntensity provides environment reflection that makes roads look wet
+ * at night (set higher by setAsphaltWetness()).
+ */
 export const ASPHALT_MATS: Record<string, THREE.MeshStandardMaterial> = {
-  motorway:    new THREE.MeshStandardMaterial({ color: 0x32353c, map: ASPHALT_TEX, roughness: 0.74, metalness: 0.10, side: THREE.DoubleSide, ...POFF }),
-  trunk:       new THREE.MeshStandardMaterial({ color: 0x2e3138, map: ASPHALT_TEX, roughness: 0.74, metalness: 0.10, side: THREE.DoubleSide, ...POFF }),
-  primary:     new THREE.MeshStandardMaterial({ color: 0x2b2e34, map: ASPHALT_TEX, roughness: 0.76, metalness: 0.08, side: THREE.DoubleSide, ...POFF }),
-  secondary:   new THREE.MeshStandardMaterial({ color: 0x282b30, map: ASPHALT_TEX, roughness: 0.78, metalness: 0.06, side: THREE.DoubleSide, ...POFF }),
-  tertiary:    new THREE.MeshStandardMaterial({ color: 0x26282e, map: ASPHALT_TEX, roughness: 0.80, metalness: 0.05, side: THREE.DoubleSide, ...POFF }),
-  residential: new THREE.MeshStandardMaterial({ color: 0x24272c, map: ASPHALT_TEX, roughness: 0.82, metalness: 0.04, side: THREE.DoubleSide, ...POFF }),
-  service:     new THREE.MeshStandardMaterial({ color: 0x222428, map: ASPHALT_TEX, roughness: 0.84, metalness: 0.03, side: THREE.DoubleSide, ...POFF }),
-  default:     new THREE.MeshStandardMaterial({ color: 0x26282e, map: ASPHALT_TEX, roughness: 0.80, metalness: 0.05, side: THREE.DoubleSide, ...POFF }),
+  motorway:    new THREE.MeshStandardMaterial({ color: 0x2e3136, map: ASPHALT_TEX, roughness: 0.80, metalness: 0.0, side: THREE.DoubleSide, ...POFF }),
+  trunk:       new THREE.MeshStandardMaterial({ color: 0x2b2e33, map: ASPHALT_TEX, roughness: 0.82, metalness: 0.0, side: THREE.DoubleSide, ...POFF }),
+  primary:     new THREE.MeshStandardMaterial({ color: 0x282b30, map: ASPHALT_TEX, roughness: 0.84, metalness: 0.0, side: THREE.DoubleSide, ...POFF }),
+  secondary:   new THREE.MeshStandardMaterial({ color: 0x25282d, map: ASPHALT_TEX, roughness: 0.86, metalness: 0.0, side: THREE.DoubleSide, ...POFF }),
+  tertiary:    new THREE.MeshStandardMaterial({ color: 0x23262a, map: ASPHALT_TEX, roughness: 0.86, metalness: 0.0, side: THREE.DoubleSide, ...POFF }),
+  residential: new THREE.MeshStandardMaterial({ color: 0x222428, map: ASPHALT_TEX, roughness: 0.88, metalness: 0.0, side: THREE.DoubleSide, ...POFF }),
+  service:     new THREE.MeshStandardMaterial({ color: 0x202226, map: ASPHALT_TEX, roughness: 0.90, metalness: 0.0, side: THREE.DoubleSide, ...POFF }),
+  default:     new THREE.MeshStandardMaterial({ color: 0x23262a, map: ASPHALT_TEX, roughness: 0.86, metalness: 0.0, side: THREE.DoubleSide, ...POFF }),
+}
+
+/**
+ * Dynamically adjust asphalt roughness for subtle night dampness without shiny mirror glare.
+ */
+export function setAsphaltWetness(nightFactor: number): void {
+  const DRY_ROUGHNESS: Record<string, number> = {
+    motorway: 0.80, trunk: 0.82, primary: 0.84, secondary: 0.86,
+    tertiary: 0.86, residential: 0.88, service: 0.90, default: 0.86,
+  }
+  const WET_ROUGHNESS: Record<string, number> = {
+    motorway: 0.65, trunk: 0.68, primary: 0.70, secondary: 0.72,
+    tertiary: 0.72, residential: 0.75, service: 0.78, default: 0.72,
+  }
+  const t = Math.min(1, Math.max(0, (nightFactor - 0.2) / 0.5))
+  for (const [key, mat] of Object.entries(ASPHALT_MATS)) {
+    mat.roughness = THREE.MathUtils.lerp(DRY_ROUGHNESS[key] ?? 0.86, WET_ROUGHNESS[key] ?? 0.72, t)
+    mat.metalness = 0.0
+  }
 }
 
 export const GUTTER_MAT = new THREE.MeshStandardMaterial({
@@ -69,14 +156,12 @@ export const TIRE_RUBBER_MAT = new THREE.MeshStandardMaterial({
 })
 
 export const WHITE_MARK = new THREE.MeshStandardMaterial({
-  color: 0xffffff, roughness: 0.35, metalness: 0.0,
-  emissive: 0xffffff, emissiveIntensity: 0.22, side: THREE.DoubleSide,
+  color: 0xdcdcdc, roughness: 0.45, metalness: 0.0, side: THREE.DoubleSide,
   polygonOffset: true, polygonOffsetFactor: -3.0, polygonOffsetUnits: -3.0,
 })
 
 export const YELLOW_MARK = new THREE.MeshStandardMaterial({
-  color: 0xffb800, roughness: 0.35, metalness: 0.0,
-  emissive: 0xe6a000, emissiveIntensity: 0.25, side: THREE.DoubleSide,
+  color: 0xf0a800, roughness: 0.45, metalness: 0.0, side: THREE.DoubleSide,
   polygonOffset: true, polygonOffsetFactor: -3.0, polygonOffsetUnits: -3.0,
 })
 

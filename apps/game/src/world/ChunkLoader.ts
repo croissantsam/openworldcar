@@ -294,6 +294,17 @@ export class ChunkLoader {
   }
 
   /**
+   * Drop one chunk's streamed data + cached copy (called on unload).
+   * The streamed store would otherwise grow with every kilometre driven
+   * (JS heap pressure → lag), while the 64-entry LRU keeps border
+   * ping-pong instant. Evicted areas re-stream on demand.
+   */
+  dropData(key: string): void {
+    this.realOsmChunks.delete(key)
+    this.cache.delete(key)
+  }
+
+  /**
    * Loads a chunk by ID asynchronously.
    * Priority:
    * 1. In-memory cache

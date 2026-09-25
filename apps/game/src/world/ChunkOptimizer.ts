@@ -43,6 +43,16 @@ export function* optimizeChunkGroupIncremental(
   const buckets = new Map<string, MeshBucket>()
   const unmergedObjects: THREE.Object3D[] = []
 
+  function isIdentityMatrix(m: THREE.Matrix4): boolean {
+    const e = m.elements
+    return (
+      e[0] === 1 && e[1] === 0 && e[2] === 0 && e[3] === 0 &&
+      e[4] === 0 && e[5] === 1 && e[6] === 0 && e[7] === 0 &&
+      e[8] === 0 && e[9] === 0 && e[10] === 1 && e[11] === 0 &&
+      e[12] === 0 && e[13] === 0 && e[14] === 0 && e[15] === 1
+    )
+  }
+
   // Helper to compute local transform relative to chunkGroup
   function getRelativeMatrix(mesh: THREE.Object3D): THREE.Matrix4 {
     const parents: THREE.Object3D[] = []
@@ -87,17 +97,22 @@ export function* optimizeChunkGroupIncremental(
     if (posCount === 0) continue
 
     const relMat = getRelativeMatrix(mesh)
-    let geo = mesh.geometry.clone()
+    const isTemplate = !!mesh.userData['isTemplate']
+    let geo = isTemplate ? mesh.geometry.clone() : mesh.geometry
 
     // Normalize to non-indexed for seamless merging across geometry topologies
     if (geo.index) {
       const nonIndexed = geo.toNonIndexed()
-      geo.dispose()
+      if (isTemplate) {
+        geo.dispose()
+      }
       geo = nonIndexed
     }
 
-    // Apply chunk-relative transformation matrix
-    geo.applyMatrix4(relMat)
+    // Apply chunk-relative transformation matrix if non-identity
+    if (!isIdentityMatrix(relMat)) {
+      geo.applyMatrix4(relMat)
+    }
 
     // Ensure standard attributes: position, normal, uv
     if (!geo.getAttribute('normal')) {
@@ -163,7 +178,7 @@ export function* optimizeChunkGroupIncremental(
       // Bounded-step merge: copies a few geometries per slice so no single
       // step can stall a frame (a big bucket merged in one go takes tens of ms).
       const mergedGeo = yield* mergeNonIndexedIncremental(bucket.geometries, batchSize)
-      // Clean up intermediate cloned geometries
+      // Clean up intermediate geometries
       for (const g of bucket.geometries) {
         g.dispose()
       }
@@ -179,13 +194,17 @@ export function* optimizeChunkGroupIncremental(
       }
     }
 
-    // Dispose original geometries if they are not shared module templates
-    for (const origMesh of bucket.originalMeshes) {
-      if (!origMesh.userData['isTemplate'] && origMesh.geometry) {
-        origMesh.geometry.dispose()
-      }
-    }
     yield
+  }
+
+  // Freeze static matrices so Three.js scene graph traversal skips recalculations every frame
+  optimizedGroup.matrixAutoUpdate = false
+  optimizedGroup.updateMatrix()
+  optimizedGroup.updateMatrixWorld(true)
+  for (const child of optimizedGroup.children) {
+    child.matrixAutoUpdate = false
+    child.updateMatrix()
+    child.updateMatrixWorld(true)
   }
 
   return optimizedGroup

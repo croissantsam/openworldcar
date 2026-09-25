@@ -235,11 +235,22 @@ type Spark = {
   maxLife: number
 }
 
+const SPARK_GEO = new THREE.BoxGeometry(0.06, 0.06, 0.14)
 const SPARK_MAT = new THREE.MeshBasicMaterial({
   color: 0xffaa22,
   transparent: true,
   opacity: 1.0,
 })
+
+const DROPLET_GEO = new THREE.BoxGeometry(0.12, 0.12, 0.12)
+const DROPLET_MAT = new THREE.MeshBasicMaterial({
+  color: 0x93c5fd,
+  transparent: true,
+  opacity: 0.9,
+})
+
+const V_FORWARD = new THREE.Vector3(0, 0, 1)
+const V_DIR = new THREE.Vector3()
 
 // ── 3. Drift Smoke Puff Pool ─────────────────────────────────────────────────
 type SmokePuff = {
@@ -312,10 +323,9 @@ export class ImpactFX {
 
     // 3. 3D Spark burst
     const count = Math.min(45, Math.floor(15 + intensity * 35))
-    const sparkGeo = new THREE.BoxGeometry(0.06, 0.06, 0.14)
 
     for (let i = 0; i < count; i++) {
-      const mesh = new THREE.Mesh(sparkGeo, SPARK_MAT)
+      const mesh = new THREE.Mesh(SPARK_GEO, SPARK_MAT)
       mesh.position.set(
         point.x + (Math.random() - 0.5) * 0.4,
         point.y + (Math.random() - 0.5) * 0.3,
@@ -384,11 +394,9 @@ export class ImpactFX {
 
     // Water droplet burst
     const count = 30
-    const dropletGeo = new THREE.BoxGeometry(0.12, 0.12, 0.12)
-    const DROPLET_MAT = new THREE.MeshBasicMaterial({ color: 0x93c5fd, transparent: true, opacity: 0.9 })
 
     for (let i = 0; i < count; i++) {
-      const mesh = new THREE.Mesh(dropletGeo, DROPLET_MAT)
+      const mesh = new THREE.Mesh(DROPLET_GEO, DROPLET_MAT)
       mesh.position.set(
         point.x + (Math.random() - 0.5) * 1.5,
         (point.y ?? 0) + 0.2 + Math.random() * 0.3,
@@ -454,7 +462,6 @@ export class ImpactFX {
 
       if (s.life >= s.maxLife) {
         this.scene.remove(s.mesh)
-        s.mesh.geometry.dispose()
         this.sparks.splice(i, 1)
         continue
       }
@@ -472,18 +479,16 @@ export class ImpactFX {
         s.velocity.y = -s.velocity.y * 0.45
       }
 
-      // Look along velocity direction
+      // Look along velocity direction without heap allocation
       if (s.velocity.lengthSq() > 0.01) {
-        s.mesh.quaternion.setFromUnitVectors(
-          new THREE.Vector3(0, 0, 1),
-          s.velocity.clone().normalize(),
-        )
+        V_DIR.copy(s.velocity).normalize()
+        s.mesh.quaternion.setFromUnitVectors(V_FORWARD, V_DIR)
       }
 
-      // Fade out
+      // Fade out by scaling down smoothly
       const progress = s.life / s.maxLife
-      const mat = s.mesh.material as THREE.MeshBasicMaterial
-      mat.opacity = 1.0 - progress
+      const scale = Math.max(0.001, 1.0 - progress)
+      s.mesh.scale.set(scale, scale, scale)
     }
 
     // Drift smoke: rise, expand, fade

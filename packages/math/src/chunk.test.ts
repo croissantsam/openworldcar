@@ -7,6 +7,7 @@ import {
   chunkKey,
   parseChunkKey,
   surroundingChunks,
+  distanceToChunkM,
 } from './chunk.js'
 
 describe('chunk grid', () => {
@@ -37,6 +38,17 @@ describe('chunk grid', () => {
   it('serialises chunk ids to stable, parseable keys', () => {
     const id = { x: -4, z: 7, level: 0 }
     expect(parseChunkKey(chunkKey(id))).toEqual(id)
+  })
+
+  it('measures the gap to a chunk square (0 inside)', () => {
+    // Chunk (0,0) spans x,z ∈ [0,500).
+    expect(distanceToChunkM({ x: 100, y: 0, z: 100 }, { x: 0, z: 0, level: 0 })).toBe(0)
+    expect(distanceToChunkM({ x: 500, y: 0, z: 250 }, { x: 0, z: 0, level: 0 })).toBe(0)
+    expect(distanceToChunkM({ x: 600, y: 0, z: 250 }, { x: 0, z: 0, level: 0 })).toBeCloseTo(100, 9)
+    expect(distanceToChunkM({ x: 900, y: 0, z: 900 }, { x: 0, z: 0, level: 0 })).toBeCloseTo(
+      Math.hypot(400, 400),
+      9,
+    )
   })
 
   it('returns the full neighbourhood square for a radius', () => {

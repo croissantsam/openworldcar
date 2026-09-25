@@ -46,8 +46,8 @@ const STREET_PLAQUE_W = 0.9
 const STREET_PLAQUE_H = 0.25
 
 // Atlas layout (canvas pixels)
-const ATLAS_W = 2048
-const ATLAS_MAX_H = 2048
+const ATLAS_W = 1024
+const ATLAS_MAX_H = 1024
 const CELL_SIGN_W = 320
 const CELL_SIGN_H = 80
 const CELL_NUM_W = 64

@@ -161,6 +161,8 @@ export type DebugStats = {
   /** Local solar time "HH:MM" at the player's GPS + Sun elevation (deg). */
   solarTime: string
   sunElev: number
+  /** JS heap in MB when exposed by the browser (lag diagnosis). */
+  heapMB?: number
   streetName?: string
   destinationName?: string
   destinationFlag?: string
@@ -370,6 +372,7 @@ export class GameEngine {
     this.renderer = new Renderer(this.mount)
     this.input = new InputManager()
     this.playerCar = new PlayerCar(this.world, this.renderer.scene)
+    this.playerCar.setEnvMap(this.renderer.getEnvMap())
     this.camera = new ThirdPersonCamera(this.renderer.camera, this.playerCar)
     this.impactFX = new ImpactFX(this.renderer.scene)
     this._buildTrialBeacons()
@@ -812,6 +815,14 @@ export class GameEngine {
     this.renderer.updateSunPosition(
       this._vehicleMode === 'plane' ? { x: pos.x, y: Math.min(pos.y, 60), z: pos.z } : pos,
     )
+
+    // ── Speed Blur — feed vehicle speed to post-processing ─────────────────
+    {
+      const speedMs = this._vehicleMode === 'plane' && this.plane
+        ? (this.plane.getState?.().groundSpeed ?? 0)
+        : this.playerCar.getSpeed()
+      this.renderer.setSpeed(speedMs)
+    }
 
     // ── Render ─────────────────────────────────────────────────────────────
     this.renderer.render()
@@ -1525,6 +1536,12 @@ export class GameEngine {
           const roads = await fetchCorridorRoads(pair.a, pair.b).catch(() => [])
           if (this.disposed || this.currentDestination.id !== dest.id) return
           radar.corridors.set(pair.key, roads)
+          // Bounded FIFO: corridors refetch cheaply (server-cached Overpass).
+          while (radar.corridors.size > 12) {
+            const oldest = radar.corridors.keys().next().value
+            if (oldest === undefined) break
+            radar.corridors.delete(oldest)
+          }
         }
       }
       radar.atTime = performance.now()
@@ -2236,6 +2253,9 @@ export class GameEngine {
         })
     }
     const stream = this.chunkManager.streamStats
+    const heapMB = (performance as unknown as { memory?: { usedJSHeapSize?: number } }).memory
+      ?.usedJSHeapSize
+    const statsHeapMB = heapMB !== undefined && heapMB > 0 ? Math.round(heapMB / 1048576) : undefined
     let gpsPosition: { lat: number; lon: number }
     if (this._vehicleMode === 'plane') {
       const g = worldToGeo(pos)
@@ -2251,6 +2271,7 @@ export class GameEngine {
       const at = new Date(Date.now() + this.solarOffsetMin * 60000)
       const solar = solarPosition(gpsPosition.lat, gpsPosition.lon, at)
       this.renderer.applySolarState(solar.elevationDeg, solar.azimuthDeg)
+      this.playerCar.setEnvMap(this.renderer.getEnvMap())
       this.playerCar.setHeadlightLevel(nightFactor(solar.elevationDeg))
       const off = this.solarOffsetMin / 60
       this.solarTime =
@@ -2276,6 +2297,7 @@ export class GameEngine {
       npcCount: this.npcManager.activeCount,
       solarTime: this.solarTime,
       sunElev: this.sunElev,
+      ...(statsHeapMB !== undefined ? { heapMB: statsHeapMB } : {}),
       ...(this.serverMetrics
         ? {
             serverTickMs: this.serverMetrics.tickMsAvg,

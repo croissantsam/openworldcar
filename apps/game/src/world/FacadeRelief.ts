@@ -267,7 +267,7 @@ function addBox(
   const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), mat)
   m.position.set(cx, yBase + sy / 2, cz)
   m.rotation.y = rotY
-  m.castShadow = true
+  m.castShadow = false
   m.receiveShadow = true
   group.add(m)
 }
@@ -281,7 +281,7 @@ export function addLedges(group: THREE.Group, o: LedgeOptions): number {
   const add = (geo: THREE.BufferGeometry | null, mat: THREE.MeshStandardMaterial) => {
     if (!geo) return
     const m = new THREE.Mesh(geo, mat)
-    m.castShadow = true
+    m.castShadow = false
     m.receiveShadow = true
     group.add(m)
     verts += geo.getAttribute('position').count

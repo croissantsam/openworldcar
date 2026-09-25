@@ -15,6 +15,12 @@ export type PorscheCar = {
   wheels: THREE.Group[]
   setColor(value: THREE.ColorRepresentation): void
   dispose(): void
+  /**
+   * Exposed by FerrariModel for the real-time env-probe.
+   * Optional so PorscheModel doesn't need to implement it.
+   */
+  _paint?: THREE.MeshPhysicalMaterial
+  _glass?: THREE.MeshPhysicalMaterial
 }
 
 /** Tire outer radius (m): torus 0.281 + tube 0.082. */

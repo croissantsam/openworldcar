@@ -8,6 +8,9 @@ import { useSettingsStore, type ViewDistanceSettings } from '../settings/Setting
 import { dayNightPalette, nightFactor } from './daynight.js'
 import { setLampNightGlow } from '../world/street-furniture/Materials.js'
 import { setFacadeNightGlow } from '../world/building/building-textures.js'
+import { setAsphaltWetness } from '../world/road/materials.js'
+import { PostProcessing } from './PostProcessing.js'
+import { SkyEnvironment } from './SkyEnvironment.js'
 
 let onViewDistanceChangeCallback: ((settings: ViewDistanceSettings) => void) | null = null
 
@@ -23,14 +26,18 @@ export class Renderer {
   renderer: THREE.WebGLRenderer
   scene: THREE.Scene
   camera: THREE.PerspectiveCamera
+  /** Full Burnout Paradise post-processing pipeline. */
+  postProcessing!: PostProcessing
+  /** Procedural HDR sky environment reflections (cars, roads, buildings). */
+  private skyEnv: SkyEnvironment
 
   constructor(mount: HTMLElement) {
     // WebGL renderer
     this.renderer = new THREE.WebGLRenderer({
-      antialias: true,
+      antialias: false,
       stencil: true,
       powerPreference: 'high-performance',
-      logarithmicDepthBuffer: true,
+      logarithmicDepthBuffer: false,
     })
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5))
     this.renderer.setSize(mount.clientWidth, mount.clientHeight)
@@ -66,6 +73,12 @@ export class Renderer {
     // Ground plane (visual)
     this._createGroundMesh()
 
+    // Post-processing pipeline (Bloom, Speed Blur, Color Grade)
+    this.postProcessing = new PostProcessing(this.renderer, this.scene, this.camera)
+
+    // Procedural HDR sky environment map (ambient reflections for cars & asphalt)
+    this.skyEnv = new SkyEnvironment(this.renderer)
+
     // Listen for view distance changes
     setViewDistanceChangeCallback((newSettings) => this.applyViewDistanceSettings(newSettings))
 
@@ -89,6 +102,7 @@ export class Renderer {
     this.camera.aspect = w / h
     this.camera.updateProjectionMatrix()
     this.renderer.setSize(w, h)
+    this.postProcessing?.setSize(w, h)
   }
 
   private sun!: THREE.DirectionalLight
@@ -102,6 +116,7 @@ export class Renderer {
   private sunDir = new THREE.Vector3(120, 180, 80).normalize()
   /** Player position from the last shadow-box update — anchors moon + stars. */
   private lastFocus = new THREE.Vector3()
+  private lastSunPos = new THREE.Vector3(-99999, -99999, -99999)
   private moon!: THREE.Sprite
   private moonMat!: THREE.SpriteMaterial
   private stars!: THREE.Points
@@ -116,13 +131,13 @@ export class Renderer {
     this.sun = new THREE.DirectionalLight(0xfff6e4, 2.8)
     this.sun.position.set(120, 180, 80)
     this.sun.castShadow = true
-    this.sun.shadow.mapSize.set(2048, 2048)
+    this.sun.shadow.mapSize.set(1024, 1024)
     this.sun.shadow.camera.near = 10
-    this.sun.shadow.camera.far = 400
-    this.sun.shadow.camera.left = -160
-    this.sun.shadow.camera.right = 160
-    this.sun.shadow.camera.top = 160
-    this.sun.shadow.camera.bottom = -160
+    this.sun.shadow.camera.far = 300
+    this.sun.shadow.camera.left = -100
+    this.sun.shadow.camera.right = 100
+    this.sun.shadow.camera.top = 100
+    this.sun.shadow.camera.bottom = -100
     this.sun.shadow.bias = -0.0003
     this.sun.shadow.normalBias = 0.02
     this.scene.add(this.sun)
@@ -173,6 +188,14 @@ export class Renderer {
     const nf = nightFactor(elevationDeg)
     setLampNightGlow(nf)
     setFacadeNightGlow(nf * 1.6)
+    setAsphaltWetness(nf)
+
+    // Post-processing: adapt bloom + color grade to time of day.
+    this.postProcessing?.setNightFactor(nf)
+    this.postProcessing?.setSolarElevation(elevationDeg)
+
+    // Update HDR sky environment reflection map for car body and asphalt
+    this.skyEnv?.update(this.scene, elevationDeg, azimuthDeg, p)
 
     // Moon + stars follow the player and fade in with the night.
     // sunDir already points at the moon when palette.moon is set.
@@ -270,6 +293,11 @@ export class Renderer {
   updateSunPosition(pos: { x: number; y: number; z: number }): void {
     if (!this.sun) return
     this.lastFocus.set(pos.x, pos.y, pos.z)
+    const dx = pos.x - this.lastSunPos.x
+    const dz = pos.z - this.lastSunPos.z
+    if (dx * dx + dz * dz < 1.0) return
+    this.lastSunPos.set(pos.x, pos.y, pos.z)
+
     const DIST = 250
     this.sun.position.set(
       pos.x + this.sunDir.x * DIST,
@@ -281,25 +309,41 @@ export class Renderer {
   }
 
   private _createGroundMesh(): void {
-    // Large flat continuous terrain across the world (deep below riverbeds at y = -6.0)
-    const geo = new THREE.PlaneGeometry(500000, 500000, 10, 10)
-    const mat = new THREE.MeshLambertMaterial({
-      color: 0x181a1d,
-    })
+    // Large flat continuous terrain below riverbeds (y = -6.0).
+    // MeshBasicMaterial = unlit flat colour → invisible to the bloom pass,
+    // so it never contributes to the "glowy ground" artefact.
+    const geo = new THREE.PlaneGeometry(500000, 500000, 1, 1)
+    const mat = new THREE.MeshBasicMaterial({ color: 0x181a1d })
     const ground = new THREE.Mesh(geo, mat)
     ground.rotation.x = -Math.PI / 2
-    ground.position.y = -6.0 // Deep below riverbeds (-3.4m) and water (-2.2m)
-    ground.receiveShadow = true
+    ground.position.y = -6.0
     ground.renderOrder = -10
     this.scene.add(ground)
   }
 
+  /** Set current vehicle speed (m/s) for speed-blur post-processing. */
+  setSpeed(speedMs: number): void {
+    this.postProcessing?.setSpeed(speedMs)
+  }
+
+  /** Environment reflection map for vehicles. */
+  getEnvMap(): THREE.Texture | null {
+    return this.skyEnv?.getTexture() ?? null
+  }
+
   render(): void {
-    this.renderer.render(this.scene, this.camera)
+    // Use post-processing composer instead of bare renderer.render()
+    if (this.postProcessing) {
+      this.postProcessing.render()
+    } else {
+      this.renderer.render(this.scene, this.camera)
+    }
   }
 
   dispose(): void {
     window.removeEventListener('resize', this._onResize)
+    this.skyEnv?.dispose()
+    this.postProcessing?.dispose()
     this.renderer.dispose()
     this.renderer.domElement.remove()
   }

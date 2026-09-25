@@ -19,6 +19,7 @@ import {
   surroundingChunks,
   chunkKey,
   chunkCenter,
+  distanceToChunkM,
   setWorldOrigin,
   type ChunkId,
   type WorldPosition,
@@ -48,12 +49,17 @@ function getViewDistanceSettings(): ViewDistanceSettings {
 
 /** Number of chunks loaded in each direction from the player. Dynamic based on view distance settings. */
 function getLoadRadius(): number {
-  return getViewDistanceSettings().loadRadius
+  // Clamped: required chunks must always fit inside the 3 km hard unload cap
+  // (radius 4 → farthest corner ≈ 2.83 km), otherwise load/unload would fight.
+  return Math.min(getViewDistanceSettings().loadRadius, 4)
 }
 /** Chunks beyond this distance (in chunk units) are unloaded. Dynamic based on view distance settings. */
 function getUnloadRadius(): number {
-  return getViewDistanceSettings().unloadRadius
+  return Math.min(getViewDistanceSettings().unloadRadius, MAX_UNLOAD_CHUNKS)
 }
+/** Hard unload bound (m): nothing beyond this gap from the player is kept. */
+const MAX_UNLOAD_METRES = 3000
+const MAX_UNLOAD_CHUNKS = 6
 
 /**
  * Main-thread time (ms) spent building chunk geometry inside a frame.
@@ -220,14 +226,23 @@ export class ChunkManager {
       }
     }
 
-    // Unload distant chunks
+    // Unload distant chunks. Two rules, either triggers:
+    // - beyond the settings radius (chunk rings), or
+    // - beyond the 3 km hard cap (Euclidean gap — rings keep far corners).
+    const unloadRadius = getUnloadRadius()
     for (const [key, chunk] of this.chunks) {
       if (requiredKeys.has(key)) continue
       const dx = Math.abs(chunk.id.x - playerChunk.x)
       const dz = Math.abs(chunk.id.z - playerChunk.z)
-      if (Math.max(dx, dz) > getUnloadRadius()) {
+      if (Math.max(dx, dz) > unloadRadius || distanceToChunkM(playerPosition, chunk.id) > MAX_UNLOAD_METRES) {
         this._unload(key, chunk)
       }
+    }
+    // Empty-area marks would grow forever on long drives: keep the recent ones.
+    while (this.missingChunks.size > 512) {
+      const oldest = this.missingChunks.values().next().value
+      if (oldest === undefined) break
+      this.missingChunks.delete(oldest)
     }
   }
 
@@ -575,6 +590,9 @@ export class ChunkManager {
 
   private _unload(key: string, chunk: ManagedChunk): void {
     this.unloads++
+    // Free the streamed data too (see dropData): the store must stay
+    // proportional to the loaded area, not to the distance ever driven.
+    this.loader.dropData(key)
     if (chunk.state.status === 'ACTIVE') {
       chunk.state.transition('UNLOADING')
     }

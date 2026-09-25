@@ -23,14 +23,49 @@ export function createFerrari({ color = '#e21b24' }: { color?: THREE.ColorRepres
   const car = new THREE.Group()
   car.name = 'Ferrari-inspired coupe'
 
-  const paint = new THREE.MeshPhysicalMaterial({ color, metalness: 0.42, roughness: 0.24, clearcoat: 1, clearcoatRoughness: 0.12, side: THREE.DoubleSide })
-  const glass = new THREE.MeshPhysicalMaterial({ color: '#152b35', metalness: 0.48, roughness: 0.12, clearcoat: 1, side: THREE.DoubleSide })
+  // Paint — MeshPhysicalMaterial with clearcoat lacquer + iridescence pearl
+  const paint = new THREE.MeshPhysicalMaterial({
+    color,
+    metalness: 0.55,
+    roughness: 0.18,
+    clearcoat: 1.0,
+    clearcoatRoughness: 0.08,
+    iridescence: 0.30,           // subtle pearl shift on body highlights
+    iridescenceIOR: 1.5,
+    iridescenceThicknessRange: [100, 400],
+    reflectivity: 0.5,
+    side: THREE.DoubleSide,
+  })
+  // Windshield / windows — glossy tinted glass with clearcoat reflection
+  const glass = new THREE.MeshPhysicalMaterial({
+    color: '#08141c',
+    metalness: 0.1,
+    roughness: 0.05,
+    clearcoat: 1.0,
+    clearcoatRoughness: 0.05,
+    transparent: true,
+    opacity: 0.85,
+    side: THREE.DoubleSide,
+  })
   const rubber = new THREE.MeshStandardMaterial({ color: '#151619', roughness: 0.88 })
-  const dark = new THREE.MeshStandardMaterial({ color: '#11171a', roughness: 0.4 })
-  const alloy = new THREE.MeshStandardMaterial({ color: '#b9bec3', metalness: 0.95, roughness: 0.23 })
-  const red = new THREE.MeshStandardMaterial({ color: '#ff1735', emissive: '#ff0620', emissiveIntensity: 2 })
-  const lamp = new THREE.MeshStandardMaterial({ color: '#efffff', emissive: '#b8eaff', emissiveIntensity: 3 })
-  const caliperMat = new THREE.MeshStandardMaterial({ color: '#f4c52c' })
+  const dark   = new THREE.MeshStandardMaterial({ color: '#11171a', roughness: 0.4 })
+  // Alloy wheels — anisotropic brushed metal (directional specular highlights)
+  const alloy = new THREE.MeshPhysicalMaterial({
+    color: '#b9bec3',
+    metalness: 0.98,
+    roughness: 0.18,
+    anisotropy: 0.85,            // radial brushing highlights on spokes
+    anisotropyRotation: 0,
+  })
+  const red     = new THREE.MeshStandardMaterial({ color: '#ff1735', emissive: '#ff0620', emissiveIntensity: 2.5 })
+  const lamp    = new THREE.MeshStandardMaterial({
+    color: '#efffff',
+    emissive: '#b8eaff',
+    emissiveIntensity: 3.5,      // bloom will pick this up cleanly
+    roughness: 0.08,
+    metalness: 0.1,
+  })
+  const caliperMat = new THREE.MeshStandardMaterial({ color: '#f4c52c', metalness: 0.4, roughness: 0.35 })
   const intakeMaterial = dark.clone()
   intakeMaterial.side = THREE.DoubleSide
 
@@ -240,6 +275,10 @@ export function createFerrari({ color = '#e21b24' }: { color?: THREE.ColorRepres
   return {
     group: car,
     wheels,
+    /** Expose paint for the env probe to set envMap. */
+    _paint: paint,
+    /** Expose glass for the env probe to set envMap. */
+    _glass: glass,
     setColor(value: THREE.ColorRepresentation): void {
       paint.color.set(value)
     },
@@ -256,5 +295,36 @@ export function createFerrari({ color = '#e21b24' }: { color?: THREE.ColorRepres
       gs.forEach((g) => g.dispose())
       ms.forEach((m) => m.dispose())
     },
+  }
+}
+
+// ── Real-time environment probe ───────────────────────────────────────────────
+//
+// Creates a WebGLCubeRenderTarget + CubeCamera that can be positioned at the
+// car's centre.  Update every ~6 frames (not every frame) to keep cost < 0.5ms.
+//
+// Usage (GameEngine or PlayerCar):
+//   const probe = createFerrariEnvProbe(renderer, ferrari)
+//   // in render loop (every 6 frames):
+//   probe.update(renderer, scene)
+//   // on dispose:
+//   probe.dispose()
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type FerrariEnvProbe = {
+  cubeCamera?: THREE.CubeCamera
+  update(renderer: THREE.WebGLRenderer, scene: THREE.Scene): void
+  dispose(): void
+}
+
+export function createFerrariEnvProbe(
+  _renderer: THREE.WebGLRenderer,
+  _car: FerrariCar & { _paint?: THREE.MeshPhysicalMaterial; _glass?: THREE.MeshPhysicalMaterial },
+): FerrariEnvProbe {
+  // Reflections are now provided globally with 0 extra draw calls via scene.environment (SkyEnvironment PMREM),
+  // completely eliminating the 6-pass CubeCamera re-render that caused massive frame drops.
+  return {
+    update(): void {},
+    dispose(): void {},
   }
 }

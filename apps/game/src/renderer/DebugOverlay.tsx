@@ -93,6 +93,7 @@ export function DebugOverlay({ engine }: Props) {
       <Row label="Srv tick" value={stats.serverTickMs === undefined ? '—' : `${stats.serverTickMs.toFixed(2)} ms`} />
       <Row label="Srv p95" value={stats.serverTickP95 === undefined ? '—' : `${stats.serverTickP95.toFixed(2)} ms`} />
       <Row label="Srv players" value={stats.serverPlayers ?? '—'} />
+      <Row label="Heap" value={stats.heapMB === undefined ? '—' : `${stats.heapMB} MB`} />
 
       <div
         style={{

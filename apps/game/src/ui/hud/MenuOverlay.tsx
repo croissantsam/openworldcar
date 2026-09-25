@@ -29,6 +29,8 @@ interface MenuOverlayProps {
   onOpenDistance: () => void
   onCloseViewDistancePanel: () => void
   onToggleTouchMode: () => void
+  showControls?: boolean
+  onToggleControls?: () => void
 }
 
 /** Burger menu: actions, view distance, touch toggle, language switcher. */
@@ -48,6 +50,8 @@ export const MenuOverlay: React.FC<MenuOverlayProps> = ({
   onOpenDistance,
   onCloseViewDistancePanel,
   onToggleTouchMode,
+  showControls = false,
+  onToggleControls,
 }) => {
   const { locale, t } = useLocale()
   const navigate = useNavigate()
@@ -295,6 +299,25 @@ export const MenuOverlay: React.FC<MenuOverlayProps> = ({
               {t('hud_view_distance_note')}
             </div>
           </div>
+        )}
+
+        {/* Toggle afficher / masquer les contrôles (desktop) */}
+        {!touchMode && onToggleControls && (
+          <button
+            onClick={() => {
+              onToggleControls()
+              onClose()
+            }}
+            style={menuButtonStyle}
+          >
+            <span style={menuButtonIconStyle}>⌨️</span>
+            <span style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+              <span style={menuButtonTitleStyle}>
+                {showControls ? t('hud_menu_controls_hide') : t('hud_menu_controls_show')}
+              </span>
+              <span style={menuButtonHintStyle}>{t('hud_menu_controls_hint')}</span>
+            </span>
+          </button>
         )}
 
         {/* Toggle tactile / clavier */}

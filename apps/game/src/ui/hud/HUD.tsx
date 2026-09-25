@@ -61,6 +61,19 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
   const [health, setHealth] = useState<number>(100)
   const [maxHealth, setMaxHealth] = useState<number>(100)
   const [combatInvincible, setCombatInvincible] = useState(false)
+  const [showControls, setShowControls] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false
+    return localStorage.getItem('world_drive_show_controls') === 'true'
+  })
+  const toggleControls = () => {
+    setShowControls((prev) => {
+      const next = !prev
+      try {
+        localStorage.setItem('world_drive_show_controls', String(next))
+      } catch {}
+      return next
+    })
+  }
   const [hitMarker, setHitMarker] = useState(false)
   const [damageFlash, setDamageFlash] = useState(false)
   const [destroyed, setDestroyed] = useState(false)
@@ -251,8 +264,11 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
 
       if (e.key === 't' || e.key === 'T') {
         setTravelOpen((v) => !v)
+      } else if (e.key === 'h' || e.key === 'H') {
+        toggleControls()
       } else if (e.key === 'Escape') {
         setTravelOpen(false)
+        setShowControls(false)
       }
     }
     window.addEventListener('keydown', onKey)
@@ -453,13 +469,11 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
       <StatusCluster
         flipCountdown={flipCountdown}
         invincibilitySec={invincibilitySec}
-        health={health}
-        maxHealth={maxHealth}
-        damageFlash={damageFlash}
-        combatInvincible={combatInvincible}
         destroyed={destroyed}
         isPlane={isPlane}
         touchMode={touchMode}
+        showControls={showControls}
+        onToggleControls={toggleControls}
       />
       <TopBar
         engine={engine}
@@ -483,6 +497,8 @@ export const HUD: React.FC<HUDProps> = ({ engine }) => {
           authLabel={authLabel}
           touchMode={touchMode}
           viewDistanceOpen={viewDistanceOpen}
+          showControls={showControls}
+          onToggleControls={toggleControls}
           onClose={() => setMenuOpen(false)}
           onOpenTravel={() => {
             setMenuOpen(false)

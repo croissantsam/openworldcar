@@ -1,36 +1,39 @@
 import React from 'react'
 import { useLocale } from '../../i18n/index.js'
-import { alertBannerStyle, flightLabelStyle } from './hudStyles.js'
+import { alertBannerStyle } from './hudStyles.js'
 
 interface StatusClusterProps {
   flipCountdown: number
   invincibilitySec: number
-  health: number
-  maxHealth: number
-  damageFlash: boolean
-  combatInvincible: boolean
   destroyed: boolean
   isPlane: boolean
   touchMode: boolean
+  showControls?: boolean
+  onToggleControls?: () => void
+  health?: number
+  maxHealth?: number
+  damageFlash?: boolean
+  combatInvincible?: boolean
 }
 
-/** Bottom-center cluster (flip countdown, shield, PV) + destroyed banner + controls hint. */
+/** Bottom-center cluster (flip countdown, shield) + destroyed banner + hideable controls hint. */
 export const StatusCluster: React.FC<StatusClusterProps> = ({
   flipCountdown,
   invincibilitySec,
-  health,
-  maxHealth,
-  damageFlash,
-  combatInvincible,
   destroyed,
   isPlane,
   touchMode,
+  showControls = false,
+  onToggleControls,
 }) => {
   const { t } = useLocale()
+  const showCenterCluster = flipCountdown > 0 || (invincibilitySec > 0 && !isPlane)
+
   return (
     <>
-      {/* Bottom-center cluster: spawn invincibility + Health (PV) — both modes */}
-      <div
+      {/* Bottom-center cluster: flip countdown + spawn invincibility — both modes */}
+      {showCenterCluster && (
+        <div
         style={{
           position: 'absolute',
           bottom: touchMode ? 'max(120px, calc(env(safe-area-inset-bottom, 0px) + 120px))' : 30,
@@ -180,70 +183,8 @@ export const StatusCluster: React.FC<StatusClusterProps> = ({
             </div>
           </div>
         )}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            background: 'rgba(10, 16, 28, 0.72)',
-            backdropFilter: 'blur(10px)',
-            WebkitBackdropFilter: 'blur(10px)',
-            border: damageFlash
-              ? '1px solid rgba(239, 68, 68, 0.9)'
-              : combatInvincible || invincibilitySec > 0
-              ? '1px solid rgba(0, 229, 255, 0.55)'
-              : '1px solid rgba(0, 212, 255, 0.3)',
-            boxShadow: damageFlash
-              ? '0 4px 16px rgba(0,0,0,0.4), 0 0 18px rgba(239, 68, 68, 0.55)'
-              : '0 4px 16px rgba(0, 0, 0, 0.4)',
-            borderRadius: 14,
-            padding: touchMode ? '4px 10px' : '6px 14px',
-            transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
-          }}
-        >
-          <span style={{ ...flightLabelStyle, color: damageFlash ? '#fca5a5' : '#00d4ff' }}>{t('hud_hp')}</span>
-          <div
-            style={{
-              width: touchMode ? 110 : 150,
-              height: touchMode ? 7 : 8,
-              borderRadius: 4,
-              background: 'rgba(255, 255, 255, 0.12)',
-              overflow: 'hidden',
-            }}
-          >
-            <div
-              style={{
-                width: `${Math.max(0, Math.min(100, (health / maxHealth) * 100))}%`,
-                height: '100%',
-                borderRadius: 4,
-                background:
-                  health <= maxHealth * 0.3
-                    ? 'linear-gradient(90deg, #dc2626, #f87171)'
-                    : health <= maxHealth * 0.6
-                    ? 'linear-gradient(90deg, #d97706, #fbbf24)'
-                    : 'linear-gradient(90deg, #059669, #34d399)',
-                boxShadow: '0 0 8px rgba(52, 211, 153, 0.35)',
-                transition: 'width 0.18s ease-out',
-              }}
-            />
-          </div>
-          <span
-            style={{
-              fontFamily: "'Orbitron', sans-serif",
-              fontSize: touchMode ? 11 : 13,
-              fontWeight: 900,
-              color: damageFlash ? '#fca5a5' : '#fff',
-              minWidth: 26,
-              textAlign: 'right',
-            }}
-          >
-            {health}
-          </span>
-          {(combatInvincible || invincibilitySec > 0) && (
-            <span style={{ fontSize: touchMode ? 10 : 12, filter: 'drop-shadow(0 0 4px rgba(0,229,255,0.8))' }}>🛡️</span>
-          )}
-        </div>
       </div>
+    )}
 
       {/* Destroyed */}
       {destroyed && (
@@ -275,8 +216,8 @@ export const StatusCluster: React.FC<StatusClusterProps> = ({
         </div>
       )}
 
-      {/* Controls hint - ONLY shown in desktop keyboard mode, offset to right of minimap */}
-      {!touchMode && (
+      {/* Controls hint - ONLY shown in desktop keyboard mode when toggled visible (hidden by default, toggle with [H]) */}
+      {!touchMode && showControls && (
         <div
           style={{
             position: 'absolute',
@@ -286,15 +227,62 @@ export const StatusCluster: React.FC<StatusClusterProps> = ({
             fontSize: 11,
             fontFamily: "'Inter', sans-serif",
             lineHeight: 1.8,
-            pointerEvents: 'none',
+            pointerEvents: 'auto',
             userSelect: 'none',
-            background: 'rgba(0,0,0,0.4)',
-            padding: '8px 14px',
-            borderRadius: 8,
-            backdropFilter: 'blur(6px)',
-            border: '1px solid rgba(255,255,255,0.08)',
+            background: 'rgba(10, 16, 28, 0.85)',
+            padding: '10px 16px',
+            borderRadius: 12,
+            backdropFilter: 'blur(10px)',
+            WebkitBackdropFilter: 'blur(10px)',
+            border: '1px solid rgba(0, 212, 255, 0.25)',
+            boxShadow: '0 8px 28px rgba(0, 0, 0, 0.6)',
+            zIndex: 40,
           }}
         >
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginBottom: 8,
+              paddingBottom: 6,
+              borderBottom: '1px solid rgba(255,255,255,0.08)',
+            }}
+          >
+            <span
+              style={{
+                fontFamily: "'Orbitron', sans-serif",
+                fontSize: 10,
+                fontWeight: 900,
+                color: '#00d4ff',
+                letterSpacing: 1.5,
+              }}
+            >
+              {t('hud_controls_title')}
+            </span>
+            {onToggleControls && (
+              <button
+                onClick={onToggleControls}
+                style={{
+                  background: 'rgba(255,255,255,0.08)',
+                  border: '1px solid rgba(255,255,255,0.15)',
+                  borderRadius: 6,
+                  color: '#94a3b8',
+                  cursor: 'pointer',
+                  fontSize: 10,
+                  padding: '2px 6px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  lineHeight: 1,
+                }}
+                title={t('hud_controls_hide_hint')}
+              >
+                <span>✕</span>
+                <span style={{ fontSize: 9, opacity: 0.8 }}>[H]</span>
+              </button>
+            )}
+          </div>
           {isPlane ? (
             <>
               <div><strong style={{ color: '#00d4ff' }}>Z / W</strong> — {t('hud_ctl_throttle_up')}</div>

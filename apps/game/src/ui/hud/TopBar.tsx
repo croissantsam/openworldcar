@@ -79,17 +79,17 @@ export const TopBar: React.FC<TopBarProps> = ({
           onlineMode
             ? isNetworkConnected
               ? t('hud_net_title_online', {
-                  count: playerCount,
-                  players: t('hud_net_players', undefined, playerCount),
-                  ping: networkPing >= 0 ? ` (${networkPing}ms)` : '',
-                })
+                count: playerCount,
+                players: t('hud_net_players', undefined, playerCount),
+                ping: networkPing >= 0 ? ` (${networkPing}ms)` : '',
+              })
               : t('hud_net_title_reconnect')
             : t('hud_net_title_offline', {
-                pending:
-                  getOfflineTrialRuns().length > 0
-                    ? t('hud_net_pending', { count: getOfflineTrialRuns().length })
-                    : '',
-              })
+              pending:
+                getOfflineTrialRuns().length > 0
+                  ? t('hud_net_pending', { count: getOfflineTrialRuns().length })
+                  : '',
+            })
         }
       >
         {/* Animated Live Status Dot */}
@@ -153,21 +153,6 @@ export const TopBar: React.FC<TopBarProps> = ({
             >
               {playerCount}
             </span>
-            <span
-              style={{
-                fontFamily: "'Inter', sans-serif",
-                fontSize: isMobileLandscape ? 8 : 10,
-                fontWeight: 700,
-                color: '#94a3b8',
-                letterSpacing: 1,
-                lineHeight: 1,
-                textTransform: 'uppercase',
-              }}
-            >
-              {isMobileLandscape
-                ? t('hud_players_short', undefined, playerCount)
-                : t('hud_players', undefined, playerCount)}
-            </span>
           </div>
         ) : (
           <span
@@ -205,8 +190,8 @@ export const TopBar: React.FC<TopBarProps> = ({
                   networkPing < 80
                     ? '#34d399'
                     : networkPing < 150
-                    ? '#fbbf24'
-                    : '#f87171',
+                      ? '#fbbf24'
+                      : '#f87171',
                 lineHeight: 1,
               }}
             >

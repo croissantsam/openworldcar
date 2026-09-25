@@ -62,6 +62,7 @@ import {
   buildOpenCanopy,
 } from './building/roof-builders'
 import { addLedges } from './FacadeRelief'
+import { buildChurchArchitecture } from './building/church-builder'
 
 export class BuildingMeshGenerator {
   /**
@@ -103,13 +104,20 @@ export class BuildingMeshGenerator {
       facadeColorOverride = `#${col.toString(16).padStart(6, '0')}`
     }
 
+    const isReligious = bType === 'church' || bType === 'cathedral' || bType === 'chapel' || pal.style === 'religious'
+
     // Real floor count → window rows. One texture height = the whole wall height.
     const bottomY = building.minHeight ?? 0
     const wallHeight = Math.max(1.5, building.height - bottomY)
     let levels = Math.round(building.levels)
     if (!(levels >= 1)) levels = 1
     let floorH = wallHeight / levels
-    if (floorH < 2.3 || floorH > 6.5) {
+    if (isReligious) {
+      // Religious buildings have monumental heights without apartment floors.
+      // 1 tier for standard churches/chapels, 2 tiers for grand cathedrals.
+      levels = wallHeight >= 18 ? 2 : 1
+      floorH = wallHeight / levels
+    } else if (floorH < 2.3 || floorH > 6.5) {
       // levels tag inconsistent with height: derive from height instead
       levels = Math.max(1, Math.round(wallHeight / 3.3))
       floorH = wallHeight / levels
@@ -204,7 +212,24 @@ export class BuildingMeshGenerator {
     const masonry = style === 'haussmann' || style === 'render' || style === 'brick' ||
       style === 'civic_classical' || style === 'commercial_boutique' || style === 'residential_house' ||
       style === 'religious'
-    if (masonry && wallHeight >= 3) {
+    if (isReligious && wallHeight >= 3) {
+      // Churches: no modern apartment bands, balconies, or generic entrance doors.
+      // (The church-builder adds authentic 3D buttresses, stone portals, steps, and bell towers).
+      addLedges(group, {
+        ring: fp2d,
+        bottomY,
+        topY: building.height,
+        floorH,
+        levels,
+        cornice: true,
+        plinth: false,
+        balconies: false,
+        bands: false,
+        pilasters: true,
+        entrance: false,
+        darkTrim: false,
+      })
+    } else if (masonry && wallHeight >= 3) {
       addLedges(group, {
         ring: fp2d,
         bottomY,
@@ -250,14 +275,18 @@ export class BuildingMeshGenerator {
       roofShape = 'mansard'
     } else if (roofShape === 'flat' && (bType === 'house' || bType === 'detached' || bType === 'terrace' || bType === 'bungalow' || bType === 'barn') && building.height < 12) {
       roofShape = 'gabled'
-    } else if (roofShape === 'flat' && (bType === 'church' || bType === 'cathedral' || bType === 'chapel' || bType === 'temple')) {
+    } else if (roofShape === 'flat' && (bType === 'church' || bType === 'cathedral' || bType === 'chapel' || isReligious)) {
+      roofShape = 'gabled'
+    } else if (roofShape === 'flat' && bType === 'temple') {
       roofShape = 'pyramidal'
     } else if (roofShape === 'flat' && (bType === 'sports_hall' || bType === 'hangar') && building.height < 14) {
       roofShape = 'round'
     }
 
     const roofBaseH = building.height
-    const defaultPitch = Math.max(1.8, Math.min(8.0, building.height * 0.18))
+    const defaultPitch = isReligious
+      ? Math.max(4.5, Math.min(14.0, building.height * 0.42))
+      : Math.max(1.8, Math.min(8.0, building.height * 0.18))
     const roofPitch = building.roofHeight ?? defaultPitch
 
     // Pitched builders decline (null) when the footprint cannot carry the shape
@@ -299,43 +328,10 @@ export class BuildingMeshGenerator {
       addFlat()
     }
 
-    // ── 3. Religious Architecture: Church Spire / Belfry / Minaret ────────
-    if (bType === 'church' || bType === 'cathedral' || bType === 'chapel') {
-      // Slender bell tower & cross spire
-      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
-      for (const p of fp2d) {
-        minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x)
-        minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y)
-      }
-      const cx = (minX + maxX) / 2
-      const cy = (minY + maxY) / 2
-
-      const towerH = bType === 'cathedral' ? 14.0 : 8.0
-      const spireH = bType === 'cathedral' ? 12.0 : 7.0
-      const towerBaseH = building.height + (roofShape === 'pyramidal' ? roofPitch : 0)
-
-      // Belfry square tower
-      const towerGeo = new THREE.BoxGeometry(3.5, towerH, 3.5)
-      const towerMesh = new THREE.Mesh(towerGeo, facadeMat)
-      towerMesh.position.set(cx, towerBaseH + towerH / 2, cy)
-      towerMesh.castShadow = true
-      group.add(towerMesh)
-
-      // Octagonal spire
-      const spireGeo = new THREE.ConeGeometry(2.2, spireH, 8)
-      const spireMesh = new THREE.Mesh(spireGeo, roofMat)
-      spireMesh.position.set(cx, towerBaseH + towerH + spireH / 2, cy)
-      spireMesh.castShadow = true
-      group.add(spireMesh)
-
-      // Golden cross finial
-      const crossMat = new THREE.MeshStandardMaterial({ color: 0xd4af37, metalness: 0.8, roughness: 0.2 })
-      const crossV = new THREE.Mesh(new THREE.BoxGeometry(0.12, 1.6, 0.12), crossMat)
-      const crossH = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.12, 0.12), crossMat)
-      crossV.position.set(cx, towerBaseH + towerH + spireH + 0.8, cy)
-      crossH.position.set(cx, towerBaseH + towerH + spireH + 1.1, cy)
-      group.add(crossV)
-      group.add(crossH)
+    // ── 3. Religious Architecture: Church Spire / Belfry / Buttresses / Portals ──
+    if (bType === 'church' || bType === 'cathedral' || bType === 'chapel' || isReligious) {
+      const churchType = (bType === 'cathedral' || bType === 'chapel') ? bType : 'church'
+      buildChurchArchitecture(group, fp2d, building.height, roofPitch, churchType, facadeMat, roofMat)
     }
 
     return group

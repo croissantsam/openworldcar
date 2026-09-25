@@ -115,6 +115,21 @@ export function makeWindowTexture(palette: Palette, cacheKey: string, rows: numb
     for (let y = 0; y < H; y += 16) {
       ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke()
     }
+  } else if (style === 'religious') {
+    // Medieval / Gothic ashlar stone blocks (appareil de pierre de taille régulier)
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.16)'
+    ctx.lineWidth = 1
+    const blockH = 16
+    const blockW = 32
+    for (let by = 0; by < H; by += blockH) {
+      ctx.beginPath(); ctx.moveTo(0, by); ctx.lineTo(W, by); ctx.stroke()
+      hfill(0, by, W, 1, H_JOINT)
+      const offset = (by / blockH) % 2 === 0 ? 0 : blockW / 2
+      for (let bx = offset; bx < W; bx += blockW) {
+        ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(bx, by + blockH); ctx.stroke()
+        hfill(bx, by, 1, blockH, H_JOINT)
+      }
+    }
   } else if (style !== 'glass_curtain') {
     // Subtle natural stone / render fleck
     ctx.fillStyle = 'rgba(0,0,0,0.03)'
@@ -126,7 +141,7 @@ export function makeWindowTexture(palette: Palette, cacheKey: string, rows: numb
 
   // 3. Floors & windows: row 0 is the top floor, the last row is the ground floor
   const floorH = ROW_PX
-  const cols = style === 'residential_house' ? 6 : 8
+  const cols = style === 'residential_house' ? 6 : (style === 'religious' ? 4 : 8)
   const colW = W / cols
   const hasCornice = style === 'haussmann' || style === 'civic_classical'
   const hasStringcourse = style === 'render' || style === 'commercial_boutique' || style === 'brick'
@@ -259,17 +274,155 @@ export function makeWindowTexture(palette: Palette, cacheKey: string, rows: numb
         hfill(wx + 1, wy + 1, ww - 2, wh - 2, H_GLASS)
 
       } else if (style === 'religious') {
-        // ── Gothic / Romanesque lancet arched window with stained glass ──────
-        ctx.fillStyle = 'rgba(0,0,0,0.45)'
-        ctx.fillRect(wx, wy, ww, wh)
-        hfill(wx, wy, ww, wh, H_RECESS)
-        hfill(wx - 2, wy + wh, ww + 4, 3, H_SILL)
-        const lit = ((c * 3 + f * 7) % 3) === 0
-        ctx.fillStyle = lit ? 'rgba(255, 200, 100, 0.85)' : 'rgba(180, 60, 40, 0.70)'
-        ctx.fillRect(wx + 2, wy + 4, ww - 4, wh - 6)
-        if (lit) elit(wx + 2, wy + 4, ww - 4, wh - 6)
-        ctx.fillStyle = '#3a3832'
-        ctx.fillRect(wx + ww / 2 - 1, wy, 2, wh)
+        // ── Gothic / Romanesque lancet arched window or rose window with stained glass ──
+        const isRose = (c % 2 === 1 && f === 0) || (cols === 4 && c === 2 && floors === 1)
+        const winW = Math.min(ww, 68)
+        const winX = Math.round(wx + (ww - winW) / 2)
+        const winY = wy
+        const winH = wh
+
+        // Recessed reveal in heightmap
+        hfill(winX - 2, winY, winW + 4, winH + 2, H_RECESS)
+        hfill(winX - 3, winY + winH, winW + 6, 3, H_SILL)
+
+        const isLit = ((c * 3 + f * 5) % 2) === 0
+
+        if (isRose) {
+          // ── Circular Gothic Rose Window (Rosace à remplage rayonnant) ──
+          const rcx = winX + winW / 2
+          const rcy = winY + winH / 2
+          const rr = Math.min(winW, winH) * 0.44
+
+          // Outer shadow & stone frame
+          ctx.beginPath()
+          ctx.arc(rcx, rcy, rr + 2, 0, Math.PI * 2)
+          ctx.fillStyle = 'rgba(0,0,0,0.45)'
+          ctx.fill()
+
+          ctx.beginPath()
+          ctx.arc(rcx, rcy, rr, 0, Math.PI * 2)
+          ctx.fillStyle = isLit ? 'rgba(30, 60, 120, 0.95)' : 'rgba(20, 35, 70, 0.9)'
+          ctx.fill()
+
+          // Stained glass colored segments
+          const numSlices = 8
+          const colors = ['#8a1824', '#143d78', '#c88218', '#166838', '#8a1824', '#143d78', '#c88218', '#166838']
+          for (let s = 0; s < numSlices; s++) {
+            const a0 = (s * Math.PI * 2) / numSlices
+            const a1 = ((s + 1) * Math.PI * 2) / numSlices
+            ctx.beginPath()
+            ctx.moveTo(rcx, rcy)
+            ctx.arc(rcx, rcy, rr - 2, a0, a1)
+            ctx.closePath()
+            ctx.fillStyle = colors[s % colors.length]!
+            ctx.fill()
+          }
+
+          // Central stone boss + radial stone mullions
+          ctx.strokeStyle = '#2c2822'
+          ctx.lineWidth = 2
+          for (let s = 0; s < numSlices; s++) {
+            const a = (s * Math.PI * 2) / numSlices
+            ctx.beginPath()
+            ctx.moveTo(rcx, rcy)
+            ctx.lineTo(rcx + Math.cos(a) * rr, rcy + Math.sin(a) * rr)
+            ctx.stroke()
+          }
+          ctx.beginPath()
+          ctx.arc(rcx, rcy, 4, 0, Math.PI * 2)
+          ctx.fillStyle = '#3a342c'
+          ctx.fill()
+
+          // Night illumination
+          if (isLit) {
+            elit(rcx - rr + 4, rcy - rr + 4, (rr - 4) * 2, (rr - 4) * 2)
+          }
+
+        } else {
+          // ── Grand Gothic Pointed Lancet Window (Baie ogivale géminée) ──
+          const traceArch = (targetCtx: CanvasRenderingContext2D, ox: number, oy: number, w: number, h: number) => {
+            const sy = oy + h * 0.42
+            const ax = ox + w / 2
+            const ay = oy + 2
+            targetCtx.beginPath()
+            targetCtx.moveTo(ox, oy + h)
+            targetCtx.lineTo(ox, sy)
+            targetCtx.quadraticCurveTo(ox, ay, ax, ay)
+            targetCtx.quadraticCurveTo(ox + w, ay, ox + w, sy)
+            targetCtx.lineTo(ox + w, oy + h)
+            targetCtx.closePath()
+          }
+
+          // Dark embrasure shadow
+          traceArch(ctx, winX - 2, winY - 1, winW + 4, winH + 1)
+          ctx.fillStyle = 'rgba(0,0,0,0.5)'
+          ctx.fill()
+
+          // Stained glass background
+          traceArch(ctx, winX, winY, winW, winH)
+          ctx.fillStyle = isLit ? 'rgba(40, 20, 60, 0.95)' : 'rgba(20, 15, 30, 0.9)'
+          ctx.fill()
+
+          // 2 sub-lancets with stained glass
+          const subW = (winW - 8) / 2
+          const colorsA = ['#164282', '#8c1624', '#c6841a']
+          const colorsB = ['#8c1624', '#164282', '#186438']
+          const subColorA = colorsA[c % colorsA.length]!
+          const subColorB = colorsB[(c + 1) % colorsB.length]!
+
+          // Left lancet
+          traceArch(ctx, winX + 2, winY + 8, subW, winH - 8)
+          ctx.fillStyle = subColorA
+          ctx.fill()
+
+          // Right lancet
+          traceArch(ctx, winX + subW + 6, winY + 8, subW, winH - 8)
+          ctx.fillStyle = subColorB
+          ctx.fill()
+
+          // Leaded glass diamond lattice (calmes de plomb)
+          ctx.strokeStyle = 'rgba(0,0,0,0.40)'
+          ctx.lineWidth = 1
+          for (let ly = winY + 12; ly < winY + winH; ly += 6) {
+            ctx.beginPath()
+            ctx.moveTo(winX + 2, ly)
+            ctx.lineTo(winX + 2 + subW, ly)
+            ctx.stroke()
+            ctx.beginPath()
+            ctx.moveTo(winX + subW + 6, ly)
+            ctx.lineTo(winX + winW - 2, ly)
+            ctx.stroke()
+          }
+
+          // Central stone mullion
+          ctx.fillStyle = '#2d2822'
+          ctx.fillRect(winX + subW + 2, winY + 8, 4, winH - 8)
+
+          // Top stone trefoil / oculus medallion
+          ctx.beginPath()
+          const apexX = winX + winW / 2
+          ctx.arc(apexX, winY + 8, 4.5, 0, Math.PI * 2)
+          ctx.fillStyle = '#c6841a'
+          ctx.fill()
+          ctx.strokeStyle = '#2d2822'
+          ctx.lineWidth = 1.5
+          ctx.stroke()
+
+          // Stone outer arch moulding
+          traceArch(ctx, winX, winY, winW, winH)
+          ctx.strokeStyle = '#2c2720'
+          ctx.lineWidth = 2.5
+          ctx.stroke()
+
+          // Stone sill
+          ctx.fillStyle = '#221e19'
+          ctx.fillRect(winX - 3, winY + winH, winW + 6, 3)
+
+          // Night stained-glass luminescence
+          if (isLit) {
+            elit(winX + 3, winY + 6, winW - 6, winH - 8)
+          }
+        }
 
       } else {
         // ── Classic window with lintel, sill, and frame ──────────────────────

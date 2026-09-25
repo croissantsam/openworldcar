@@ -424,15 +424,12 @@ function getBuildingIdentity(b: Building): { label: string; category: string } |
       case 'sports_hall':
         return { label: name ?? brand ?? 'CENTRE SPORTIF', category: 'sports_hall' }
       case 'church':
-        return { label: name ?? brand ?? 'ÉGLISE', category: 'church' }
       case 'cathedral':
-        return { label: name ?? brand ?? 'CATHÉDRALE', category: 'cathedral' }
+      case 'chapel':
       case 'mosque':
-        return { label: name ?? brand ?? 'MOSQUÉE', category: 'mosque' }
       case 'synagogue':
-        return { label: name ?? brand ?? 'SYNAGOGUE', category: 'synagogue' }
       case 'temple':
-        return { label: name ?? brand ?? 'TEMPLE', category: 'temple' }
+        return null
       case 'supermarket':
         return { label: name ?? brand ?? 'SUPERMARCHÉ', category: 'supermarket' }
       case 'commercial':
@@ -453,6 +450,15 @@ function getBuildingIdentity(b: Building): { label: string; category: string } |
 
   if (name) {
     const n = name.toLowerCase()
+    // Religious buildings and places of worship: no commercial shopfront vitrines
+    if (
+      n.includes('église') || n.includes('eglise') || n.includes('cathédrale') || n.includes('cathedrale') ||
+      n.includes('basilique') || n.includes('chapelle') || n.includes('paroisse') || n.includes('abbaye') ||
+      n.includes('monastère') || n.includes('monastere') || n.includes('mosquée') || n.includes('mosquee') ||
+      n.includes('synagogue') || n.includes('temple')
+    ) {
+      return null
+    }
     if (n.includes('hôtel') || n.includes('hotel') || n.includes('hostel')) {
       return { label: name, category: 'hotel' }
     }

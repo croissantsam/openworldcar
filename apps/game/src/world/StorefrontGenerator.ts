@@ -33,6 +33,7 @@ const HOUSENUMBER_MATCH_DIST = 8 // m
 const STREET_PLAQUE_MATCH_DIST = 15 // m
 const ROAD_FACING_DIST = 25 // m — an edge "faces a road" if a road centre-line is within this
 const WALL_OFFSET = 0.03 // m in front of the wall
+const FASCIA_OFFSET = 0.06 // m in front of the wall (nestled in 8cm posts and under 12cm cornice)
 const PLAQUE_OFFSET = 0.05 // m (in front of a vitrine, avoids z-fighting)
 
 const VITRINE_Y0 = 0.4
@@ -1172,7 +1173,7 @@ export class StorefrontGenerator {
         const { nx, nz, tx, tz } = edge
         // fascia with the real name (unchanged)
         const cell = layout.get('sign', it.label, it.style)
-        atlasQ.addWallQuad(wx + nx * WALL_OFFSET, wz + nz * WALL_OFFSET, tx, tz, nx, nz, w, FASCIA_Y0, FASCIA_Y1, cell, null)
+        atlasQ.addWallQuad(wx + nx * FASCIA_OFFSET, wz + nz * FASCIA_OFFSET, tx, tz, nx, nz, w, FASCIA_Y0, FASCIA_Y1, cell, null)
 
         // ── shopfront frame: rightward vector for a viewer on the street
         const Wf = w - 0.3

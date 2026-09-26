@@ -294,11 +294,12 @@ export function addLedges(group: THREE.Group, o: LedgeOptions): number {
   if (o.plinth) {
     add(buildLedgeBand(o.ring, o.bottomY, 0.6, 0.08), PLINTH_MAT)
   }
-  if (o.bands && o.levels >= 2) {
-    // Floor string courses: a slim shadow line on every floor division so the
-    // storeys read in 3D even where the sun flattens the texture.
+  if (o.bands && o.levels >= 3) {
+    // Floor string courses: a slim shadow line on upper floor divisions so the
+    // storeys read in 3D without colliding with ground-floor storefronts, fascias, or portals.
+    // Starts at f = 2 (above the 1st floor / entresol).
     const step = o.levels > 8 ? 2 : 1
-    for (let f = step; f < o.levels; f += step) {
+    for (let f = Math.max(2, step); f < o.levels; f += step) {
       add(buildLedgeBand(o.ring, o.bottomY + f * o.floorH - 0.05, 0.1, 0.09), LEDGE_MAT)
     }
   }

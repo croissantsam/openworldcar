@@ -9,7 +9,10 @@
  */
 
 import * as THREE from 'three'
+import RAPIER from '@dimforge/rapier3d-compat'
+import type { ChunkId } from '@world-drive/math'
 import type { Waterway } from '@world-drive/shared'
+import { getChunkBounds, pointInBounds } from '../ChunkBounds.js'
 import { PARAPET_MAT, EMBANKMENT_EDGE_MAT, getWaterMaterial } from './WaterMaterial.js'
 import { addOrientedBox } from './helpers.js'
 
@@ -268,5 +271,114 @@ export class WaterwayMeshGenerator {
     }
 
     return group
+  }
+
+  /**
+   * Create static Rapier collider descriptions for the stone parapet balustrades
+   * that line the quays and riverbanks.
+   */
+  static createColliderDescs(waterway: Waterway, ownerChunk?: ChunkId): RAPIER.ColliderDesc[] {
+    const pts = waterway.points
+    if (pts.length < 2) return []
+
+    const bounds = ownerChunk ? getChunkBounds(ownerChunk) : null
+    const colliders: RAPIER.ColliderDesc[] = []
+
+    // ── 1. Closed Polygon Waterway Parapets (basins, lakes, closed riverbanks) ──
+    if (waterway.isPolygon && pts.length >= 3) {
+      const N = pts.length
+      for (let i = 0; i < N; i++) {
+        const p1 = pts[i]!
+        const p2 = pts[(i + 1) % N]!
+        const dx = p2.x - p1.x
+        const dz = p2.z - p1.z
+        const len = Math.hypot(dx, dz)
+        if (len < 1.0) continue
+
+        const pMidX = (p1.x + p2.x) / 2
+        const pMidZ = (p1.z + p2.z) / 2
+
+        if (bounds && !pointInBounds({ x: pMidX, y: 0, z: pMidZ }, bounds, 1.5)) continue
+
+        const ux = dx / len
+        const uz = dz / len
+        const yaw = Math.atan2(ux, uz)
+
+        colliders.push(
+          RAPIER.ColliderDesc.cuboid(0.20, 0.44, len / 2)
+            .setTranslation(pMidX, 0.46, pMidZ)
+            .setRotation({ x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) })
+            .setFriction(0.2)
+            .setRestitution(0.1),
+        )
+      }
+      return colliders
+    }
+
+    // ── 2. Linear Waterway Parapets (rivers, canals) ─────────────────────────
+    const halfW = (waterway.width || 30) / 2
+    if (halfW < 8.0) return []
+
+    const N = pts.length
+    type BankPoint = { x: number; z: number }
+    const leftBank: BankPoint[] = []
+    const rightBank: BankPoint[] = []
+
+    for (let i = 0; i < N; i++) {
+      const curr = pts[i]!
+      const prev = pts[Math.max(0, i - 1)]!
+      const next = pts[Math.min(N - 1, i + 1)]!
+
+      let dx = next.x - prev.x
+      let dz = next.z - prev.z
+      const len = Math.hypot(dx, dz)
+      const ux = len > 0 ? dx / len : 1
+      const uz = len > 0 ? dz / len : 0
+
+      const nx = -uz
+      const nz = ux
+
+      leftBank.push({
+        x: curr.x + nx * halfW,
+        z: curr.z + nz * halfW,
+      })
+      rightBank.push({
+        x: curr.x - nx * halfW,
+        z: curr.z - nz * halfW,
+      })
+    }
+
+    const addBankColliders = (bank: BankPoint[]) => {
+      for (let i = 0; i < bank.length - 1; i++) {
+        const b1 = bank[i]!
+        const b2 = bank[i + 1]!
+        const dx = b2.x - b1.x
+        const dz = b2.z - b1.z
+        const segLen = Math.hypot(dx, dz)
+        if (segLen < 1.0) continue
+
+        const midX = (b1.x + b2.x) / 2
+        const midZ = (b1.z + b2.z) / 2
+
+        if (bounds && !pointInBounds({ x: midX, y: 0, z: midZ }, bounds, 1.5)) continue
+
+        const ux = dx / segLen
+        const uz = dz / segLen
+        const yaw = Math.atan2(ux, uz)
+
+        colliders.push(
+          RAPIER.ColliderDesc.cuboid(0.20, 0.44, segLen / 2)
+            .setTranslation(midX, 0.46, midZ)
+            .setRotation({ x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) })
+            .setFriction(0.2)
+            .setRestitution(0.1),
+        )
+      }
+    }
+
+    addBankColliders(leftBank)
+    addBankColliders(rightBank)
+
+    return colliders
   }
 }

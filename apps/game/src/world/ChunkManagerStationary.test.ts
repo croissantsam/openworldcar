@@ -13,13 +13,17 @@ describe('ChunkManager stationary loading on teleport', () => {
     id,
     roads: [
       {
-        id: 101,
+        id: '101',
+        highway: 'primary',
         points: [
           { x: -50, y: 0, z: 0 },
           { x: 50, y: 0, z: 0 },
         ],
         lanes: 2,
-        maxspeed: 50,
+        bridge: false,
+        tunnel: false,
+        layer: 0,
+        elevationMode: 'ground',
         surface: 'asphalt',
       },
     ],

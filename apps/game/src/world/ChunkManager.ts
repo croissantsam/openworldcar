@@ -34,6 +34,7 @@ import { ParkMeshGenerator } from './park/index.js'
 import { RoadMeshGenerator } from './RoadMeshGenerator.js'
 import { clipRoadToChunk } from './ChunkBounds.js'
 import { StreetFurnitureGenerator } from './street-furniture/index.js'
+import { WaterwayMeshGenerator } from './waterway/index.js'
 import { useSettingsStore, type ViewDistanceSettings } from '../settings/SettingsStore.js'
 
 /** Called when view distance settings change. */
@@ -378,6 +379,10 @@ export class ChunkManager {
       }
       for (const park of features.parks ?? []) {
         for (const desc of ParkMeshGenerator.createColliderDescs(park, allRoads, features.pointsOfInterest ?? [], managed.id)) add(desc)
+        if (n >= COLLIDERS_PER_SLICE) { n = 0; yield }
+      }
+      for (const waterway of features.waterways ?? []) {
+        for (const desc of WaterwayMeshGenerator.createColliderDescs(waterway, managed.id)) add(desc)
         if (n >= COLLIDERS_PER_SLICE) { n = 0; yield }
       }
       for (const road of features.roads) {

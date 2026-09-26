@@ -1,9 +1,11 @@
 /**
- * Landmark Generator — churches, schools, hospitals, stations, etc.
+ * Landmark Generator — churches, synagogues, schools, hospitals, stations, etc.
+ * Places monumental buildings strictly inside city blocks with generous setbacks from streets.
  */
 
 import type { Building, BuildingType } from '@world-drive/shared'
 import type { ChunkId } from '@world-drive/math'
+import type { BuildingBlock } from './BuildingGenerator.js'
 
 export interface LandmarkParams {
   chunkId: ChunkId
@@ -13,70 +15,121 @@ export interface LandmarkParams {
   maxZ: number
   landmarkSeed: number
   buildings: Building[]
+  blockLayout?: BuildingBlock
+  onBlockReserved?: (col: number, row: number) => void
 }
 
 function addBuilding(buildings: Building[], building: Building): void {
   buildings.push(building)
 }
 
-export function generateLandmarks(params: LandmarkParams): void {
-  const { chunkId, minX, maxX, minZ, maxZ, landmarkSeed, buildings } = params
-  const midX = (minX + maxX) / 2
-  const midZ = (minZ + maxZ) / 2
+/**
+ * Computes safe building plot coordinates strictly inside a city block.
+ * Ensures buildings NEVER overhang or encroach onto the surrounding road network.
+ */
+function getInteriorBlockPlot(
+  col: number,
+  row: number,
+  halfW: number,
+  halfD: number,
+  minX: number,
+  minZ: number,
+  blockLayout?: BuildingBlock,
+  margin = 10,
+): { cx: number; cz: number; w: number; d: number } {
+  const c = Math.max(0, Math.min(4, col))
+  const r = Math.max(0, Math.min(4, row))
 
-  // Church/Cathedral (one per ~4 chunks)
+  if (blockLayout && blockLayout.xSpans[c] && blockLayout.zSpans[r]) {
+    const xs = blockLayout.xSpans[c]!
+    const zs = blockLayout.zSpans[r]!
+    const cx = (xs.min + xs.max) / 2
+    const cz = (zs.min + zs.max) / 2
+    const maxHalfW = Math.max(8, (xs.max - xs.min) / 2 - margin)
+    const maxHalfD = Math.max(8, (zs.max - zs.min) / 2 - margin)
+    return {
+      cx,
+      cz,
+      w: Math.min(halfW, maxHalfW),
+      d: Math.min(halfD, maxHalfD),
+    }
+  }
+
+  // Fallback centers strictly in block interiors (never on roads at 62.5, 187.5, 312.5, 437.5)
+  const colCenters = [29.25, 125, 248.5, 376.5, 470.75]
+  const rowCenters = [29.25, 123.5, 251, 375.5, 470.75]
+  const cx = minX + (colCenters[c] ?? 248.5)
+  const cz = minZ + (rowCenters[r] ?? 251)
+  return { cx, cz, w: Math.min(halfW, 16), d: Math.min(halfD, 20) }
+}
+
+export function generateLandmarks(params: LandmarkParams): void {
+  const { chunkId, minX, maxX, minZ, maxZ, landmarkSeed, buildings, blockLayout, onBlockReserved } = params
+
+  // 1. Church / Cathedral (one per ~4 chunks)
   if (landmarkSeed % 4 === 0) {
-    const churchX = minX + 187.5 + (landmarkSeed % 100) - 50
-    const churchZ = minZ + 187.5 + ((landmarkSeed >> 4) % 100) - 50
+    const col = 1, row = 1
+    onBlockReserved?.(col, row)
+    const plot = getInteriorBlockPlot(col, row, 15, 24, minX, minZ, blockLayout, 12)
     const churchHeight = 28 + (landmarkSeed % 15)
     addBuilding(buildings, {
       id: `bld_church_${chunkId.x}_${chunkId.z}`,
       footprint: [
-        { x: churchX - 15, y: 0, z: churchZ - 25 },
-        { x: churchX + 15, y: 0, z: churchZ - 25 },
-        { x: churchX + 15, y: 0, z: churchZ + 25 },
-        { x: churchX - 15, y: 0, z: churchZ + 25 },
+        { x: plot.cx - plot.w, y: 0, z: plot.cz - plot.d },
+        { x: plot.cx + plot.w, y: 0, z: plot.cz - plot.d },
+        { x: plot.cx + plot.w, y: 0, z: plot.cz + plot.d },
+        { x: plot.cx - plot.w, y: 0, z: plot.cz + plot.d },
       ],
       height: churchHeight,
       levels: Math.round(churchHeight / 3.5),
       buildingType: landmarkSeed % 2 === 0 ? 'church' : 'cathedral',
-      roofShape: 'pyramidal',
+      roofShape: 'gabled',
       roofHeight: 12,
     })
   }
 
-  // School/University (one per ~5 chunks)
+  // 2. School / Lycée / University (one per ~5 chunks)
   if (landmarkSeed % 5 === 1) {
-    const schoolX = minX + 312.5 + (landmarkSeed % 80) - 40
-    const schoolZ = minZ + 312.5 + ((landmarkSeed >> 3) % 80) - 40
-    const schoolHeight = 12 + (landmarkSeed % 8)
+    const col = 2, row = 1
+    onBlockReserved?.(col, row)
+    const eduVariant = landmarkSeed % 3 // 0: ecole, 1: lycee, 2: universite
+    const isUni = eduVariant === 2
+    const isLycee = eduVariant === 1
+    const plotW = isUni ? 22 : isLycee ? 20 : 18
+    const plotD = isUni ? 28 : isLycee ? 26 : 24
+    const plot = getInteriorBlockPlot(col, row, plotW, plotD, minX, minZ, blockLayout, 10)
+    const eduHeight = isUni ? 18 + (landmarkSeed % 6) : isLycee ? 14 + (landmarkSeed % 4) : 10 + (landmarkSeed % 3)
+    const bType = isUni ? 'university' : 'school'
+    const name = isUni ? 'Université Panthéon-Sorbonne' : isLycee ? 'Lycée Condorcet' : 'École Primaire Jules Ferry'
     addBuilding(buildings, {
       id: `bld_school_${chunkId.x}_${chunkId.z}`,
       footprint: [
-        { x: schoolX - 20, y: 0, z: schoolZ - 30 },
-        { x: schoolX + 20, y: 0, z: schoolZ - 30 },
-        { x: schoolX + 20, y: 0, z: schoolZ + 30 },
-        { x: schoolX - 20, y: 0, z: schoolZ + 30 },
+        { x: plot.cx - plot.w, y: 0, z: plot.cz - plot.d },
+        { x: plot.cx + plot.w, y: 0, z: plot.cz - plot.d },
+        { x: plot.cx + plot.w, y: 0, z: plot.cz + plot.d },
+        { x: plot.cx - plot.w, y: 0, z: plot.cz + plot.d },
       ],
-      height: schoolHeight,
-      levels: Math.round(schoolHeight / 3.5),
-      buildingType: landmarkSeed % 2 === 0 ? 'school' : 'university',
-      roofShape: 'flat',
+      height: eduHeight,
+      levels: Math.round(eduHeight / 3.4),
+      buildingType: bType,
+      name,
+      roofShape: isUni ? 'flat' : 'mansard',
     })
   }
 
-  // Hospital/Clinic (one per ~6 chunks)
+  // 3. Hospital / Clinic (one per ~6 chunks)
   if (landmarkSeed % 6 === 2) {
-    const hospitalX = minX + 437.5 + (landmarkSeed % 60) - 30
-    const hospitalZ = minZ + 62.5 + ((landmarkSeed >> 2) % 60) - 30
+    const col = 3, row = 1
+    onBlockReserved?.(col, row)
+    const plot = getInteriorBlockPlot(col, row, 20, 28, minX, minZ, blockLayout, 10)
     const hospitalHeight = 18 + (landmarkSeed % 10)
     addBuilding(buildings, {
       id: `bld_hospital_${chunkId.x}_${chunkId.z}`,
       footprint: [
-        { x: hospitalX - 25, y: 0, z: hospitalZ - 35 },
-        { x: hospitalX + 25, y: 0, z: hospitalZ - 35 },
-        { x: hospitalX + 25, y: 0, z: hospitalZ + 35 },
-        { x: hospitalX - 25, y: 0, z: hospitalZ + 35 },
+        { x: plot.cx - plot.w, y: 0, z: plot.cz - plot.d },
+        { x: plot.cx + plot.w, y: 0, z: plot.cz - plot.d },
+        { x: plot.cx + plot.w, y: 0, z: plot.cz + plot.d },
+        { x: plot.cx - plot.w, y: 0, z: plot.cz + plot.d },
       ],
       height: hospitalHeight,
       levels: Math.round(hospitalHeight / 3.5),
@@ -85,18 +138,19 @@ export function generateLandmarks(params: LandmarkParams): void {
     })
   }
 
-  // Train Station (one per ~8 chunks, near primary roads)
+  // 4. Train Station (one per ~8 chunks, northern edge block)
   if (landmarkSeed % 8 === 3) {
-    const stationX = minX + 312.5
-    const stationZ = minZ + 187.5 + 50
+    const col = 2, row = 0
+    onBlockReserved?.(col, row)
+    const plot = getInteriorBlockPlot(col, row, 25, 18, minX, minZ, blockLayout, 8)
     const stationHeight = 14 + (landmarkSeed % 6)
     addBuilding(buildings, {
       id: `bld_station_${chunkId.x}_${chunkId.z}`,
       footprint: [
-        { x: stationX - 30, y: 0, z: stationZ - 40 },
-        { x: stationX + 30, y: 0, z: stationZ - 40 },
-        { x: stationX + 30, y: 0, z: stationZ + 40 },
-        { x: stationX - 30, y: 0, z: stationZ + 40 },
+        { x: plot.cx - plot.w, y: 0, z: plot.cz - plot.d },
+        { x: plot.cx + plot.w, y: 0, z: plot.cz - plot.d },
+        { x: plot.cx + plot.w, y: 0, z: plot.cz + plot.d },
+        { x: plot.cx - plot.w, y: 0, z: plot.cz + plot.d },
       ],
       height: stationHeight,
       levels: Math.round(stationHeight / 3.5),
@@ -106,18 +160,19 @@ export function generateLandmarks(params: LandmarkParams): void {
     })
   }
 
-  // Fire Station / Police (one per ~7 chunks)
+  // 5. Fire Station / Police (one per ~7 chunks)
   if (landmarkSeed % 7 === 4) {
-    const civicX = minX + 62.5 + (landmarkSeed % 50) - 25
-    const civicZ = minZ + 437.5 + ((landmarkSeed >> 5) % 50) - 25
+    const col = 1, row = 3
+    onBlockReserved?.(col, row)
+    const plot = getInteriorBlockPlot(col, row, 14, 18, minX, minZ, blockLayout, 10)
     const civicHeight = 10 + (landmarkSeed % 5)
     addBuilding(buildings, {
       id: `bld_civic_${chunkId.x}_${chunkId.z}`,
       footprint: [
-        { x: civicX - 15, y: 0, z: civicZ - 20 },
-        { x: civicX + 15, y: 0, z: civicZ - 20 },
-        { x: civicX + 15, y: 0, z: civicZ + 20 },
-        { x: civicX - 15, y: 0, z: civicZ + 20 },
+        { x: plot.cx - plot.w, y: 0, z: plot.cz - plot.d },
+        { x: plot.cx + plot.w, y: 0, z: plot.cz - plot.d },
+        { x: plot.cx + plot.w, y: 0, z: plot.cz + plot.d },
+        { x: plot.cx - plot.w, y: 0, z: plot.cz + plot.d },
       ],
       height: civicHeight,
       levels: Math.round(civicHeight / 3.5),
@@ -126,18 +181,19 @@ export function generateLandmarks(params: LandmarkParams): void {
     })
   }
 
-  // Town Hall / Government (one per ~10 chunks, central location)
+  // 6. Town Hall / Government (one per ~10 chunks, central civic block)
   if (landmarkSeed % 10 === 5) {
-    const govX = midX
-    const govZ = midZ
+    const col = 2, row = 2
+    onBlockReserved?.(col, row)
+    const plot = getInteriorBlockPlot(col, row, 18, 22, minX, minZ, blockLayout, 12)
     const govHeight = 16 + (landmarkSeed % 8)
     addBuilding(buildings, {
       id: `bld_gov_${chunkId.x}_${chunkId.z}`,
       footprint: [
-        { x: govX - 20, y: 0, z: govZ - 25 },
-        { x: govX + 20, y: 0, z: govZ - 25 },
-        { x: govX + 20, y: 0, z: govZ + 25 },
-        { x: govX - 20, y: 0, z: govZ + 25 },
+        { x: plot.cx - plot.w, y: 0, z: plot.cz - plot.d },
+        { x: plot.cx + plot.w, y: 0, z: plot.cz - plot.d },
+        { x: plot.cx + plot.w, y: 0, z: plot.cz + plot.d },
+        { x: plot.cx - plot.w, y: 0, z: plot.cz + plot.d },
       ],
       height: govHeight,
       levels: Math.round(govHeight / 3.5),
@@ -147,18 +203,19 @@ export function generateLandmarks(params: LandmarkParams): void {
     })
   }
 
-  // Stadium / Sports Hall (one per ~12 chunks, large footprint)
+  // 7. Stadium / Sports Hall (one per ~12 chunks)
   if (landmarkSeed % 12 === 6) {
-    const stadiumX = maxX - 110
-    const stadiumZ = maxZ - 110
+    const col = 3, row = 3
+    onBlockReserved?.(col, row)
+    const plot = getInteriorBlockPlot(col, row, 28, 34, minX, minZ, blockLayout, 10)
     const stadiumHeight = 22 + (landmarkSeed % 8)
     addBuilding(buildings, {
       id: `bld_stadium_${chunkId.x}_${chunkId.z}`,
       footprint: [
-        { x: stadiumX - 50, y: 0, z: stadiumZ - 70 },
-        { x: stadiumX + 50, y: 0, z: stadiumZ - 70 },
-        { x: stadiumX + 50, y: 0, z: stadiumZ + 70 },
-        { x: stadiumX - 50, y: 0, z: stadiumZ + 70 },
+        { x: plot.cx - plot.w, y: 0, z: plot.cz - plot.d },
+        { x: plot.cx + plot.w, y: 0, z: plot.cz - plot.d },
+        { x: plot.cx + plot.w, y: 0, z: plot.cz + plot.d },
+        { x: plot.cx - plot.w, y: 0, z: plot.cz + plot.d },
       ],
       height: stadiumHeight,
       levels: Math.round(stadiumHeight / 3.5),
@@ -168,18 +225,19 @@ export function generateLandmarks(params: LandmarkParams): void {
     })
   }
 
-  // Industrial / Warehouse (one per ~5 chunks, near edges)
+  // 8. Industrial / Warehouse (one per ~5 chunks)
   if (landmarkSeed % 5 === 3) {
-    const indX = minX + (landmarkSeed % 2 === 0 ? 30 : 470)
-    const indZ = minZ + 62.5 + ((landmarkSeed >> 1) % 375)
+    const col = 0, row = 2
+    onBlockReserved?.(col, row)
+    const plot = getInteriorBlockPlot(col, row, 16, 24, minX, minZ, blockLayout, 8)
     const indHeight = 9 + (landmarkSeed % 6)
     addBuilding(buildings, {
       id: `bld_industrial_${chunkId.x}_${chunkId.z}`,
       footprint: [
-        { x: indX - 25, y: 0, z: indZ - 35 },
-        { x: indX + 25, y: 0, z: indZ - 35 },
-        { x: indX + 25, y: 0, z: indZ + 35 },
-        { x: indX - 25, y: 0, z: indZ + 35 },
+        { x: plot.cx - plot.w, y: 0, z: plot.cz - plot.d },
+        { x: plot.cx + plot.w, y: 0, z: plot.cz - plot.d },
+        { x: plot.cx + plot.w, y: 0, z: plot.cz + plot.d },
+        { x: plot.cx - plot.w, y: 0, z: plot.cz + plot.d },
       ],
       height: indHeight,
       levels: Math.round(indHeight / 3.5),
@@ -188,41 +246,44 @@ export function generateLandmarks(params: LandmarkParams): void {
     })
   }
 
-  // Mosque / Temple / Synagogue (one per ~9 chunks)
+  // 9. Synagogue / Mosque / Temple (one per ~9 chunks, strictly inside block (1, 2))
   if (landmarkSeed % 9 === 7) {
-    const religiousX = minX + 187.5 + (landmarkSeed % 120) - 60
-    const religiousZ = minZ + 312.5 + ((landmarkSeed >> 2) % 120) - 60
-    const religiousHeight = 16 + (landmarkSeed % 12)
+    const col = 1, row = 2
+    onBlockReserved?.(col, row)
+    // Generous 14m setback from the block boundary guarantees at least 18-20m distance to any road!
+    const plot = getInteriorBlockPlot(col, row, 15, 20, minX, minZ, blockLayout, 14)
+    const religiousHeight = 16 + (landmarkSeed % 10)
     const religiousType = landmarkSeed % 3 === 0 ? 'mosque' : (landmarkSeed % 3 === 1 ? 'temple' : 'synagogue')
     addBuilding(buildings, {
       id: `bld_religious_${chunkId.x}_${chunkId.z}`,
       footprint: [
-        { x: religiousX - 18, y: 0, z: religiousZ - 22 },
-        { x: religiousX + 18, y: 0, z: religiousZ - 22 },
-        { x: religiousX + 18, y: 0, z: religiousZ + 22 },
-        { x: religiousX - 18, y: 0, z: religiousZ + 22 },
+        { x: plot.cx - plot.w, y: 0, z: plot.cz - plot.d },
+        { x: plot.cx + plot.w, y: 0, z: plot.cz - plot.d },
+        { x: plot.cx + plot.w, y: 0, z: plot.cz + plot.d },
+        { x: plot.cx - plot.w, y: 0, z: plot.cz + plot.d },
       ],
       height: religiousHeight,
       levels: Math.round(religiousHeight / 3.5),
       buildingType: religiousType,
-      roofShape: religiousType === 'mosque' ? 'dome' : 'pyramidal',
+      roofShape: religiousType === 'mosque' ? 'dome' : 'gabled',
       roofHeight: 8,
     })
   }
 
-  // Library / Museum / Theatre (one per ~11 chunks)
+  // 10. Library / Museum / Theatre (one per ~11 chunks)
   if (landmarkSeed % 11 === 8) {
-    const culturalX = minX + 62.5 + (landmarkSeed % 80) - 40
-    const culturalZ = minZ + 187.5 + ((landmarkSeed >> 3) % 80) - 40
+    const col = 3, row = 2
+    onBlockReserved?.(col, row)
+    const plot = getInteriorBlockPlot(col, row, 16, 22, minX, minZ, blockLayout, 10)
     const culturalHeight = 12 + (landmarkSeed % 8)
     const culturalType = landmarkSeed % 3 === 0 ? 'library' : (landmarkSeed % 3 === 1 ? 'museum' : 'theatre')
     addBuilding(buildings, {
       id: `bld_cultural_${chunkId.x}_${chunkId.z}`,
       footprint: [
-        { x: culturalX - 20, y: 0, z: culturalZ - 25 },
-        { x: culturalX + 20, y: 0, z: culturalZ - 25 },
-        { x: culturalX + 20, y: 0, z: culturalZ + 25 },
-        { x: culturalX - 20, y: 0, z: culturalZ + 25 },
+        { x: plot.cx - plot.w, y: 0, z: plot.cz - plot.d },
+        { x: plot.cx + plot.w, y: 0, z: plot.cz - plot.d },
+        { x: plot.cx + plot.w, y: 0, z: plot.cz + plot.d },
+        { x: plot.cx - plot.w, y: 0, z: plot.cz + plot.d },
       ],
       height: culturalHeight,
       levels: Math.round(culturalHeight / 3.5),
@@ -232,19 +293,20 @@ export function generateLandmarks(params: LandmarkParams): void {
     })
   }
 
-  // Monument / Castle / Manor (one per ~15 chunks)
+  // 11. Monument / Castle / Manor (one per ~15 chunks)
   if (landmarkSeed % 15 === 9) {
-    const monumentX = midX + (landmarkSeed % 100) - 50
-    const monumentZ = midZ + ((landmarkSeed >> 4) % 100) - 50
+    const col = 2, row = 2
+    onBlockReserved?.(col, row)
+    const plot = getInteriorBlockPlot(col, row, 18, 22, minX, minZ, blockLayout, 12)
     const monumentHeight = 20 + (landmarkSeed % 20)
     const monumentType = landmarkSeed % 3 === 0 ? 'monument' : (landmarkSeed % 3 === 1 ? 'castle' : 'manor')
     addBuilding(buildings, {
       id: `bld_monument_${chunkId.x}_${chunkId.z}`,
       footprint: [
-        { x: monumentX - 25, y: 0, z: monumentZ - 30 },
-        { x: monumentX + 25, y: 0, z: monumentZ - 30 },
-        { x: monumentX + 25, y: 0, z: monumentZ + 30 },
-        { x: monumentX - 25, y: 0, z: monumentZ + 30 },
+        { x: plot.cx - plot.w, y: 0, z: plot.cz - plot.d },
+        { x: plot.cx + plot.w, y: 0, z: plot.cz - plot.d },
+        { x: plot.cx + plot.w, y: 0, z: plot.cz + plot.d },
+        { x: plot.cx - plot.w, y: 0, z: plot.cz + plot.d },
       ],
       height: monumentHeight,
       levels: Math.round(monumentHeight / 3.5),
@@ -254,18 +316,19 @@ export function generateLandmarks(params: LandmarkParams): void {
     })
   }
 
-  // Parking Garage (one per ~6 chunks, near commercial areas)
+  // 12. Parking Garage (one per ~6 chunks)
   if (landmarkSeed % 6 === 4) {
-    const parkingX = minX + 312.5 + (landmarkSeed % 60) - 30
-    const parkingZ = maxZ - 30
+    const col = 2, row = 3
+    onBlockReserved?.(col, row)
+    const plot = getInteriorBlockPlot(col, row, 16, 20, minX, minZ, blockLayout, 10)
     const parkingHeight = 12 + (landmarkSeed % 8)
     addBuilding(buildings, {
       id: `bld_parking_${chunkId.x}_${chunkId.z}`,
       footprint: [
-        { x: parkingX - 20, y: 0, z: parkingZ - 25 },
-        { x: parkingX + 20, y: 0, z: parkingZ - 25 },
-        { x: parkingX + 20, y: 0, z: parkingZ + 25 },
-        { x: parkingX - 20, y: 0, z: parkingZ + 25 },
+        { x: plot.cx - plot.w, y: 0, z: plot.cz - plot.d },
+        { x: plot.cx + plot.w, y: 0, z: plot.cz - plot.d },
+        { x: plot.cx + plot.w, y: 0, z: plot.cz + plot.d },
+        { x: plot.cx - plot.w, y: 0, z: plot.cz + plot.d },
       ],
       height: parkingHeight,
       levels: Math.round(parkingHeight / 3.0),
@@ -274,18 +337,19 @@ export function generateLandmarks(params: LandmarkParams): void {
     })
   }
 
-  // Fuel Station / Charging Station (one per ~8 chunks, near major roads)
+  // 13. Fuel Station / Charging Station (one per ~8 chunks)
   if (landmarkSeed % 8 === 5) {
-    const fuelX = maxX - 20
-    const fuelZ = minZ + 312.5 + ((landmarkSeed >> 1) % 100) - 50
+    const col = 4, row = 2
+    onBlockReserved?.(col, row)
+    const plot = getInteriorBlockPlot(col, row, 12, 16, minX, minZ, blockLayout, 8)
     const fuelHeight = 6 + (landmarkSeed % 4)
     addBuilding(buildings, {
       id: `bld_fuel_${chunkId.x}_${chunkId.z}`,
       footprint: [
-        { x: fuelX - 12, y: 0, z: fuelZ - 18 },
-        { x: fuelX + 12, y: 0, z: fuelZ - 18 },
-        { x: fuelX + 12, y: 0, z: fuelZ + 18 },
-        { x: fuelX - 12, y: 0, z: fuelZ + 18 },
+        { x: plot.cx - plot.w, y: 0, z: plot.cz - plot.d },
+        { x: plot.cx + plot.w, y: 0, z: plot.cz - plot.d },
+        { x: plot.cx + plot.w, y: 0, z: plot.cz + plot.d },
+        { x: plot.cx - plot.w, y: 0, z: plot.cz + plot.d },
       ],
       height: fuelHeight,
       levels: 1,
@@ -294,18 +358,19 @@ export function generateLandmarks(params: LandmarkParams): void {
     })
   }
 
-  // Shopping Mall / Department Store (one per ~12 chunks)
+  // 14. Shopping Mall / Department Store (one per ~12 chunks)
   if (landmarkSeed % 12 === 7) {
-    const mallX = minX + 187.5
-    const mallZ = maxZ - 40
+    const col = 1, row = 2
+    onBlockReserved?.(col, row)
+    const plot = getInteriorBlockPlot(col, row, 22, 28, minX, minZ, blockLayout, 10)
     const mallHeight = 14 + (landmarkSeed % 6)
     addBuilding(buildings, {
       id: `bld_mall_${chunkId.x}_${chunkId.z}`,
       footprint: [
-        { x: mallX - 35, y: 0, z: mallZ - 45 },
-        { x: mallX + 35, y: 0, z: mallZ - 45 },
-        { x: mallX + 35, y: 0, z: mallZ + 45 },
-        { x: mallX - 35, y: 0, z: mallZ + 45 },
+        { x: plot.cx - plot.w, y: 0, z: plot.cz - plot.d },
+        { x: plot.cx + plot.w, y: 0, z: plot.cz - plot.d },
+        { x: plot.cx + plot.w, y: 0, z: plot.cz + plot.d },
+        { x: plot.cx - plot.w, y: 0, z: plot.cz + plot.d },
       ],
       height: mallHeight,
       levels: Math.round(mallHeight / 3.5),
@@ -314,130 +379,25 @@ export function generateLandmarks(params: LandmarkParams): void {
     })
   }
 
-  // Farm / Barn / Stable (one per ~10 chunks, near edges)
+  // 15. Farm / Barn / Stable (one per ~10 chunks)
   if (landmarkSeed % 10 === 8) {
-    const farmX = minX + (landmarkSeed % 2 === 0 ? 40 : 460)
-    const farmZ = minZ + 62.5 + ((landmarkSeed >> 2) % 375)
-    const farmHeight = 7 + (landmarkSeed % 5)
-    const farmType = landmarkSeed % 3 === 0 ? 'farm' : (landmarkSeed % 3 === 1 ? 'barn' : 'stable')
+    const col = 0, row = 1
+    onBlockReserved?.(col, row)
+    const plot = getInteriorBlockPlot(col, row, 15, 20, minX, minZ, blockLayout, 8)
+    const farmHeight = 8 + (landmarkSeed % 4)
     addBuilding(buildings, {
       id: `bld_farm_${chunkId.x}_${chunkId.z}`,
       footprint: [
-        { x: farmX - 20, y: 0, z: farmZ - 30 },
-        { x: farmX + 20, y: 0, z: farmZ - 30 },
-        { x: farmX + 20, y: 0, z: farmZ + 30 },
-        { x: farmX - 20, y: 0, z: farmZ + 30 },
+        { x: plot.cx - plot.w, y: 0, z: plot.cz - plot.d },
+        { x: plot.cx + plot.w, y: 0, z: plot.cz - plot.d },
+        { x: plot.cx + plot.w, y: 0, z: plot.cz + plot.d },
+        { x: plot.cx - plot.w, y: 0, z: plot.cz + plot.d },
       ],
       height: farmHeight,
-      levels: Math.round(farmHeight / 3.5),
-      buildingType: farmType,
+      levels: 2,
+      buildingType: landmarkSeed % 3 === 0 ? 'farm' : (landmarkSeed % 3 === 1 ? 'barn' : 'stable'),
       roofShape: 'gabled',
       roofHeight: 5,
-    })
-  }
-
-  // Greenhouse (one per ~14 chunks)
-  if (landmarkSeed % 14 === 10) {
-    const greenhouseX = minX + 62.5 + (landmarkSeed % 80) - 40
-    const greenhouseZ = minZ + 62.5 + ((landmarkSeed >> 3) % 80) - 40
-    const greenhouseHeight = 5 + (landmarkSeed % 3)
-    addBuilding(buildings, {
-      id: `bld_greenhouse_${chunkId.x}_${chunkId.z}`,
-      footprint: [
-        { x: greenhouseX - 15, y: 0, z: greenhouseZ - 20 },
-        { x: greenhouseX + 15, y: 0, z: greenhouseZ - 20 },
-        { x: greenhouseX + 15, y: 0, z: greenhouseZ + 20 },
-        { x: greenhouseX - 15, y: 0, z: greenhouseZ + 20 },
-      ],
-      height: greenhouseHeight,
-      levels: 1,
-      buildingType: 'greenhouse',
-      roofShape: 'round',
-      roofHeight: 3,
-    })
-  }
-
-  // Hangar (one per ~13 chunks, near industrial)
-  if (landmarkSeed % 13 === 11) {
-    const hangarX = maxX - 30
-    const hangarZ = minZ + 187.5 + ((landmarkSeed >> 1) % 125) - 60
-    const hangarHeight = 11 + (landmarkSeed % 6)
-    addBuilding(buildings, {
-      id: `bld_hangar_${chunkId.x}_${chunkId.z}`,
-      footprint: [
-        { x: hangarX - 30, y: 0, z: hangarZ - 40 },
-        { x: hangarX + 30, y: 0, z: hangarZ - 40 },
-        { x: hangarX + 30, y: 0, z: hangarZ + 40 },
-        { x: hangarX - 30, y: 0, z: hangarZ + 40 },
-      ],
-      height: hangarHeight,
-      levels: 1,
-      buildingType: 'hangar',
-      roofShape: 'round',
-      roofHeight: 8,
-    })
-  }
-
-  // Carport / Canopy (one per ~7 chunks)
-  if (landmarkSeed % 7 === 6) {
-    const carportX = minX + 312.5 + (landmarkSeed % 100) - 50
-    const carportZ = minZ + 62.5 + ((landmarkSeed >> 2) % 100) - 50
-    const carportHeight = 4 + (landmarkSeed % 2)
-    addBuilding(buildings, {
-      id: `bld_carport_${chunkId.x}_${chunkId.z}`,
-      footprint: [
-        { x: carportX - 8, y: 0, z: carportZ - 12 },
-        { x: carportX + 8, y: 0, z: carportZ - 12 },
-        { x: carportX + 8, y: 0, z: carportZ + 12 },
-        { x: carportX - 8, y: 0, z: carportZ + 12 },
-      ],
-      height: carportHeight,
-      levels: 1,
-      buildingType: 'carport',
-      roofShape: 'flat',
-    })
-  }
-
-  // Kiosk / Shed / Small structures (several per chunk)
-  if (landmarkSeed % 3 === 2) {
-    for (let k = 0; k < 3; k++) {
-      const kioskX = minX + 62.5 + (landmarkSeed % 375) + k * 100
-      const kioskZ = minZ + 62.5 + ((landmarkSeed >> 2) % 375) + k * 80
-      const kioskHeight = 3 + (landmarkSeed % 3)
-      const kioskType = landmarkSeed % 3 === 0 ? 'kiosk' : (landmarkSeed % 3 === 1 ? 'shed' : 'garage')
-      addBuilding(buildings, {
-        id: `bld_kiosk_${chunkId.x}_${chunkId.z}_${k}`,
-        footprint: [
-          { x: kioskX - 4, y: 0, z: kioskZ - 5 },
-          { x: kioskX + 4, y: 0, z: kioskZ - 5 },
-          { x: kioskX + 4, y: 0, z: kioskZ + 5 },
-          { x: kioskX - 4, y: 0, z: kioskZ + 5 },
-        ],
-        height: kioskHeight,
-        levels: 1,
-        buildingType: kioskType,
-        roofShape: 'flat',
-      })
-    }
-  }
-
-  // Ruins (rare, one per ~20 chunks)
-  if (landmarkSeed % 20 === 12) {
-    const ruinsX = midX + (landmarkSeed % 100) - 50
-    const ruinsZ = midZ + ((landmarkSeed >> 3) % 100) - 50
-    const ruinsHeight = 4 + (landmarkSeed % 4)
-    addBuilding(buildings, {
-      id: `bld_ruins_${chunkId.x}_${chunkId.z}`,
-      footprint: [
-        { x: ruinsX - 10, y: 0, z: ruinsZ - 15 },
-        { x: ruinsX + 10, y: 0, z: ruinsZ - 15 },
-        { x: ruinsX + 10, y: 0, z: ruinsZ + 15 },
-        { x: ruinsX - 10, y: 0, z: ruinsZ + 15 },
-      ],
-      height: ruinsHeight,
-      levels: 1,
-      buildingType: 'ruins',
-      roofShape: 'flat',
     })
   }
 }

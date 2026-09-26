@@ -29,6 +29,10 @@ import {
   normalizePark,
   deduplicateBuildings,
   generateChunks,
+  isEducationalName,
+  isHotelName,
+  isHospitalName,
+  isTownhallName,
   type ChunkMap,
   type RawOsmNode,
 } from '@world-drive/world-data'
@@ -139,6 +143,160 @@ function poiFromNode(node: RawOsmNode, position: WorldPosition): PointOfInterest
   }
 }
 
+function pointInPolygon2D(px: number, pz: number, polygon: WorldPosition[]): boolean {
+  let inside = false
+  const n = polygon.length
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    const xi = polygon[i]!.x, zi = polygon[i]!.z
+    const xj = polygon[j]!.x, zj = polygon[j]!.z
+    const intersect = ((zi > pz) !== (zj > pz)) && (px < ((xj - xi) * (pz - zi)) / (zj - zi) + xi)
+    if (intersect) inside = !inside
+  }
+  return inside
+}
+
+function buildingCentroid(fp: WorldPosition[]): { x: number; z: number } {
+  let cx = 0, cz = 0
+  for (const p of fp) {
+    cx += p.x
+    cz += p.z
+  }
+  return { x: cx / fp.length, z: cz / fp.length }
+}
+
+function linkOsmEntitiesToBuildings(
+  buildings: Building[],
+  taggedNodes: RawOsmNode[],
+  educationalAreas: { tags: Record<string, string>; coords: [number, number][] }[],
+  hotelAreas: { tags: Record<string, string>; coords: [number, number][] }[],
+  hospitalAreas: { tags: Record<string, string>; coords: [number, number][] }[],
+  townhallAreas: { tags: Record<string, string>; coords: [number, number][] }[],
+): void {
+  // 1. Process educational area perimeters (ways enclosing school complexes)
+  for (const area of educationalAreas) {
+    const areaWorld = area.coords.map((c) => geoToWorld({ latitude: c[1], longitude: c[0] }))
+    if (areaWorld.length < 3) continue
+    const amenity = area.tags['amenity']
+    const name = area.tags['name']
+    const targetType = (amenity === 'university' || amenity === 'college' || (name && isEducationalName(name) === 'university'))
+      ? 'university'
+      : (amenity === 'kindergarten' ? 'kindergarten' : 'school')
+
+    for (const b of buildings) {
+      if (b.footprint.length < 3) continue
+      const c = buildingCentroid(b.footprint)
+      if (pointInPolygon2D(c.x, c.z, areaWorld)) {
+        b.buildingType = targetType
+        if (name && !b.name) b.name = name
+      }
+    }
+  }
+
+  // 1b. Process hotel area perimeters (ways enclosing hotel grounds/resorts)
+  for (const area of hotelAreas) {
+    const areaWorld = area.coords.map((c) => geoToWorld({ latitude: c[1], longitude: c[0] }))
+    if (areaWorld.length < 3) continue
+    const name = area.tags['name']
+    for (const b of buildings) {
+      if (b.footprint.length < 3) continue
+      const c = buildingCentroid(b.footprint)
+      if (pointInPolygon2D(c.x, c.z, areaWorld)) {
+        b.buildingType = 'hotel'
+        if (name && !b.name) b.name = name
+      }
+    }
+  }
+
+  // 1c. Process hospital area perimeters (ways enclosing hospital campuses/complexes)
+  for (const area of hospitalAreas) {
+    const areaWorld = area.coords.map((c) => geoToWorld({ latitude: c[1], longitude: c[0] }))
+    if (areaWorld.length < 3) continue
+    const name = area.tags['name']
+    for (const b of buildings) {
+      if (b.footprint.length < 3) continue
+      const c = buildingCentroid(b.footprint)
+      if (pointInPolygon2D(c.x, c.z, areaWorld)) {
+        b.buildingType = 'hospital'
+        if (name && !b.name) b.name = name
+      }
+    }
+  }
+
+  // 1d. Process townhall area perimeters (ways enclosing town hall / municipal grounds)
+  for (const area of townhallAreas) {
+    const areaWorld = area.coords.map((c) => geoToWorld({ latitude: c[1], longitude: c[0] }))
+    if (areaWorld.length < 3) continue
+    const name = area.tags['name']
+    for (const b of buildings) {
+      if (b.footprint.length < 3) continue
+      const c = buildingCentroid(b.footprint)
+      if (pointInPolygon2D(c.x, c.z, areaWorld)) {
+        b.buildingType = 'townhall'
+        if (name && !b.name) b.name = name
+      }
+    }
+  }
+
+  // 2. Process tagged nodes (schools, universities, hotels, hospitals, townhalls situated inside or near buildings)
+  for (const node of taggedNodes) {
+    const amenity = node.tags['amenity']
+    const healthcare = node.tags['healthcare']
+    const tourism = node.tags['tourism']
+    const name = node.tags['name']
+
+    const isEduAmenity = amenity === 'school' || amenity === 'university' || amenity === 'college' || amenity === 'kindergarten'
+    const eduKind = name ? isEducationalName(name) : null
+    const isHotel = tourism === 'hotel' || tourism === 'motel' || tourism === 'hostel' || tourism === 'guest_house' ||
+      (name && isHotelName(name)) || !!node.tags['hotel']
+    const isHospital = amenity === 'hospital' || amenity === 'clinic' || healthcare === 'hospital' || healthcare === 'clinic' ||
+      (name && isHospitalName(name)) || !!node.tags['hospital']
+    const isTownhall = amenity === 'townhall' || node.tags['building'] === 'townhall' ||
+      (name && isTownhallName(name)) || !!node.tags['townhall']
+
+    if (!isEduAmenity && !eduKind && !node.tags['school'] && !isHotel && !isHospital && !isTownhall) continue
+
+    let targetType: 'university' | 'kindergarten' | 'school' | 'hotel' | 'hospital' | 'townhall' = 'school'
+    if (isTownhall) {
+      targetType = 'townhall'
+    } else if (isHospital) {
+      targetType = 'hospital'
+    } else if (isHotel) {
+      targetType = 'hotel'
+    } else if (amenity === 'university' || amenity === 'college' || eduKind === 'university') {
+      targetType = 'university'
+    } else if (amenity === 'kindergarten') {
+      targetType = 'kindergarten'
+    }
+
+    const nodePos = geoToWorld({ latitude: node.lat, longitude: node.lon })
+
+    let bestBuilding: Building | null = null
+    let bestDist = Infinity
+
+    for (const b of buildings) {
+      if (b.footprint.length < 3) continue
+      if (pointInPolygon2D(nodePos.x, nodePos.z, b.footprint)) {
+        bestBuilding = b
+        bestDist = 0
+        break
+      }
+      const c = buildingCentroid(b.footprint)
+      const d = Math.hypot(nodePos.x - c.x, nodePos.z - c.z)
+      if (d < 35 && d < bestDist) {
+        bestDist = d
+        bestBuilding = b
+      }
+    }
+
+    if (bestBuilding) {
+      bestBuilding.buildingType = targetType
+      if (name && !bestBuilding.name) {
+        bestBuilding.name = name
+      }
+    }
+  }
+}
+
 /**
  * Shared XML parser: parses OSM XML into Road[], Building[], Waterway[], Park[]
  * and the tagged nodes (shops, trees, crossings, street furniture, addresses…)
@@ -188,6 +346,10 @@ export function parseOsmXml(xmlText: string): {
   const buildings: Building[] = []
   const waterways: Waterway[] = []
   const parks: Park[] = []
+  const educationalAreas: { tags: Record<string, string>; coords: [number, number][] }[] = []
+  const hotelAreas: { tags: Record<string, string>; coords: [number, number][] }[] = []
+  const hospitalAreas: { tags: Record<string, string>; coords: [number, number][] }[] = []
+  const townhallAreas: { tags: Record<string, string>; coords: [number, number][] }[] = []
   /** Every way's ordered node ids (tagged or not): multipolygon rings are stitched from these. */
   const wayNodeRefs = new Map<string, string[]>()
 
@@ -210,6 +372,31 @@ export function parseOsmXml(xmlText: string): {
     if (coords.length < 2) continue
 
     const tags = parseTags(body)
+
+    const isEduArea = tags['amenity'] && ['school', 'university', 'college', 'kindergarten'].includes(tags['amenity'])
+    if (isEduArea && coords.length >= 3) {
+      educationalAreas.push({ tags, coords })
+    }
+
+    const isHotelArea = (tags['tourism'] && ['hotel', 'motel', 'hostel', 'guest_house'].includes(tags['tourism'])) ||
+      (tags['name'] && isHotelName(tags['name']))
+    if (isHotelArea && coords.length >= 3) {
+      hotelAreas.push({ tags, coords })
+    }
+
+    const isHospitalArea = (tags['amenity'] && ['hospital', 'clinic'].includes(tags['amenity'])) ||
+      (tags['healthcare'] && ['hospital', 'clinic'].includes(tags['healthcare'])) ||
+      (tags['name'] && isHospitalName(tags['name']))
+    if (isHospitalArea && coords.length >= 3) {
+      hospitalAreas.push({ tags, coords })
+    }
+
+    const isTownhallArea = (tags['amenity'] === 'townhall') ||
+      (tags['building'] === 'townhall') ||
+      (tags['name'] && isTownhallName(tags['name']))
+    if (isTownhallArea && coords.length >= 3) {
+      townhallAreas.push({ tags, coords })
+    }
 
     const raw = { id: wayId, tags, coords }
 
@@ -261,6 +448,9 @@ export function parseOsmXml(xmlText: string): {
   // Buildings without any height/levels tag take the median of their tagged
   // neighbours instead of a flat default (no more 2-storey stubs in a 7-storey street).
   fillMissingHeights(dedupedBuildings)
+
+  // Link educational, hotel, hospital & townhall entities to buildings
+  linkOsmEntitiesToBuildings(dedupedBuildings, taggedNodes, educationalAreas, hotelAreas, hospitalAreas, townhallAreas)
 
   return { roads, buildings: dedupedBuildings, waterways, parks, taggedNodes, nodes, wayNodeRefs }
 }

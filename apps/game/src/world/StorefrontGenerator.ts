@@ -22,6 +22,7 @@
 
 import * as THREE from 'three'
 import type { PointOfInterest, Road, Building } from '@world-drive/shared'
+import { isHotelName, isHospitalName, isTownhallName } from '@world-drive/world-data'
 import { getVitrineMaterial, interiorRowFor } from './StorefrontInterior.js'
 
 // ─── Tunables ────────────────────────────────────────────────────────────────
@@ -395,20 +396,12 @@ function getBuildingIdentity(b: Building): { label: string; category: string } |
         return { label: name ?? brand ?? 'COMMISSARIAT DE POLICE', category: 'police' }
       case 'fire_station':
         return { label: name ?? brand ?? 'SAPEURS-POMPIERS', category: 'fire_station' }
-      case 'townhall':
-        return { label: name ?? brand ?? 'HÔTEL DE VILLE', category: 'townhall' }
       case 'courthouse':
         return { label: name ?? brand ?? 'PALAIS DE JUSTICE', category: 'courthouse' }
       case 'government':
       case 'civic':
       case 'public':
         return { label: name ?? brand ?? 'SERVICES PUBLICS', category: 'civic' }
-      case 'school':
-        return { label: name ?? brand ?? 'ÉCOLE', category: 'school' }
-      case 'university':
-        return { label: name ?? brand ?? 'UNIVERSITÉ', category: 'university' }
-      case 'kindergarten':
-        return { label: name ?? brand ?? 'ÉCOLE MATERNELLE', category: 'kindergarten' }
       case 'library':
         return { label: name ?? brand ?? 'BIBLIOTHÈQUE', category: 'library' }
       case 'museum':
@@ -429,6 +422,16 @@ function getBuildingIdentity(b: Building): { label: string; category: string } |
       case 'mosque':
       case 'synagogue':
       case 'temple':
+      case 'school':
+      case 'university':
+      case 'kindergarten':
+      case 'hotel':
+      case 'motel':
+      case 'hostel':
+      case 'guest_house':
+      case 'hospital':
+      case 'clinic':
+      case 'townhall':
         return null
       case 'supermarket':
         return { label: name ?? brand ?? 'SUPERMARCHÉ', category: 'supermarket' }
@@ -459,23 +462,26 @@ function getBuildingIdentity(b: Building): { label: string; category: string } |
     ) {
       return null
     }
-    if (n.includes('hôtel') || n.includes('hotel') || n.includes('hostel')) {
-      return { label: name, category: 'hotel' }
+    // Hotels: dedicated luxury architecture & marquee entrance, no generic storefront
+    if (isHotelName(name)) {
+      return null
+    }
+    // Hospitals: dedicated clinical architecture & ambulance bay, no generic storefront
+    if (isHospitalName(name)) {
+      return null
+    }
+    // Town halls: dedicated civic architecture & peristyle entrance, no generic storefront
+    if (isTownhallName(name)) {
+      return null
     }
     if (n.includes('résidence') || n.includes('residence') || n.includes('immeuble') || n.includes('villa ') || n.includes('domaine')) {
       return { label: name, category: 'residential' }
-    }
-    if (n.includes('hôpital') || n.includes('hopital') || n.includes('clinique') || n.includes('médical') || n.includes('santé')) {
-      return { label: name, category: 'hospital' }
     }
     if (n.includes('police') || n.includes('gendarmerie') || n.includes('commissariat')) {
       return { label: name, category: 'police' }
     }
     if (n.includes('pompier') || n.includes('caserne')) {
       return { label: name, category: 'fire_station' }
-    }
-    if (n.includes('mairie') || n.includes('ville') || n.includes('préfecture') || n.includes('prefecture')) {
-      return { label: name, category: 'townhall' }
     }
     if (n.includes('école') || n.includes('ecole') || n.includes('collège') || n.includes('college') || n.includes('lycée') || n.includes('lycee') || n.includes('université') || n.includes('faculté') || n.includes('campus')) {
       return { label: name, category: 'school' }
@@ -1351,7 +1357,7 @@ export class StorefrontGenerator {
           map: tex,
           emissive: 0xffffff,
           emissiveMap: tex,
-          emissiveIntensity: 0.35,
+          emissiveIntensity: 0.14,
           roughness: 0.6,
           metalness: 0,
         })

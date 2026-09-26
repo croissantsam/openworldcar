@@ -12,9 +12,15 @@ export type ArchitecturalStyle =
   | 'industrial'
   | 'residential_house'
   | 'religious'
+  | 'synagogue'
+  | 'academic_school'
+  | 'academic_university'
   | 'agricultural'
   | 'garage'
   | 'greenhouse'
+  | 'hotel'
+  | 'hospital'
+  | 'townhall'
   | 'ruins'
   | 'render'
 
@@ -63,7 +69,10 @@ export const TYPE_PALETTES: Partial<Record<string, Palette>> = {
   commercial:         { facade: 0xbdb7ac, frame: 0x7e7872, roof: 0x363a42, style: 'commercial_boutique', isGlass: false },
   retail:             { facade: 0xd2cbbe, frame: 0x485260, roof: 0x343a44, style: 'commercial_boutique', isGlass: false },
   supermarket:        { facade: 0x354b6e, frame: 0x223652, roof: 0x1a2434, style: 'commercial_boutique', isGlass: false },
-  hotel:              { facade: 0xc4bcad, frame: 0x9e9484, roof: 0x42403e, style: 'haussmann', isGlass: false },
+  hotel:              { facade: 0xd6ccba, frame: 0xb8a892, roof: 0x3e4854, style: 'hotel', isGlass: false },
+  motel:              { facade: 0xd8c8b0, frame: 0x9e8870, roof: 0x48423c, style: 'hotel', isGlass: false },
+  hostel:             { facade: 0xd0c4b2, frame: 0xa49280, roof: 0x40444c, style: 'hotel', isGlass: false },
+  guest_house:        { facade: 0xd4c8b6, frame: 0xaa9884, roof: 0x44464e, style: 'hotel', isGlass: false },
   restaurant:         { facade: 0x2c3540, frame: 0x384552, roof: 0x222a32, style: 'commercial_boutique', isGlass: false },
   bank:               { facade: 0xdedcd4, frame: 0xaaa69a, roof: 0x3e4248, style: 'civic_classical', isGlass: false },
 
@@ -84,7 +93,7 @@ export const TYPE_PALETTES: Partial<Record<string, Palette>> = {
   chapel:             { facade: 0xc5bc9e, frame: 0xa29a84, roof: 0x504a3e, style: 'religious', isGlass: false },
   mosque:             { facade: 0xd0c8b0, frame: 0xb0a890, roof: 0x3e5e48, style: 'religious', isGlass: false },
   temple:             { facade: 0xd8c8a8, frame: 0xb8a888, roof: 0x784830, style: 'religious', isGlass: false },
-  synagogue:          { facade: 0xc0b8a0, frame: 0xa09880, roof: 0x504840, style: 'religious', isGlass: false },
+  synagogue:          { facade: 0xd6caa6, frame: 0xb4a482, roof: 0x385450, style: 'synagogue', isGlass: false },
   monument:           { facade: 0xdad2c4, frame: 0xb8b0a2, roof: 0x8c8476, style: 'civic_classical', isGlass: false },
   castle:             { facade: 0x8e8880, frame: 0x6e6860, roof: 0x444240, style: 'civic_classical', isGlass: false },
   manor:              { facade: 0xbaa490, frame: 0x948270, roof: 0x544034, style: 'haussmann', isGlass: false },
@@ -94,13 +103,14 @@ export const TYPE_PALETTES: Partial<Record<string, Palette>> = {
   government:         { facade: 0xc6bea8, frame: 0xa49c86, roof: 0x4c4842, style: 'civic_classical', isGlass: false },
   civic:              { facade: 0xc0b8a4, frame: 0x9e9682, roof: 0x46423c, style: 'civic_classical', isGlass: false },
   public:             { facade: 0xb8b09c, frame: 0x98907c, roof: 0x403c36, style: 'civic_classical', isGlass: false },
-  townhall:           { facade: 0xc8bea8, frame: 0xa29882, roof: 0x42464e, style: 'civic_classical', isGlass: false },
+  townhall:           { facade: 0xdcd4be, frame: 0xb4a488, roof: 0x3e4a56, style: 'townhall', isGlass: false },
   courthouse:         { facade: 0xd0c6b0, frame: 0xa8a088, roof: 0x484c54, style: 'civic_classical', isGlass: false },
-  hospital:           { facade: 0xe0ded8, frame: 0xb8b6b0, roof: 0x606268, style: 'commercial_boutique', isGlass: false },
-  clinic:             { facade: 0xd8d6d0, frame: 0xb2b0aa, roof: 0x585a60, style: 'commercial_boutique', isGlass: false },
-  school:             { facade: 0xcbbfa0, frame: 0xa89c7c, roof: 0x7a6848, style: 'civic_classical', isGlass: false },
-  university:         { facade: 0xc0b288, frame: 0xa09268, roof: 0x685440, style: 'civic_classical', isGlass: false },
-  kindergarten:       { facade: 0xd4a86a, frame: 0xb48848, roof: 0x8e6838, style: 'residential_house', isGlass: false },
+  hospital:           { facade: 0xe8eef2, frame: 0x889caa, roof: 0x3a4652, style: 'hospital', isGlass: false },
+  clinic:             { facade: 0xe2e9ee, frame: 0x8296a4, roof: 0x36424e, style: 'hospital', isGlass: false },
+  school:             { facade: 0xb44a38, frame: 0xdecbb0, roof: 0x48423e, style: 'academic_school', isGlass: false },
+  university:         { facade: 0xd2c6ae, frame: 0xa89c84, roof: 0x485660, style: 'academic_university', isGlass: false },
+  kindergarten:       { facade: 0xda8e44, frame: 0xf0dca8, roof: 0x6e4428, style: 'academic_school', isGlass: false },
+  college:            { facade: 0xba5242, frame: 0xe0cca6, roof: 0x443e3c, style: 'academic_school', isGlass: false },
   fire_station:       { facade: 0x823228, frame: 0xa82018, roof: 0x381814, style: 'industrial', isGlass: false },
   police:             { facade: 0x32445a, frame: 0x223244, roof: 0x1a2636, style: 'civic_classical', isGlass: false },
   train_station:      { facade: 0xb4aa8e, frame: 0x948a6e, roof: 0x444240, style: 'civic_classical', isGlass: false },

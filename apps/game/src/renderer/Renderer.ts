@@ -8,6 +8,7 @@ import { useSettingsStore, type ViewDistanceSettings } from '../settings/Setting
 import { dayNightPalette, nightFactor } from './daynight.js'
 import { setLampNightGlow } from '../world/street-furniture/Materials.js'
 import { setFacadeNightGlow } from '../world/building/building-textures.js'
+import { setVitrineNightFactor } from '../world/StorefrontInterior.js'
 import { setAsphaltWetness } from '../world/road/materials.js'
 import { PostProcessing } from './PostProcessing.js'
 import { SkyEnvironment } from './SkyEnvironment.js'
@@ -194,7 +195,8 @@ export class Renderer {
     // so the whole loaded city follows in one pass — no per-object cost).
     const nf = nightFactor(elevationDeg)
     setLampNightGlow(nf)
-    setFacadeNightGlow(nf * 0.4)
+    setFacadeNightGlow(nf * 0.12)
+    setVitrineNightFactor(nf)
     setAsphaltWetness(nf)
 
     // Post-processing: adapt bloom + color grade to time of day.

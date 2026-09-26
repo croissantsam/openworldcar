@@ -35,11 +35,11 @@ const BLOOM_DAY = {
   radius:    0.30,
   threshold: 1.15,
 }
-/** Bloom settings for nighttime (street lamps and headlights glow softly). */
+/** Bloom settings for nighttime (street lamps and headlights glow softly, windows do not bloom). */
 const BLOOM_NIGHT = {
-  strength:  0.30,
-  radius:    0.45,
-  threshold: 0.95,
+  strength:  0.22,
+  radius:    0.38,
+  threshold: 1.05,
 }
 
 export class PostProcessing {

@@ -32,14 +32,34 @@ export function generateLiveChunk(chunkId: ChunkId, origin: GeoPosition): WorldC
   // 1. Generate Road Network
   const roads = generateRoadNetwork(chunkId, minX, maxX, minZ, maxZ, streetNames)
 
-  // 2. Generate Buildings
+  // 2. Generate Landmarks (first, so their designated city blocks are reserved)
   const buildings: Building[] = []
-  let bldCounter = 0
-
   const blockLayout = createBlockLayout(minX, maxX, minZ, maxZ)
+  const landmarkSeed = Math.abs((chunkId.x * 12345) ^ (chunkId.z * 67890))
+  const reservedBlocks = new Set<string>()
+
+  generateLandmarks({
+    chunkId,
+    minX,
+    maxX,
+    minZ,
+    maxZ,
+    landmarkSeed,
+    buildings,
+    blockLayout,
+    onBlockReserved: (col, row) => reservedBlocks.add(`${col},${row}`),
+  })
+
+  // 3. Generate Regular City Block Buildings (skipping landmark blocks)
+  let bldCounter = 0
 
   for (let col = 0; col < 5; col++) {
     for (let row = 0; row < 5; row++) {
+      if (reservedBlocks.has(`${col},${row}`)) {
+        // Skip residential apartment subdivision on blocks reserved for monumental landmarks
+        continue
+      }
+
       const xs = blockLayout.xSpans[col]!
       const zs = blockLayout.zSpans[row]!
       const blockWidth = xs.max - xs.min
@@ -83,20 +103,8 @@ export function generateLiveChunk(chunkId: ChunkId, origin: GeoPosition): WorldC
     }
   }
 
-  // 3. Generate POIs
+  // 4. Generate POIs
   const pois = generatePois(chunkId, minX, minZ, streetNames)
-
-  // 4. Generate Landmarks
-  const landmarkSeed = Math.abs((chunkId.x * 12345) ^ (chunkId.z * 67890))
-  generateLandmarks({
-    chunkId,
-    minX,
-    maxX,
-    minZ,
-    maxZ,
-    landmarkSeed,
-    buildings,
-  })
 
   return {
     id: chunkId,

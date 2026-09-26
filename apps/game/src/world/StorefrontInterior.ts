@@ -774,6 +774,7 @@ uniform float uFloorY;
 uniform float uCeilY;
 uniform vec3 uSunDir;
 uniform float uPixelAngle; // metres per pixel at 1 m (≈ 2·tan(fov/2) / viewport height)
+uniform float uNightFactor;
 varying vec3 vWorldPos;
 varying vec3 vT;
 varying vec3 vN;
@@ -851,7 +852,9 @@ void main() {
   float depthFade = 1.0 - 0.22 * clamp(hit.z / D, 0.0, 1.0);
   // ceiling lights: brighten the room towards the ceiling a touch
   float lightGrad = 0.92 + 0.16 * clamp((hit.y - uFloorY) / H, 0.0, 1.0);
-  interior *= ao * depthFade * lightGrad;
+  // Soften interior lighting at night so shop windows don't glow aggressively
+  float nightDim = mix(1.0, 0.60, uNightFactor);
+  interior *= ao * depthFade * lightGrad * nightDim;
 
   // glass: tint, fresnel sky reflection, sun highlight
   float cosT = clamp(dot(-Vn, N), 0.0, 1.0);
@@ -889,9 +892,16 @@ export function getVitrineMaterial(): THREE.ShaderMaterial | null {
       uCeilY: { value: ROOM_CEIL_Y },
       uSunDir: { value: sun },
       uPixelAngle: { value: (2 * Math.tan((60 * Math.PI) / 360)) / 900 },
+      uNightFactor: { value: 0 },
     },
     fog: true,
     side: THREE.FrontSide,
   })
   return vitrineMat
+}
+
+export function setVitrineNightFactor(nf: number): void {
+  if (vitrineMat && vitrineMat.uniforms['uNightFactor']) {
+    vitrineMat.uniforms['uNightFactor'].value = nf
+  }
 }

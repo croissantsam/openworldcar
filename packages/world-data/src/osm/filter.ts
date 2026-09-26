@@ -40,7 +40,10 @@ export function isWantedBuilding(tags: OsmTags): boolean {
   if (tags['amenity'] === 'parking' && !tags['building']) return false
   if (tags['building'] && tags['building'] !== 'no') return true
   if (tags['building:part'] && tags['building:part'] !== 'no') return true
-  if (tags['historic'] && ['building', 'monument', 'memorial', 'castle', 'manor', 'church'].includes(tags['historic'])) return true
+  if (tags['historic'] && ['building', 'monument', 'memorial', 'castle', 'manor', 'church', 'synagogue', 'mosque'].includes(tags['historic'])) return true
+  if (tags['amenity'] && ['school', 'university', 'college', 'kindergarten', 'hospital', 'clinic', 'townhall', 'courthouse'].includes(tags['amenity'])) return true
+  if (tags['healthcare'] && ['hospital', 'clinic', 'centre', 'rehabilitation'].includes(tags['healthcare'])) return true
+  if (tags['tourism'] && ['hotel', 'motel', 'hostel', 'guest_house', 'chalet'].includes(tags['tourism'])) return true
   return false
 }
 
@@ -58,6 +61,7 @@ const WANTED_POI_SHOPS = new Set(['convenience', 'supermarket', 'mall'])
 export function isWantedPoi(tags: OsmTags): boolean {
   if (tags['amenity'] && WANTED_POI_AMENITIES.has(tags['amenity'])) return true
   if (tags['shop'] && WANTED_POI_SHOPS.has(tags['shop'])) return true
+  if (tags['tourism'] && ['hotel', 'motel', 'hostel', 'guest_house'].includes(tags['tourism'])) return true
   return false
 }
 

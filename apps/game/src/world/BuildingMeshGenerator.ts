@@ -63,6 +63,12 @@ import {
 } from './building/roof-builders'
 import { addLedges } from './FacadeRelief'
 import { buildChurchArchitecture } from './building/church-builder'
+import { buildSynagogueArchitecture } from './building/synagogue-builder'
+import { buildAcademicArchitecture, isEducationalName } from './building/academic-builder'
+import { buildHotelArchitecture } from './building/hotel-builder'
+import { buildHospitalArchitecture } from './building/hospital-builder'
+import { buildTownhallArchitecture } from './building/townhall-builder'
+import { isHotelName, isHospitalName, isTownhallName } from '@world-drive/world-data'
 
 export class BuildingMeshGenerator {
   /**
@@ -75,22 +81,27 @@ export class BuildingMeshGenerator {
 
     const fp2d = fp.map(p => new THREE.Vector2(p.x, p.z))
     const bType = building.buildingType
+    const eduFromName = building.name ? isEducationalName(building.name) : null
+    const hotelFromName = (building.name && isHotelName(building.name)) ? 'hotel' : null
+    const hospitalFromName = (building.name && isHospitalName(building.name)) ? 'hospital' : null
+    const townhallFromName = (building.name && isTownhallName(building.name)) ? 'townhall' : null
+    const effectiveBType = (bType && bType !== 'yes') ? bType : (townhallFromName ?? (hospitalFromName ?? (hotelFromName ?? (eduFromName ?? bType))))
 
     // Select palette (global rules only, nothing region-specific):
     //  - building:material=glass, or office/commercial taller than 30 m → glass curtain wall
     //  - other typed buildings → their type palette
     //  - untyped / residential (yes, apartments, …) → hash-stable pick from the neutral pool
     const materialLower = building.material?.toLowerCase()
-    const isUntyped = !bType || bType === 'yes' || bType === 'apartments'
-    const typePal = !isUntyped && bType ? TYPE_PALETTES[bType] : undefined
+    const isUntyped = (!effectiveBType || effectiveBType === 'yes' || effectiveBType === 'apartments') && !eduFromName && !hotelFromName && !hospitalFromName && !townhallFromName
+    const typePal = !isUntyped && effectiveBType ? TYPE_PALETTES[effectiveBType] : undefined
     let pal: typeof PALETTES[0]
     let matKey: string
-    if (materialLower === 'glass' || ((bType === 'office' || bType === 'commercial') && building.height > 30)) {
+    if (materialLower === 'glass' || ((effectiveBType === 'office' || effectiveBType === 'commercial') && building.height > 30)) {
       pal = GLASS_PALETTE
       matKey = 'glass'
     } else if (typePal) {
       pal = typePal
-      matKey = bType!
+      matKey = effectiveBType!
     } else {
       const paletteIdx = hashId(building.id) % PALETTES.length
       pal = PALETTES[paletteIdx]!
@@ -104,7 +115,15 @@ export class BuildingMeshGenerator {
       facadeColorOverride = `#${col.toString(16).padStart(6, '0')}`
     }
 
-    const isReligious = bType === 'church' || bType === 'cathedral' || bType === 'chapel' || pal.style === 'religious'
+    const isChristian = effectiveBType === 'church' || effectiveBType === 'cathedral' || effectiveBType === 'chapel' || pal.style === 'religious'
+    const isSynagogue = effectiveBType === 'synagogue' || pal.style === 'synagogue'
+    const isReligious = isChristian || isSynagogue
+    const isAcademic = effectiveBType === 'school' || effectiveBType === 'university' || effectiveBType === 'kindergarten' ||
+      pal.style === 'academic_school' || pal.style === 'academic_university' || eduFromName !== null
+    const isHotel = effectiveBType === 'hotel' || effectiveBType === 'motel' || effectiveBType === 'hostel' ||
+      effectiveBType === 'guest_house' || hotelFromName !== null || pal.style === 'hotel'
+    const isHospital = effectiveBType === 'hospital' || effectiveBType === 'clinic' || hospitalFromName !== null || pal.style === 'hospital'
+    const isTownhall = effectiveBType === 'townhall' || townhallFromName !== null || pal.style === 'townhall'
 
     // Real floor count → window rows. One texture height = the whole wall height.
     const bottomY = building.minHeight ?? 0
@@ -113,9 +132,9 @@ export class BuildingMeshGenerator {
     if (!(levels >= 1)) levels = 1
     let floorH = wallHeight / levels
     if (isReligious) {
-      // Religious buildings have monumental heights without apartment floors.
-      // 1 tier for standard churches/chapels, 2 tiers for grand cathedrals.
-      levels = wallHeight >= 18 ? 2 : 1
+      // Religious buildings (churches, synagogues) have monumental heights without apartment floors.
+      // 1 tier for standard sanctuaries/chapels, 2 tiers for grand cathedrals / major synagogues.
+      levels = wallHeight >= 16 ? 2 : 1
       floorH = wallHeight / levels
     } else if (floorH < 2.3 || floorH > 6.5) {
       // levels tag inconsistent with height: derive from height instead
@@ -211,10 +230,11 @@ export class BuildingMeshGenerator {
     const style = pal.style
     const masonry = style === 'haussmann' || style === 'render' || style === 'brick' ||
       style === 'civic_classical' || style === 'commercial_boutique' || style === 'residential_house' ||
-      style === 'religious'
-    if (isReligious && wallHeight >= 3) {
-      // Churches: no modern apartment bands, balconies, or generic entrance doors.
-      // (The church-builder adds authentic 3D buttresses, stone portals, steps, and bell towers).
+      style === 'religious' || style === 'synagogue' || style === 'academic_school' || style === 'academic_university' ||
+      style === 'hotel' || style === 'hospital' || style === 'townhall'
+    if ((isReligious || isAcademic || isHotel || isHospital || isTownhall) && wallHeight >= 3) {
+      // Religious, academic, hotel, hospital & town hall buildings: no generic apartment balconies or residential doors.
+      // Dedicated builders add authentic 3D canopies, ambulance bays, portals, campaniles, colonnades.
       addLedges(group, {
         ring: fp2d,
         bottomY,
@@ -222,9 +242,9 @@ export class BuildingMeshGenerator {
         floorH,
         levels,
         cornice: true,
-        plinth: false,
+        plinth: style !== 'residential_house' && style !== 'religious' && style !== 'synagogue',
         balconies: false,
-        bands: false,
+        bands: true,
         pilasters: true,
         entrance: false,
         darkTrim: false,
@@ -237,12 +257,12 @@ export class BuildingMeshGenerator {
         floorH,
         levels,
         cornice: true,
-        plinth: style !== 'residential_house' && style !== 'religious',
+        plinth: style !== 'residential_house' && style !== 'religious' && style !== 'synagogue',
         balconies: style === 'haussmann' || style === 'render' || style === 'brick' ||
           style === 'civic_classical',
         bands: style !== 'residential_house',
         pilasters: style === 'haussmann' || style === 'brick' || style === 'civic_classical' ||
-          style === 'religious',
+          style === 'religious' || style === 'synagogue' || style === 'academic_university' || style === 'academic_school',
         entrance: true,
         darkTrim: false,
       })
@@ -273,6 +293,10 @@ export class BuildingMeshGenerator {
       roofShape = 'flat'
     } else if (roofShape === 'flat' && (bType === 'apartments' || pal.style === 'haussmann') && building.height >= 12) {
       roofShape = 'mansard'
+    } else if (roofShape === 'flat' && isTownhall) {
+      roofShape = 'mansard'
+    } else if (roofShape === 'flat' && (bType === 'school' || pal.style === 'academic_school') && building.height >= 9 && building.height < 16) {
+      roofShape = 'mansard'
     } else if (roofShape === 'flat' && (bType === 'house' || bType === 'detached' || bType === 'terrace' || bType === 'bungalow' || bType === 'barn') && building.height < 12) {
       roofShape = 'gabled'
     } else if (roofShape === 'flat' && (bType === 'church' || bType === 'cathedral' || bType === 'chapel' || isReligious)) {
@@ -284,8 +308,10 @@ export class BuildingMeshGenerator {
     }
 
     const roofBaseH = building.height
-    const defaultPitch = isReligious
+    const defaultPitch = isChristian
       ? Math.max(4.5, Math.min(14.0, building.height * 0.42))
+      : isSynagogue
+      ? Math.max(3.2, Math.min(9.5, building.height * 0.35))
       : Math.max(1.8, Math.min(8.0, building.height * 0.18))
     const roofPitch = building.roofHeight ?? defaultPitch
 
@@ -328,10 +354,20 @@ export class BuildingMeshGenerator {
       addFlat()
     }
 
-    // ── 3. Religious Architecture: Church Spire / Belfry / Buttresses / Portals ──
-    if (bType === 'church' || bType === 'cathedral' || bType === 'chapel' || isReligious) {
+    // ── 3. Religious, Academic, Hotel, Hospital & Town Hall Architecture ──
+    if (isChristian) {
       const churchType = (bType === 'cathedral' || bType === 'chapel') ? bType : 'church'
       buildChurchArchitecture(group, fp2d, building.height, roofPitch, churchType, facadeMat, roofMat)
+    } else if (isSynagogue) {
+      buildSynagogueArchitecture(group, fp2d, building.height, roofPitch, facadeMat, roofMat)
+    } else if (isAcademic) {
+      buildAcademicArchitecture(group, fp2d, building.height, roofPitch, facadeMat, roofMat, effectiveBType, building.name)
+    } else if (isHotel) {
+      buildHotelArchitecture(group, fp2d, building.height, roofPitch, facadeMat, roofMat, building.name)
+    } else if (isHospital) {
+      buildHospitalArchitecture(group, fp2d, building.height, roofPitch, facadeMat, roofMat, building.name)
+    } else if (isTownhall) {
+      buildTownhallArchitecture(group, fp2d, building.height, roofPitch, facadeMat, roofMat, building.name)
     }
 
     return group

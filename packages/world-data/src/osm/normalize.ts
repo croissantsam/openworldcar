@@ -456,6 +456,59 @@ function normalizeRoofShape(raw: string | undefined): RoofShape | undefined {
   }
 }
 
+export function isEducationalName(name: string): 'school' | 'university' | null {
+  if (!name) return null
+  const n = name
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+
+  if (/\b(universite|university|faculte|campus|sorbonne|pantheon|polytech|institut|conservatoire)\b/i.test(n)) {
+    return 'university'
+  }
+  if (
+    /\b(ecole|lycee|college|high\s*school|gymnasium|grundschule|academy|scolaire|maternelle|elementaire|primaire|institution)\b/i.test(
+      n,
+    )
+  ) {
+    return 'school'
+  }
+  return null
+}
+
+export function isHotelName(name: string): boolean {
+  if (!name) return false
+  const n = name
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+  if (/\b(hotel\s+de\s+ville|hotel-dieu|hotel\s+dieu)\b/i.test(n)) {
+    return false
+  }
+  return /\b(hotel|motel|hostel|resort|palace|auberge|guest\s*house)\b/i.test(n)
+}
+
+export function isHospitalName(name: string): boolean {
+  if (!name) return false
+  const n = name
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+  if (/\b(hotel\s+de\s+ville|hotel\s+communautaire)\b/i.test(n)) {
+    return false
+  }
+  return /\b(hopital|hospital|clinic|clinique|chu\b|chr\b|chru\b|infirmary|infirmerie|polyclinic|polyclinique|sanatorium|urgences|emergency|hotel-dieu|hotel\s+dieu|centre\s+hospitalier)\b/i.test(n)
+}
+
+export function isTownhallName(name: string): boolean {
+  if (!name) return false
+  const n = name
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+  return /\b(hotel\s+de\s+ville|mairie|city\s*hall|town\s*hall|rathaus|ayuntamiento|casa\s+consistorial|municipio|gemeindeamt|alcaldia)\b/i.test(n)
+}
+
 function normalizeBuildingType(raw: string | undefined, tags?: OsmTags): BuildingType | undefined {
   if (tags) {
     if (tags['historic']) {
@@ -464,6 +517,8 @@ function normalizeBuildingType(raw: string | undefined, tags?: OsmTags): Buildin
       if (h === 'castle' || h === 'fort') return 'castle'
       if (h === 'manor') return 'manor'
       if (h === 'church') return 'church'
+      if (h === 'synagogue') return 'synagogue'
+      if (h === 'mosque') return 'mosque'
       if (h === 'ruins' || h === 'archaeological_site') return 'ruins'
     }
 
@@ -510,6 +565,12 @@ function normalizeBuildingType(raw: string | undefined, tags?: OsmTags): Buildin
       if (t === 'gallery') return 'civic'
     }
 
+    if (tags['healthcare']) {
+      const hc = tags['healthcare']
+      if (hc === 'hospital') return 'hospital'
+      if (hc === 'clinic' || hc === 'centre' || hc === 'doctor' || hc === 'rehabilitation') return 'clinic'
+    }
+
     if (tags['office']) return 'office'
     if (tags['craft']) return 'commercial'
 
@@ -526,11 +587,29 @@ function normalizeBuildingType(raw: string | undefined, tags?: OsmTags): Buildin
       if (m === 'tower' || m === 'water_tower') return 'monument'
     }
 
+    if (tags['school'] || tags['education']) return 'school'
+    if (tags['building:use']) {
+      const bu = tags['building:use']
+      if (bu === 'school' || bu === 'education') return 'school'
+      if (bu === 'university' || bu === 'college') return 'university'
+    }
+
+    const testName = tags['name'] ?? tags['operator'] ?? tags['brand']
+    if (testName) {
+      if (isTownhallName(testName)) return 'townhall'
+      if (isHospitalName(testName)) return 'hospital'
+      if (isHotelName(testName)) return 'hotel'
+      const edu = isEducationalName(testName)
+      if (edu) return edu
+    }
+
     if (tags['railway'] === 'station') return 'train_station'
   }
 
   if (!raw) return undefined
   if (raw === 'residential') return 'apartments'
+  if (raw === 'college' || raw === 'university') return 'university'
+  if (raw === 'school' || raw === 'kindergarten') return raw as BuildingType
   const valid: BuildingType[] = [
     'house', 'detached', 'semidetached_house', 'terrace', 'apartments', 'bungalow',
     'hut', 'cabin', 'shed', 'kiosk', 'garage', 'garages', 'carport', 'warehouse',
@@ -550,14 +629,21 @@ export function normalizeBuilding(way: RawOsmWay): Building | null {
   const footprint = lonLatArrayToWorld(way.coords)
   if (footprint.length < 3) return null
 
-  const buildingTag = way.tags['building'] ?? way.tags['building:part'] ?? (way.tags['historic'] ? 'yes' : undefined)
+  const isEduAmenity = Boolean(way.tags['amenity'] && ['school', 'university', 'college', 'kindergarten'].includes(way.tags['amenity']))
+  const isHotelTourism = Boolean(way.tags['tourism'] && ['hotel', 'motel', 'hostel', 'guest_house'].includes(way.tags['tourism']))
+  const isHospitalAmenity = Boolean(
+    (way.tags['amenity'] && ['hospital', 'clinic'].includes(way.tags['amenity'])) ||
+    (way.tags['healthcare'] && ['hospital', 'clinic'].includes(way.tags['healthcare']))
+  )
+  const isTownhallAmenity = Boolean(way.tags['amenity'] && ['townhall', 'courthouse'].includes(way.tags['amenity']))
+  const buildingTag = way.tags['building'] ?? way.tags['building:part'] ?? ((way.tags['historic'] || isEduAmenity || isHotelTourism || isHospitalAmenity || isTownhallAmenity) ? 'yes' : undefined)
   const buildingType = normalizeBuildingType(buildingTag, way.tags)
   const levels = parseInt(way.tags['building:levels'] ?? '0', 10) || 0
   const minLevel = parseInt(way.tags['building:min_level'] ?? '0', 10) || 0
   const heightTag = parseFloat(way.tags['height'] ?? '0')
   const minHeightTag = parseFloat(way.tags['min_height'] ?? '0')
   const typeDefaultHeight = buildingType ? (BUILDING_TYPE_HEIGHTS[buildingType] ?? 8) : 8
-  const floorH = (buildingType === 'office' || buildingType === 'commercial' || buildingType === 'hotel') ? 3.6 : DEFAULT_FLOOR_HEIGHT
+  const floorH = (buildingType === 'office' || buildingType === 'commercial' || buildingType === 'hotel' || buildingType === 'hospital' || buildingType === 'townhall') ? 3.8 : DEFAULT_FLOOR_HEIGHT
   const height = heightTag > 0
     ? heightTag
     : levels > 0

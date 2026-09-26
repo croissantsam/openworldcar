@@ -378,19 +378,19 @@ function addChurchPortal(
   const portalH = 5.2
   const portalD = 0.95
 
-  // Direction pointing out from the facade
-  const outX = alongX ? -1 : 0
-  const outZ = alongX ? 0 : -1
+  // Direction pointing INSIDE the building (never outwards towards streets!)
+  const inX = alongX ? 1 : 0
+  const inZ = alongX ? 0 : 1
 
-  const posX = frontX + outX * (portalD / 2)
-  const posZ = frontZ + outZ * (portalD / 2)
+  const posX = frontX + inX * (portalD / 2)
+  const posZ = frontZ + inZ * (portalD / 2)
 
-  // 1. Stone steps leading to portal
+  // 1. Stone steps leading to portal (recessed inside building entrance)
   const stepsMesh = new THREE.Mesh(
-    new THREE.BoxGeometry(alongX ? 1.4 : portalW + 1.2, 0.35, alongX ? portalW + 1.2 : 1.4),
+    new THREE.BoxGeometry(alongX ? 0.6 : portalW + 0.8, 0.25, alongX ? portalW + 0.8 : 0.6),
     facadeMat,
   )
-  stepsMesh.position.set(frontX + outX * 0.9, 0.18, frontZ + outZ * 0.9)
+  stepsMesh.position.set(frontX + inX * 0.25, 0.12, frontZ + inZ * 0.25)
   stepsMesh.castShadow = true
   stepsMesh.receiveShadow = true
   group.add(stepsMesh)
@@ -410,7 +410,7 @@ function addChurchPortal(
     new THREE.BoxGeometry(alongX ? 0.12 : doorW, doorH, alongX ? doorW : 0.12),
     doorMat,
   )
-  doorMesh.position.set(frontX + outX * 0.15, doorH / 2, frontZ + outZ * 0.15)
+  doorMesh.position.set(frontX + inX * 0.35, doorH / 2, frontZ + inZ * 0.35)
   doorMesh.castShadow = true
   group.add(doorMesh)
 

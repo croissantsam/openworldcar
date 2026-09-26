@@ -543,8 +543,7 @@ export class GameEngine {
   ): void {
     const { destId, landAt, wasFlying } = opts
     if (realOsm && realOsm.chunks.size > 0 && this.currentDestination.id === destId && !this.disposed) {
-      this.chunkManager.setRealOsmChunks(realOsm.chunks)
-      this.chunkManager.clearAllChunks()
+      this.chunkManager.addRealOsmChunks(realOsm.chunks)
       // The world is rebuilt from scratch: the player restarts in the car.
       this._leavePlane()
       if (!landAt) {
@@ -2148,8 +2147,7 @@ export class GameEngine {
         if (this.disposed || !realOsm || realOsm.chunks.size === 0) return
         // The player may have driven on (or hit another rebase) since.
         if (geoDistanceMeters(getWorldOrigin(), newOrigin) > 1) return
-        this.chunkManager.setRealOsmChunks(realOsm.chunks)
-        this.chunkManager.clearAllChunks()
+        this.chunkManager.addRealOsmChunks(realOsm.chunks)
         this.chunkManager.update(this.getPlayerPosition())
         this.osmStreaming.markCovered(newOrigin)
       })

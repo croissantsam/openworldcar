@@ -44,8 +44,9 @@ export class GeoBuilder {
     return this
   }
 
-  cyl(rTop: number, rBot: number, h: number, x: number, y: number, z: number, colour: number, segs = 8): this {
+  cyl(rTop: number, rBot: number, h: number, x: number, y: number, z: number, colour: number, segs = 8, rotY = 0): this {
     const g = new THREE.CylinderGeometry(rTop, rBot, h, segs)
+    if (rotY) g.rotateY(rotY)
     g.translate(x, y, z)
     this.parts.push(bakeColour(normalise(g), this.c.set(colour)))
     g.dispose()

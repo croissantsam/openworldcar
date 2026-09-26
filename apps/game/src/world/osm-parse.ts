@@ -101,8 +101,9 @@ function poiKindOf(tags: Record<string, string>): PoiKind | null {
   }
   if (tags['historic']) {
     const h = tags['historic']
-    if (h === 'monument' || h === 'memorial' || h === 'castle') return 'tourism'
+    if (h === 'monument' || h === 'memorial' || h === 'castle' || h === 'statue') return 'tourism'
   }
+  if (tags['memorial'] || (tags['tourism'] === 'artwork' && tags['artwork_type'])) return 'tourism'
   if (tags['natural'] === 'tree') return 'tree'
   const hw = tags['highway']
   if (hw === 'street_lamp') return 'street_lamp'

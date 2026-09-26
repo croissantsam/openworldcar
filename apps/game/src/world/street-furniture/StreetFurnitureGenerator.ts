@@ -18,6 +18,7 @@ import { RoadIndex } from './RoadIndex.js'
 import { ARCH, getGeo, ArchKey } from './Archetypes.js'
 import { LabelAtlas, BUS_STYLE, SUBWAY_STYLE } from './LabelAtlas.js'
 import { getTreeArch } from './TreeArch.js'
+import { isStatuePoi, statueArchetypeFor } from './StatueGeometries.js'
 import {
   hash32,
   unit,
@@ -93,6 +94,16 @@ export class StreetFurnitureGenerator {
       const z = poi.position.z
       const tags = poi.tags
       const h = hash32(poi.id)
+
+      if (isStatuePoi(poi)) {
+        if (!index.insideRoad(x, z)) {
+          const arch = statueArchetypeFor(poi)
+          const near = index.nearest(x, z)
+          const yaw = faceYaw(near, h)
+          simple(arch, x, z, yaw)
+        }
+        continue
+      }
 
       switch (kind) {
         case 'tree': {
@@ -284,7 +295,7 @@ export class StreetFurnitureGenerator {
     return group
   }
 
-  /** Cylinders for tree trunks and bollards only (same filters/caps as generate()). */
+  /** Solid colliders for statue pedestals, tree trunks and bollards. */
   static createColliderDescs(pois: PointOfInterest[], roads: Road[]): RAPIER.ColliderDesc[] {
     const out: RAPIER.ColliderDesc[] = []
     if (pois.length === 0) return out
@@ -292,16 +303,57 @@ export class StreetFurnitureGenerator {
     let trees = 0
     let bollards = 0
     for (const poi of pois) {
-      const kind = poi.kind
-      if (kind !== 'tree' && kind !== 'bollard') continue
       const x = poi.position.x
       const z = poi.position.z
       if (index.insideRoad(x, z)) continue
+
+      if (isStatuePoi(poi)) {
+        const arch = statueArchetypeFor(poi)
+        const h = hash32(poi.id)
+        const near = index.nearest(x, z)
+        const yaw = faceYaw(near, h)
+        const halfYaw = yaw * 0.5
+        const rot = { x: 0, y: Math.sin(halfYaw), z: 0, w: Math.cos(halfYaw) }
+
+        switch (arch) {
+          case 'statueEquestrian':
+            out.push(
+              RAPIER.ColliderDesc.cuboid(1.2, 1.35, 2.0)
+                .setTranslation(x, 1.35, z)
+                .setRotation(rot),
+            )
+            break
+          case 'statuePedestrian':
+            out.push(
+              RAPIER.ColliderDesc.cuboid(1.1, 1.25, 1.1)
+                .setTranslation(x, 1.25, z)
+                .setRotation(rot),
+            )
+            break
+          case 'statueBust':
+            out.push(
+              RAPIER.ColliderDesc.cuboid(0.65, 1.0, 0.65)
+                .setTranslation(x, 1.0, z)
+                .setRotation(rot),
+            )
+            break
+          case 'statueObelisk':
+            out.push(
+              RAPIER.ColliderDesc.cuboid(1.9, 1.2, 1.9)
+                .setTranslation(x, 1.2, z)
+                .setRotation(rot),
+            )
+            break
+        }
+        continue
+      }
+
+      const kind = poi.kind
       if (kind === 'tree') {
         if (trees >= MAX_TREES) continue
         trees++
         out.push(RAPIER.ColliderDesc.cylinder(1.0, 0.25).setTranslation(x, 1.0, z))
-      } else {
+      } else if (kind === 'bollard') {
         if (bollards >= MAX_PER_KIND) continue
         bollards++
         out.push(RAPIER.ColliderDesc.cylinder(0.45, 0.08).setTranslation(x, 0.45, z))

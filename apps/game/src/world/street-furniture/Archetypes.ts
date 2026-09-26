@@ -7,11 +7,18 @@ import { GeoBuilder } from './GeometryHelpers.js'
 import { FURN_MAT, CROWN_MAT, LAMP_HEAD_MAT } from './Materials.js'
 import { getTreeArch } from './TreeArch.js'
 import { getBenchTemplate } from '../park/index.js'
+import {
+  buildPedestrianStatueGeo,
+  buildEquestrianStatueGeo,
+  buildBustStatueGeo,
+  buildObeliskStatueGeo,
+} from './StatueGeometries.js'
 
 export type ArchKey =
   | 'lamp' | 'lampHead' | 'bench' | 'benchNb' | 'bollard' | 'bike' | 'waste' | 'hydrant'
   | 'postbox' | 'fountain' | 'ad' | 'adColumn' | 'busStop' | 'subway'
   | 'trunk0' | 'trunk1' | 'trunk2' | 'crown0' | 'crown1' | 'crown2'
+  | 'statueEquestrian' | 'statuePedestrian' | 'statueBust' | 'statueObelisk'
 
 export interface ArchDef {
   geo: () => THREE.BufferGeometry
@@ -150,6 +157,10 @@ export const ARCH: Record<ArchKey, ArchDef> = {
   crown0: { shadow: true, mat: () => CROWN_MAT, geo: () => getTreeArch(0).crown },
   crown1: { shadow: true, mat: () => CROWN_MAT, geo: () => getTreeArch(1).crown },
   crown2: { shadow: true, mat: () => CROWN_MAT, geo: () => getTreeArch(2).crown },
+  statueEquestrian: { shadow: true, mat: () => FURN_MAT, geo: () => buildEquestrianStatueGeo() },
+  statuePedestrian: { shadow: true, mat: () => FURN_MAT, geo: () => buildPedestrianStatueGeo() },
+  statueBust: { shadow: true, mat: () => FURN_MAT, geo: () => buildBustStatueGeo() },
+  statueObelisk: { shadow: true, mat: () => FURN_MAT, geo: () => buildObeliskStatueGeo() },
 }
 
 const _geoCache = new Map<ArchKey, THREE.BufferGeometry>()

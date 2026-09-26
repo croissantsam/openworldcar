@@ -94,13 +94,27 @@ export class Renderer {
     window.addEventListener('resize', this._onResize)
   }
 
-  /** Apply new view distance settings (camera far plane, fog). */
+  /** Apply new view distance settings (camera far plane, fog, shadow distance). */
   applyViewDistanceSettings(settings: ViewDistanceSettings): void {
     this.camera.far = settings.cameraFar
     this.camera.updateProjectionMatrix()
     if (this.scene.fog instanceof THREE.FogExp2) {
       this.scene.fog.density = settings.fogDensity
     }
+    this._updateShadowFrustum(settings.loadRadius)
+  }
+
+  private _updateShadowFrustum(loadRadius: number): void {
+    if (!this.sun) return
+    const shadowRadius = Math.max(260, Math.min(480, (loadRadius + 0.5) * 128))
+    const cam = this.sun.shadow.camera as THREE.OrthographicCamera
+    cam.left = -shadowRadius
+    cam.right = shadowRadius
+    cam.top = shadowRadius
+    cam.bottom = -shadowRadius
+    cam.near = 15
+    cam.far = 900
+    cam.updateProjectionMatrix()
   }
 
   // Resize handler
@@ -131,23 +145,28 @@ export class Renderer {
   private starsMat!: THREE.PointsMaterial
 
   private _setupLighting(): void {
+    const settings = getViewDistanceSettings()
+    const shadowRadius = Math.max(260, Math.min(480, (settings.loadRadius + 0.5) * 128))
+
     // Ambient
     this.ambient = new THREE.AmbientLight(0xfff1e0, 0.65)
     this.scene.add(this.ambient)
 
     // Sun — warm angled directional sunlight with crisp shadows & asphalt specular sheen
+    // Shadow box matches the loaded building chunk radius (e.g. 320m for medium),
+    // so distant buildings cast their shadows immediately as they load instead of popping in when moving.
     this.sun = new THREE.DirectionalLight(0xfff6e4, 2.8)
     this.sun.position.set(120, 180, 80)
     this.sun.castShadow = true
-    this.sun.shadow.mapSize.set(1024, 1024)
-    this.sun.shadow.camera.near = 10
-    this.sun.shadow.camera.far = 300
-    this.sun.shadow.camera.left = -100
-    this.sun.shadow.camera.right = 100
-    this.sun.shadow.camera.top = 100
-    this.sun.shadow.camera.bottom = -100
+    this.sun.shadow.mapSize.set(2048, 2048)
+    this.sun.shadow.camera.near = 15
+    this.sun.shadow.camera.far = 900
+    this.sun.shadow.camera.left = -shadowRadius
+    this.sun.shadow.camera.right = shadowRadius
+    this.sun.shadow.camera.top = shadowRadius
+    this.sun.shadow.camera.bottom = -shadowRadius
     this.sun.shadow.bias = -0.0003
-    this.sun.shadow.normalBias = 0.02
+    this.sun.shadow.normalBias = 0.04
     this.scene.add(this.sun)
     this.scene.add(this.sun.target)
 
@@ -309,10 +328,10 @@ export class Renderer {
     this.lastFocus.set(pos.x, pos.y, pos.z)
     const dx = pos.x - this.lastSunPos.x
     const dz = pos.z - this.lastSunPos.z
-    if (dx * dx + dz * dz < 1.0) return
+    if (dx * dx + dz * dz < 0.1) return
     this.lastSunPos.set(pos.x, pos.y, pos.z)
 
-    const DIST = 250
+    const DIST = 400
     this.sun.position.set(
       pos.x + this.sunDir.x * DIST,
       pos.y + this.sunDir.y * DIST,

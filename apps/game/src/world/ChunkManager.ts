@@ -1105,6 +1105,9 @@ function disposeGroup(group: THREE.Group | undefined): void {
       if (obj.name === 'storefront_vitrines' || obj.name === 'storefront_joinery') {
         obj.geometry.dispose()
       }
+      if (obj.name === 'chunk_slab') {
+        obj.geometry.dispose()
+      }
       return
     }
     obj.geometry.dispose()

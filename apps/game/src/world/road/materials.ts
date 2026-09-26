@@ -244,6 +244,16 @@ function createSidewalkTileTexture(): THREE.CanvasTexture {
   return tex
 }
 
+let _slabSidewalkTexture: THREE.CanvasTexture | null = null
+export function getSlabSidewalkTexture(): THREE.CanvasTexture {
+  if (_slabSidewalkTexture) return _slabSidewalkTexture
+  const tex = createSidewalkTileTexture()
+  tex.repeat.set(1, 1)
+  tex.anisotropy = 8
+  _slabSidewalkTexture = tex
+  return tex
+}
+
 export const CURB_MAT = new THREE.MeshStandardMaterial({
   color: 0x6e6a62, roughness: 0.70, metalness: 0.08, side: THREE.DoubleSide,
 })

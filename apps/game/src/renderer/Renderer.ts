@@ -327,7 +327,7 @@ export class Renderer {
     // MeshBasicMaterial = unlit flat colour → invisible to the bloom pass,
     // so it never contributes to the "glowy ground" artefact.
     const geo = new THREE.PlaneGeometry(500000, 500000, 1, 1)
-    const mat = new THREE.MeshBasicMaterial({ color: 0x181a1d })
+    const mat = new THREE.MeshBasicMaterial({ color: 0x8a867e })
     const ground = new THREE.Mesh(geo, mat)
     ground.rotation.x = -Math.PI / 2
     ground.position.y = -6.0

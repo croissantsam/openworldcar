@@ -14,6 +14,7 @@ import {
   CHUNK_SIZE,
   DEFAULT_ORIGIN,
   type GeoPosition,
+  type WorldPosition,
   type ChunkId,
 } from '@world-drive/math'
 import { RoadMeshGenerator } from './RoadMeshGenerator.js'
@@ -25,6 +26,7 @@ import { StorefrontGenerator } from './StorefrontGenerator.js'
 import { ChunkCache } from './ChunkCache.js'
 import { optimizeChunkGroup, optimizeChunkGroupIncremental } from './ChunkOptimizer.js'
 import { deduplicateBuildings } from '@world-drive/world-data'
+import { getSlabSidewalkTexture } from './road/materials.js'
 
 /**
  * Upstream deduplication compares outer rings only: a courtyard block (holes)
@@ -144,12 +146,61 @@ export function chunkDelta(known: ReadonlySet<string>, incoming: WorldChunk): Wo
   return n === 0 ? null : out
 }
 
-// Continuous urban sub-base bedrock slab with 4m overlap across chunks (zero seams)
-const URBAN_SLAB_GEOMETRY = new THREE.PlaneGeometry(CHUNK_SIZE + 4, CHUNK_SIZE + 4)
-const URBAN_SLAB_MATERIAL = new THREE.MeshStandardMaterial({
-  color: 0x7c7872, // Warm Parisian stone pavement foundation
-  roughness: 0.88,
+/**
+ * Create a horizontal X-Z ground slab quad with seamless world-space UV coordinates.
+ * Generates tiles that line up perfectly across all chunks without seams.
+ */
+export function createChunkSlabGeometry(center: WorldPosition): THREE.BufferGeometry {
+  const geo = new THREE.BufferGeometry()
+  const w = CHUNK_SIZE + 4
+  const halfW = w / 2
+
+  const x0 = -halfW, x1 = halfW
+  const z0 = -halfW, z1 = halfW
+  const positions = new Float32Array([
+    x0, 0, z0,
+    x1, 0, z0,
+    x0, 0, z1,
+    x1, 0, z1,
+  ])
+  const normals = new Float32Array([
+    0, 1, 0,
+    0, 1, 0,
+    0, 1, 0,
+    0, 1, 0,
+  ])
+
+  // World coordinates of the corners
+  const wx0 = center.x - halfW
+  const wx1 = center.x + halfW
+  const wz0 = center.z - halfW
+  const wz1 = center.z + halfW
+
+  // UV scaling: 2.0 metres per texture repetition (50cm tiles, matching SIDEWALK_MAT)
+  const SCALE = 2.0
+  const uvs = new Float32Array([
+    wx0 / SCALE, wz0 / SCALE,
+    wx1 / SCALE, wz0 / SCALE,
+    wx0 / SCALE, wz1 / SCALE,
+    wx1 / SCALE, wz1 / SCALE,
+  ])
+
+  // Two triangles facing upwards (+Y)
+  const indices = [0, 2, 1, 2, 3, 1]
+
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+  geo.setAttribute('normal', new THREE.BufferAttribute(normals, 3))
+  geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2))
+  geo.setIndex(indices)
+  return geo
+}
+
+export const URBAN_SLAB_MATERIAL = new THREE.MeshStandardMaterial({
+  color: 0xdcd8d0, // Exact same warm Parisian stone color as SIDEWALK_MAT
+  map: getSlabSidewalkTexture(),
+  roughness: 0.84,
   metalness: 0.04,
+  side: THREE.DoubleSide,
   // Stencil TEST only (three.js enables the test through stencilWrite; mask 0 = no writes):
   // tunnel trench masks (ref 1, drawn first) cut the slab so descending ramps stay visible.
   stencilWrite: true,
@@ -234,12 +285,12 @@ export class ChunkLoader {
 
     if (withSlab) {
       const center = chunkCenter(chunk.id)
-      const slabMesh = new THREE.Mesh(URBAN_SLAB_GEOMETRY, URBAN_SLAB_MATERIAL)
-      slabMesh.rotation.x = -Math.PI / 2
+      const slabMesh = new THREE.Mesh(createChunkSlabGeometry(center), URBAN_SLAB_MATERIAL)
       slabMesh.position.set(center.x, 0.001, center.z)
       slabMesh.receiveShadow = true
       slabMesh.renderOrder = 0
       slabMesh.userData['skipMerge'] = true
+      slabMesh.name = 'chunk_slab'
       group.add(slabMesh)
     }
 
@@ -350,14 +401,14 @@ export class ChunkLoader {
     const group = new THREE.Group()
     group.name = `chunk_${chunkKey(chunk.id)}`
 
-    // 0. Continuous Urban Pavement Ground Slab
+    // 0. Continuous Urban Sidewalk Ground Slab
     const center = chunkCenter(chunk.id)
-    const slabMesh = new THREE.Mesh(URBAN_SLAB_GEOMETRY, URBAN_SLAB_MATERIAL)
-    slabMesh.rotation.x = -Math.PI / 2
+    const slabMesh = new THREE.Mesh(createChunkSlabGeometry(center), URBAN_SLAB_MATERIAL)
     slabMesh.position.set(center.x, 0.001, center.z)
     slabMesh.receiveShadow = true
     slabMesh.renderOrder = 0
     slabMesh.userData['skipMerge'] = true
+    slabMesh.name = 'chunk_slab'
     group.add(slabMesh)
 
     // 1. Waterways (rendered below roads so roads occlude river banks)
@@ -397,12 +448,12 @@ export class ChunkLoader {
     const group = new THREE.Group()
     group.name = `chunk_ground_${chunkKey(id)}`
     const center = chunkCenter(id)
-    const slabMesh = new THREE.Mesh(URBAN_SLAB_GEOMETRY, URBAN_SLAB_MATERIAL)
-    slabMesh.rotation.x = -Math.PI / 2
-    slabMesh.position.set(center.x, -0.05, center.z)
+    const slabMesh = new THREE.Mesh(createChunkSlabGeometry(center), URBAN_SLAB_MATERIAL)
+    slabMesh.position.set(center.x, 0.001, center.z)
     slabMesh.receiveShadow = true
     slabMesh.renderOrder = 0
     slabMesh.userData['skipMerge'] = true
+    slabMesh.name = 'chunk_slab'
     group.add(slabMesh)
     return group
   }
